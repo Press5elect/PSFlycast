@@ -10,6 +10,9 @@ Big Picture mode, and the emulator's Vulkan renderer drawing through RADV from
 PSFlyCast is an unofficial port. It is not made or supported by Flycast's
 developers: report its problems here, not to them.
 
+**[The user manual](MANUAL.md)** says how to install it, add games and use
+everything in it.
+
 ![The library](screenshots/01-library.png)
 
 | | |

@@ -94,7 +94,7 @@ if [[ -d $cheats ]]; then
 else
     echo "No cheat files staged: $cheats is not there" >&2
 fi
-cp -- "$src/shell/ps5/README.md" "$app/README.md"
+cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$app/"
 {
     echo "PSFlyCast${RELEASE_TAG:+ $RELEASE_TAG}, build $(sed -n 's/^#define PS5_BUILD_NUMBER //p' "$src/shell/ps5/ps5_build.h"), built $(date -u +%Y-%m-%d)"
     echo "flycast:    $(git -C "$src" rev-parse HEAD 2>/dev/null || echo unknown)"

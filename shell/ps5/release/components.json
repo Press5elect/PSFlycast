@@ -33,6 +33,7 @@
    "files": [
     "eboot.bin",
     "README.md",
+    "MANUAL.md",
     "LEGAL.txt",
     "BUILD.txt",
     "sce_sys/param.json",
