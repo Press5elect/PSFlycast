@@ -25,6 +25,13 @@
 #include <cinttypes>
 #include <memory>
 
+#ifdef USE_PS5
+#include "ps5_diag.h"
+extern "C" int64_t sceKernelGetDirectMemorySize(void);
+extern "C" int32_t sceKernelAvailableDirectMemorySize(int64_t search_start, int64_t search_end, size_t alignment,
+		int64_t *start, size_t *size);
+#endif
+
 class OITBuffers
 {
 public:
@@ -74,9 +81,10 @@ public:
 	void OnNewFrame(vk::CommandBuffer commandBuffer)
 	{
 		firstFrameAfterInit = false;
-		if (pixelBufferSize != config::PixelBufferSize)
+		const int64_t wanted = wantedPixelBufferSize();
+		if (pixelBufferSize != wanted)
 		{
-			pixelBufferSize = config::PixelBufferSize;
+			pixelBufferSize = wanted;
 			VulkanContext::Instance()->WaitIdle();
 			makePixelBuffer();
 		}
@@ -127,10 +135,67 @@ private:
 	int64_t pixelBufferSize = 0;
 	vk::DeviceAddress pixelBufferAddress = 0;
 
+	// The pixel buffer holds every translucent fragment of a frame, 16 bytes
+	// each, and the fragments past its end are not drawn: whatever is drawn
+	// last (a HUD, a menu) goes first. The setting's 512 MB is 32 million
+	// fragments, which is less than one layer of a picture rendered at eight
+	// times the console's resolution and up. On the PS5 the buffer therefore
+	// grows with the picture: six layers of it on average, in steps of 256 MB,
+	// up to 3 GB (under the 4 GB a storage buffer can span).
+	int64_t wantedPixelBufferSize() const
+	{
+		int64_t size = config::PixelBufferSize;
+#ifdef USE_PS5
+		constexpr int64_t Step = 256_MB;
+		const int64_t layers = (int64_t)maxWidth * maxHeight * 16 * 6;
+		size = std::max(size, std::min<int64_t>((layers + Step - 1) / Step * Step, 3_GB));
+#endif
+		return size;
+	}
+
+#ifdef USE_PS5
+	// What the console has left for it: no more than half of the memory still
+	// free, so textures and the game's own buffers keep theirs.
+	static vk::DeviceSize ps5PixelBufferBudget(vk::DeviceSize wanted, vk::DeviceSize least)
+	{
+		const int64_t pool = sceKernelGetDirectMemorySize();
+		int64_t start = -1;
+		size_t available = 0;
+		if (pool <= 0 || sceKernelAvailableDirectMemorySize(0, pool, 0x4000, &start, &available) != 0)
+			return wanted;
+		ps5::diag::mark("per-pixel: %d MB of memory free of %d MB", (int)(available >> 20), (int)(pool >> 20));
+		const vk::DeviceSize budget = std::max<vk::DeviceSize>(least, (available / 2) & ~(vk::DeviceSize)(256_MB - 1));
+		return std::min(wanted, budget);
+	}
+#endif
+
 	void makePixelBuffer() {
 		const VulkanContext *context = VulkanContext::Instance();
 		const u32 maxStorageBufferRange = context->GetMaxStorageBufferRange();
 		vk::DeviceSize allocSize = std::min<vk::DeviceSize>(pixelBufferSize, context->GetMaxMemoryAllocationSize());
+#ifdef USE_PS5
+		// The old buffer first: both do not have to fit at once.
+		pixelBuffer.reset();
+		pixelBufferAddress = 0;
+		const vk::DeviceSize least = std::min<vk::DeviceSize>(allocSize, 512_MB);
+		allocSize = ps5PixelBufferBudget(allocSize, least);
+		for (;;)
+		{
+			try {
+				pixelBuffer = std::make_unique<BufferData>(allocSize, vk::BufferUsageFlagBits::eStorageBuffer,
+						vk::MemoryPropertyFlagBits::eDeviceLocal);
+				break;
+			} catch (const std::exception& e) {
+				ps5::diag::mark("per-pixel: a buffer of %d MB could not be had: %s", (int)(allocSize >> 20), e.what());
+				if (allocSize <= least)
+					throw;
+				allocSize = std::max(least, allocSize / 2);
+			}
+		}
+		ps5::diag::mark("per-pixel: buffer of %d MB for %d x %d (%.1f layers on average)", (int)(allocSize >> 20),
+				maxWidth, maxHeight, allocSize / 16.0 / std::max(1.0, (double)maxWidth * maxHeight));
+		return;
+#endif
 		vk::BufferUsageFlags usage = vk::BufferUsageFlagBits::eStorageBuffer;
 		if (allocSize > maxStorageBufferRange) {
 			if (context->SupportsBufferDeviceAddress()) {

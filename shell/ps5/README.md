@@ -37,7 +37,7 @@ In the build but not confirmed on a console: the left stick as the joystick
 in arcade games (its setting is there), USB drives, the skins and
 transitions, the letter jump, the Controls page, Restart game and the CPU
 clock. NAOMI and Atomiswave games have not been tried. Per-pixel transparency
-at 6x resolution drew no frames in one test; use per-strip, or a lower
+at 6x resolution drew no frames in one test; use per-triangle, or a lower
 resolution, if a game stays black.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -391,7 +391,7 @@ once.
 
 ## Settings
 
-Interface (above), Video (per-pixel or per-strip transparency, internal resolution up to 10x,
+Interface (above), Video (per-triangle, per-strip or per-pixel transparency, internal resolution up to 10x,
 widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
 frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
 VSync, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's

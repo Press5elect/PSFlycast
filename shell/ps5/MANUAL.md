@@ -274,7 +274,14 @@ what you see, most useful first:
   extra is used to smooth edges. 9x (4320 lines) is exactly twice 4K, which
   smooths best; 10x (4800 lines) draws more still, but a 4K screen shows no
   more of it than of 9x. If a game slows down or stays black, go lower, and use
-  per-strip Transparency sorting at the highest settings.
+  per-triangle Transparency sorting at the highest settings.
+- **Transparency sorting.** Per-triangle orders see-through surfaces one
+  triangle at a time, which is right for most games and fast. Per-pixel orders
+  them at every pixel: the most accurate, and the heaviest, since it keeps
+  every see-through layer of the picture in memory. That memory grows with
+  the internal resolution (up to 3 GB); when it runs out, what a game draws
+  last - its HUD, its menus - is missing, and a lower resolution brings it
+  back. **Sort by strip** makes per-triangle sorting coarser and faster.
 - **Anisotropic filtering** at 16x keeps floors and walls sharp into the
   distance.
 - **Texture upscaling** redraws the game's small textures 2 to 6 times
@@ -368,8 +375,10 @@ Everything is in `/data/homebrew/PPSA99247/`:
 **A game shows a black screen, or draws wrong.**
 
 - Put a real BIOS in `bios/` if you are on the built-in one.
-- In the game's options, try Transparency sorting on per-strip, and a lower
-  Internal resolution.
+- In the game's options, try Transparency sorting on per-triangle, and a
+  lower Internal resolution.
+- A HUD or menus missing with per-pixel sorting: lower the Internal
+  resolution, or use per-triangle.
 - Try Native depth interpolation the other way round, and Mipmaps off.
 - Try Video cable on TV, or another Region.
 

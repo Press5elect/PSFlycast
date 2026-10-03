@@ -474,7 +474,7 @@ void describeStart(const std::string& path, const std::string& id)
 	ps5::diag::mark("game: %s [%s]", slash == std::string::npos ? path.c_str() : path.c_str() + slash + 1, id.c_str());
 	ps5::diag::mark("game: BIOS %s, transparency %s, %d lines, cable %d, region %d, broadcast %d, recompiler %s",
 			builtIn ? "built-in" : settings.platform.isConsole() ? "from the bios folder" : "of the arcade board",
-			config::RendererType == RenderType::Vulkan_OIT ? "per-pixel" : "per-strip",
+			config::RendererType == RenderType::Vulkan_OIT ? "per-pixel" : config::PerStripSorting ? "per-strip" : "per-triangle",
 			(int)config::RenderResolution, (int)config::Cable, (int)config::Region, (int)config::Broadcast,
 			config::DynarecEnabled ? "on" : "off");
 	ps5::diag::mark("game: native depth %s, framebuffer emulation %s, rendered textures to VRAM %s, mipmaps %s,"
