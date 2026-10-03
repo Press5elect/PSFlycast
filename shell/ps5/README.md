@@ -335,11 +335,14 @@ stage's objects exist only near the player, by a distance each kind of object
 has in a table, which is why they appear a short way ahead on a Dreamcast as
 here. A game's options have **Object draw distance** (off, 1.5x to 5x): while
 the game runs, PSFlyCast looks through its memory for those tables and
-multiplies their distances (`shell/ps5/ps5_drawdist_scan.h` says how they are
+multiplies their distances, and gives the objects that are on the game's own
+distance (taken to be 400 units) that distance multiplied (`shell/ps5/ps5_drawdist_scan.h` says how they are
 recognised; the idea is the PC version's "Higher Draw Distance" mod's, by Kell
 and SonicFreak94). The game's limits on live objects are not raised, and the
 level's own draw distance is not changed. `flycast-boot.log` says what was
-found (`drawdist: ...`). Not yet run on a console.
+found (`drawdist: ...`). On a console (build 31) the table of a Sonic
+Adventure 2 stage was found; what the option then does to the picture is not
+confirmed.
 
 **Rumble:** the controller holds a memory card and a rumble pack (Flycast's
 own default is two memory cards, with which nothing rumbles).
@@ -378,8 +381,8 @@ once.
 
 ## Settings
 
-Interface (above), Video (per-pixel or per-strip transparency, internal resolution up to 6x,
-widescreen and widescreen patches, filtering, texture upscaling, scaling,
+Interface (above), Video (per-pixel or per-strip transparency, internal resolution up to 9x,
+widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
 frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
 VSync, FPS counter), Audio, Controls (vibration, dead zone, the controller's
 second slot, default layout), System (region, language, TV standard, cable, built-in BIOS,

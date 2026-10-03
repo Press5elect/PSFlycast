@@ -27,6 +27,7 @@
 #include "ps5_diag.h"
 #include "stdclass.h"
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -62,12 +63,25 @@ void pass(Event, void *)
 	for (const Table& table : found)
 	{
 		tablesFound++;
-		distancesScaled += table.scaled;
+		distancesScaled += table.scaled + table.given;
 		if (tablesLogged < 40)
 		{
 			tablesLogged++;
-			ps5::diag::mark("drawdist: a table at %08X, %d objects of %d bytes (%s...): %d distances multiplied",
-					table.address, table.entries, table.stride, table.names.c_str(), table.scaled);
+			ps5::diag::mark("drawdist: a table at %08X, %d objects of %d bytes (%s...): %d distances multiplied, %d objects given one",
+					table.address, table.entries, table.stride, table.names.c_str(), table.scaled, table.given);
+			// What the table held (name=use:distance), for the first few: how
+			// what is assumed about it is checked.
+			if (tablesLogged <= 4)
+				for (size_t at = 0; at < table.detail.size(); )
+				{
+					size_t end = std::min(table.detail.size(), at + 380);
+					if (end < table.detail.size())
+						end = table.detail.rfind(' ', end) + 1;
+					if (end <= at)
+						break;
+					ps5::diag::mark("drawdist:   %s", table.detail.substr(at, end - at).c_str());
+					at = end;
+				}
 		}
 		else if (tablesLogged == 40)
 		{

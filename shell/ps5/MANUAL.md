@@ -212,7 +212,8 @@ which are the emulator's own and need no file.
 Adventure 2, rings, enemies and item boxes appear only a short way in front
 of you. That is how the games were made, and a real Dreamcast does the same.
 This option, at the top of a game's options, makes them appear from 1.5, 2, 3
-or 5 times as far. It takes effect the next time the game starts.
+or 5 times as far. It takes effect the next time the game starts, and a stage
+has to be loaded after that for it to show.
 
 - It is made for those two games and does nothing in others.
 - More objects are alive at once, so the game has more to do: if it slows
@@ -249,7 +250,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 6x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, mipmaps, native depth interpolation, frame skipping, VSync, the FPS counter, 120 Hz output |
+| **Video** | Internal resolution (up to 9x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, VSync, the FPS counter, 120 Hz output |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
 | **Controls** | Vibration, stick dead zone, the controller's second slot, restore the default layout |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state |
@@ -258,6 +259,23 @@ Circle goes back.
 | **About** | The build number, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
 Each setting has a line under it saying what it does.
+
+**A sharper picture.** A Dreamcast game is drawn at 640 x 480; these raise
+what you see, most useful first:
+
+- **Internal resolution.** 5x and up is more than a 4K screen shows, and the
+  extra is used to smooth edges. 9x (4320 lines) is exactly twice 4K, which
+  smooths best. If a game slows down or stays black, go lower, and use
+  per-strip Transparency sorting at the highest settings.
+- **Anisotropic filtering** at 16x keeps floors and walls sharp into the
+  distance.
+- **Texture upscaling** redraws the game's small textures 2 to 6 times
+  larger. It suits flat, drawn art more than photographs. **Upscale textures
+  up to** chooses how large a texture may be and still be upscaled; larger
+  sizes use much more memory and can make a game hitch when it loads them.
+- **Custom textures.** If you have a texture pack for a game, put it in
+  `data/textures/<the game's ID>/` and turn this on. Game details shows the
+  ID. No packs come with PSFlyCast.
 
 **120 Hz.** On a TV that takes 4K at 120 Hz, PSFlyCast uses that mode, which
 makes the menus smoother and a late frame less visible. Settings > About >

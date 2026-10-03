@@ -14,7 +14,7 @@
 	headers give the table's layout:
 
 	  Sonic Adventure 2, 16 bytes an entry
-	    u8 load flags, u8 list, s16 object flags, float distance,
+	    u8 load flags, u8 list, s16 "use distance", float distance,
 	    pointer to the object's function, pointer to its name
 	  Sonic Adventure, 20 bytes an entry
 	    u8 flags, u8 list, s16 "use distance", float distance, u32,
@@ -23,7 +23,10 @@
 	The Dreamcast programs are not the PC ones and their addresses are not
 	known here, so the tables are looked for by what they are: a run of
 	entries whose two pointers point into the program, the second at a short
-	printable name. A distance that has been multiplied is marked in its four
+	printable name. An entry whose "use distance" is 0 has no distance of its
+	own: the game uses one of its own for it (taken here to be 400 units,
+	Sonic Adventure's), and such an entry is given that distance, multiplied,
+	and made to use it. A distance that has been multiplied is marked in its four
 	lowest bits (a change of a millionth), so it is not multiplied again:
 	not by the next pass, and not after a save state that was made with it
 	multiplied is loaded.
@@ -47,7 +50,9 @@ struct Table
 	int stride;				// 16 or 20
 	int entries;
 	int scaled;				// distances multiplied by this pass
+	int given;				// objects on the game's own distance given a longer one
 	std::string names;		// its first few objects, for the log
+	std::string detail;		// each object: name=how its distance is used:the distance
 };
 
 class Scanner
@@ -80,33 +85,71 @@ public:
 				at += 4;
 				continue;
 			}
-			Table table{ base + at, stride, entries, 0, "" };
+			Table table{ base + at, stride, entries, 0, 0, "", "" };
+			// The word after the list says how the distance is used: 0 for
+			// the game's own distance, 1 to 5 for the entry's. A table where
+			// it is anything else is not understood that far, and only its
+			// distances are multiplied.
+			bool understood = true;
+			uint16_t own = 0;		// how the entries that have a distance use it
 			for (int i = 0; i < entries; i++)
 			{
 				const uint32_t entry = at + i * stride;
+				const uint16_t use = read16(entry + 2);
+				float distance;
+				memcpy(&distance, ram + entry + 4, 4);
+				if (use > 5)
+					understood = false;
+				else if (use != 0 && distance > 0 && (own == 0 || use < own))
+					own = use;
+				std::string title = name(read32(entry + stride - 4));
+				while (!title.empty() && title.back() == ' ')
+					title.pop_back();
 				if (i < 4)
-					table.names += (i ? ", " : "") + name(read32(entry + stride - 4));
-				// Sonic Adventure: an entry that does not use its distance has the game's own.
-				if (stride == 20 && read16(entry + 2) == 0)
-					continue;
+					table.names += (i ? ", " : "") + title;
+				if (i < 120)
+					table.detail += title + "=" + std::to_string(use) + ":" + std::to_string((int)std::sqrt(distance > 0 ? distance : 0)) + " ";
+			}
+			if (own == 0)
+				own = 1;
+			for (int i = 0; i < entries; i++)
+			{
+				const uint32_t entry = at + i * stride;
+				const uint16_t use = read16(entry + 2);
 				uint32_t bits = read32(entry + 4);
 				float distance;
 				memcpy(&distance, &bits, 4);
-				if (distance <= 0 || (bits & MarkMask) == Mark)
+				if (distance > 0 && (bits & MarkMask) == Mark)
 					continue;
-				distance *= factor;
+				if (understood && use == 0)
+				{
+					// On the game's own distance: given that distance, multiplied.
+					distance = OwnDistance * factor;
+					memcpy(ram + entry + 2, &own, 2);
+					table.given++;
+				}
+				else if (distance > 0)
+				{
+					distance *= factor;
+					table.scaled++;
+				}
+				else
+					continue;
 				memcpy(&bits, &distance, 4);
 				bits = (bits & ~MarkMask) | Mark;
 				memcpy(ram + entry + 4, &bits, 4);
-				table.scaled++;
 			}
-			if (table.scaled > 0)
+			if (table.scaled + table.given > 0)
 				out.push_back(table);
 			at += entries * stride;
 		}
 	}
 
 	static constexpr int MinEntries = 6;
+	// The distance (squared: 400 units) an object exists within when its entry
+	// has none: Sonic Adventure's, taken to be Sonic Adventure 2's as well.
+	// Not read from the games here; the log's lines are how it is checked.
+	static constexpr float OwnDistance = 160000.f;
 	static constexpr uint32_t MarkMask = 0xf, Mark = 0xb;
 
 private:
