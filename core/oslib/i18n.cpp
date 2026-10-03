@@ -116,7 +116,9 @@ void init()
 	if (inited)
 		return;
 	inited = true;
-#ifndef LIBRETRO
+#if !defined(LIBRETRO) && !defined(__PROSPERO__)
+	// (PS5: no named locales. libc++ builds one from the console libc's locale
+	// data, which faults there; the "C" locale is kept.)
 	try {
 		std::locale::global(std::locale(""));
 	} catch (const std::runtime_error& e) {
@@ -247,6 +249,8 @@ std::string getSystemLocale()
 		return name.get();
 
 	ERROR_LOG(COMMON, "UTF-16 to UTF-8 conversion failed");
+	return "en";
+#elif defined(__PROSPERO__)
 	return "en";
 #else
 	const char* locale = setlocale(LC_MESSAGES, nullptr);

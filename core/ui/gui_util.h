@@ -105,6 +105,34 @@ public:
 		return progress;
 	}
 
+#ifdef FLYCAST_BIGPICTURE
+	// cancel() in two steps, for a loader that may be waiting on a network
+	// share: the request returns at once, and the screen is drawn until the
+	// loader has stopped.
+	void requestCancel()
+	{
+		progress.cancelled = true;
+	}
+
+	// True when the loader has stopped: the game is unloaded and the main
+	// screen is next.
+	bool cancelDone()
+	{
+		if (future.valid())
+		{
+			if (future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+				return false;
+			try {
+				future.get();
+			} catch (const std::exception&) {
+			}
+		}
+		emu.unloadGame();
+		gui_setState(GuiState::Main);
+		return true;
+	}
+#endif
+
 private:
 	LoadProgress progress;
 	std::future<void> future;

@@ -80,10 +80,20 @@ bool mainui_rend_frame()
 	return true;
 }
 
+#ifdef USE_PS5
+#include "ps5_diag.h"
+#endif
+
 void mainui_init()
 {
+#ifdef USE_PS5
+	ps5::diag::mark("renderer: starting");
+#endif
 	if (!rend_init_renderer()) {
 		ERROR_LOG(RENDERER, "Renderer initialization failed");
+#ifdef USE_PS5
+		ps5::diag::mark("renderer: failed");
+#endif
 		gui_error(i18n::T("Renderer initialization failed.\nPlease select a different graphics API"));
 	}
 }

@@ -1,7 +1,8 @@
 #pragma once
 #include "types.h"
 
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(_WIN32) || defined(__APPLE__) || defined(__PROSPERO__)
+// PS5: the core's .text cannot be made writable; the caches are allocated (posix_vmem.cpp)
 #define DECLARE_CODE_CACHE(Name, Size) static u8 *Name;
 #elif defined(__ANDROID__)
 #define DECLARE_CODE_CACHE(Name, Size) alignas(4096) static u8 Name[Size];

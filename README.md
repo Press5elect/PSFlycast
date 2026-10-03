@@ -1,3 +1,18 @@
+# PSFlyCast
+
+**PSFlyCast** is an unofficial port of Flycast to a jailbroken PS5: a native
+app with a controller-only interface, drawing through RADV. Everything about
+it - installing, the controls, building, credits - is in
+**[shell/ps5/README.md](shell/ps5/README.md)**, and its code is in
+[`shell/ps5/`](shell/ps5). Builds are on this repository's Releases page.
+
+It is not made or supported by Flycast's developers. What follows is
+Flycast's own README, as it is upstream.
+
+![PSFlyCast's library](shell/ps5/screenshots/01-library.png)
+
+---
+
 # Flycast
 
 [![Android CI](https://github.com/flyinghead/flycast/actions/workflows/android.yml/badge.svg)](https://github.com/flyinghead/flycast/actions/workflows/android.yml)

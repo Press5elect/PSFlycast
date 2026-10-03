@@ -73,7 +73,14 @@ static UnwindShimRegistrar shimRegistrar;
 
 extern "C"
 {
-#if HOST_CPU != CPU_ARM
+#if defined(__PROSPERO__) && defined(LIBRETRO)
+	// PS5 RetroArch core: the title's unwinder may not export these to a core. Without them
+	// the JIT code has no unwind tables; SH4 exceptions are caught before they
+	// reach it (rec_x64.cpp), so only a fatal error thrown through JIT frames
+	// is affected: it terminates instead of being reported.
+	void __register_frame(const void*) __attribute__((weak));
+	void __deregister_frame(const void*) __attribute__((weak));
+#elif HOST_CPU != CPU_ARM
 	void __register_frame(const void*);
 	void __deregister_frame(const void*);
 #else
@@ -424,11 +431,19 @@ void UnwindInfo::clear()
 
 void UnwindInfo::registerFrame(void *frame)
 {
+#if defined(__PROSPERO__) && defined(LIBRETRO)
+	if (__register_frame == nullptr)
+		return;
+#endif
 	__register_frame(frame);
 }
 
 void UnwindInfo::deregisterFrame(void *frame)
 {
+#if defined(__PROSPERO__) && defined(LIBRETRO)
+	if (__deregister_frame == nullptr)
+		return;
+#endif
 	__deregister_frame(frame);
 }
 

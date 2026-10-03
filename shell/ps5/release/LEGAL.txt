@@ -1,0 +1,20 @@
+PSFlyCast - legal use
+=====================
+
+PIRACY IS NOT CONDONED. This title contains no games, no BIOS files, no
+console firmware and no decryption keys, and none will ever be provided or
+linked to. Use only games you own, as backups you made yourself from your own
+discs, and BIOS files dumped from hardware you own. Downloading or sharing
+games, BIOS files, firmware or keys you do not own is piracy: do not do it,
+and do not ask for help with it.
+
+Licences: PSFlyCast as a whole is distributed under the GNU General Public
+License, version 3, WITHOUT ANY WARRANTY. Every part of it, its licence and
+its source are listed in licenses/README.txt; the licence texts are in
+licenses/.
+
+PSFlyCast is an unofficial port of Flycast. It is not affiliated with or
+endorsed by Sony Interactive Entertainment, Sega or the Flycast project.
+"PlayStation" and "PS5" are trademarks of Sony Interactive Entertainment;
+"Dreamcast" is a trademark of Sega. Vulkan is a registered trademark of the
+Khronos Group, and the RADV port in this title is not a conformant product.

@@ -19,6 +19,8 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
+#include "pipeline_warm.h"
+#include "stdclass.h"
 #include "vulkan.h"
 #include "shaders.h"
 #include "texture.h"
@@ -213,12 +215,19 @@ public:
 
 	vk::Pipeline GetPipeline(u32 listType, bool sortTriangles, const PolyParam& pp, int gpuPalette, bool dithering)
 	{
+#ifdef USE_PS5
+		if (warmGeneration != pipelinewarm::generation())
+			warmUp();
+#endif
 		u64 pipehash = hash(listType, sortTriangles, &pp, gpuPalette, dithering);
 		const auto &pipeline = pipelines.find(pipehash);
 		if (pipeline != pipelines.end())
 			return pipeline->second.get();
 
 		CreatePipeline(listType, sortTriangles, pp, gpuPalette, dithering);
+#ifdef USE_PS5
+		pipelinewarm::record(pipelinewarm::make(warmKind, listType, sortTriangles, 0, gpuPalette, dithering, pp));
+#endif
 
 		return *pipelines[pipehash];
 	}
@@ -249,7 +258,33 @@ public:
 	{
 		pipelines.clear();
 		modVolPipelines.clear();
+#ifdef USE_PS5
+		warmGeneration = 0;
+#endif
 	}
+
+#ifdef USE_PS5
+	// Builds the pipelines this game is known to use (pipeline_warm.h).
+	void warmUp()
+	{
+		warmGeneration = pipelinewarm::generation();
+		const u64 start = getTimeMs();
+		unsigned built = 0;
+		for (const pipelinewarm::Record& r : pipelinewarm::snapshot(warmKind))
+		{
+			const PolyParam pp = pipelinewarm::poly(r);
+			if (pipelines.count(hash(r.listType, r.sort, &pp, r.gpuPalette, r.dithering)) != 0)
+				continue;
+			try {
+				CreatePipeline(r.listType, r.sort, pp, r.gpuPalette, r.dithering);
+				built++;
+			} catch (const std::exception& e) {
+				WARN_LOG(RENDERER, "Pipeline warm-up: %s", e.what());
+			}
+		}
+		pipelinewarm::report(warmKind, built, (double)(getTimeMs() - start));
+	}
+#endif
 
 	vk::PipelineLayout GetPipelineLayout() const { return *pipelineLayout; }
 	vk::DescriptorSetLayout GetPerFrameDSLayout() const { return *perFrameLayout; }
@@ -349,6 +384,10 @@ protected:
 
 	vk::RenderPass renderPass;
 	ShaderManager *shaderManager = nullptr;
+#ifdef USE_PS5
+	pipelinewarm::Kind warmKind = pipelinewarm::Main;
+	u32 warmGeneration = 0;
+#endif
 };
 
 class RttPipelineManager : public PipelineManager
@@ -356,6 +395,9 @@ class RttPipelineManager : public PipelineManager
 public:
 	void Init(ShaderManager *shaderManager)
 	{
+#ifdef USE_PS5
+		warmKind = pipelinewarm::Rtt;
+#endif
 		// RTT render pass
 		renderToTextureBuffer = config::RenderToTextureBuffer;
 	    vk::AttachmentDescription attachmentDescriptions[] = {

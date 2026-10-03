@@ -1,0 +1,957 @@
+{
+ "about": [
+  "What the title folder is made of, and for each part its licence, the licence texts that travel with it and where its source is.",
+  "shell/ps5/release/stage-notices.py reads this table after a build and writes LEGAL.txt and licenses/ into the title folder:",
+  "the texts, a components.json that ties every file to the part it belongs to and the revision it was built from, and a README.txt.",
+  "Paths are relative to the repository; ${VULKAN} is PS5_VULKAN_DIR (../PS5_Vulkan), ${MESA} ../PS5_Mesa, ${SDK} PS5_PAYLOAD_SDK,",
+  "${SDK_FORK} ../PS5_PayloadSDK, ${SMB} LIBSMB2_DIR (../libsmb2) and ${CHEATS} ../libretro-database.",
+  "'in-tree' sources are in this repository (Flycast's core/deps and its submodules), at the revision the repository records."
+ ],
+ "schema": 1,
+ "components": [
+  {
+   "id": "psflycast",
+   "name": "PSFlyCast (this port: the PS5 platform code, the interface, the build and release scripts)",
+   "kind": "code",
+   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline",
+   "copyright": [
+    "Copyright 2026 the PSFlyCast contributors",
+    "Copyright (C) 2026 BlackBearReloaded and Mihawk (the title's start-up and link layout, shell/ps5/runtime)"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/elevation/LICENSE-GPL-3.0.txt",
+     "to": "GPL-3.0.txt"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": ".",
+    "where": "the repository this release is published from, at the release's tag; and the archive PSFlyCast-<tag>-source.tar.xz attached to the release"
+   },
+   "modifications": "This is the port itself: shell/ps5/ and the changes to Flycast listed under Flycast.",
+   "files": [
+    "eboot.bin",
+    "README.md",
+    "LEGAL.txt",
+    "BUILD.txt",
+    "sce_sys/param.json",
+    "licenses/*"
+   ]
+  },
+  {
+   "id": "flycast",
+   "name": "Flycast, the Dreamcast, NAOMI and Atomiswave emulator",
+   "kind": "code",
+   "licence": "GPL-2.0-or-later",
+   "copyright": [
+    "Copyright the Flycast contributors (flyinghead and others), and the authors of reicast and nullDC before them (per-file notices in the source)"
+   ],
+   "texts": [
+    {
+     "from": "LICENSE",
+     "to": "GPL-2.0.txt"
+    }
+   ],
+   "source": {
+    "kind": "fixed",
+    "revision": "59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea",
+    "url": "https://github.com/flyinghead/flycast",
+    "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
+   },
+   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "imgui",
+   "name": "Dear ImGui 1.92.6",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2014-2026 Omar Cornut"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/MIT.txt",
+     "to": "MIT.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "As Flycast carries it (with its CJK additions).",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "glslang",
+   "name": "glslang (the shader compiler)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause AND others stated in LICENSE.txt",
+   "copyright": [
+    "Copyright the Khronos Group, LunarG, Google, NVIDIA, 3Dlabs and others (LICENSE.txt)"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/glslang/LICENSE.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "vulkan-headers",
+   "name": "Vulkan-Headers",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "Apache-2.0 OR MIT",
+   "copyright": [
+    "Copyright 2015-2026 The Khronos Group Inc."
+   ],
+   "texts": [
+    {
+     "from": "core/deps/Vulkan-Headers/LICENSE.md",
+     "to": "LICENSE.md"
+    },
+    {
+     "from": "core/deps/Vulkan-Headers/LICENSES",
+     "to": "LICENSES"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "vma",
+   "name": "Vulkan Memory Allocator",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2017-2025 Advanced Micro Devices, Inc."
+   ],
+   "texts": [
+    {
+     "from": "core/deps/VulkanMemoryAllocator/LICENSE.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "asio",
+   "name": "Asio",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSL-1.0",
+   "copyright": [
+    "Copyright (c) 2003-2024 Christopher M. Kohlhoff"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/asio/asio/LICENSE_1_0.txt",
+     "to": "LICENSE_1_0.txt"
+    },
+    {
+     "from": "core/deps/asio/asio/COPYING",
+     "to": "COPYING"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "freetype",
+   "name": "FreeType",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "FTL (the FreeType Project License; FreeType is offered under FTL or GPL-2.0, and is used here under FTL)",
+   "copyright": [
+    "Copyright (C) 1996-2025 David Turner, Robert Wilhelm, Werner Lemberg and the FreeType contributors"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/freetype/LICENSE.TXT",
+     "to": "LICENSE.TXT"
+    },
+    {
+     "from": "core/deps/freetype/docs/FTL.TXT",
+     "to": "FTL.TXT"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libchdr",
+   "name": "libchdr, with zstd 1.5.6, the LZMA SDK 24.05, dr_flac and zlib 1.3.1 in it",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause; zstd BSD-3-Clause; LZMA SDK public domain; dr_flac public domain or MIT-0; zlib Zlib",
+   "copyright": [
+    "Copyright Romain Tisserand (libchdr)",
+    "Copyright (c) Meta Platforms, Inc. and affiliates (zstd)",
+    "Igor Pavlov (LZMA SDK, public domain)",
+    "David Reid (dr_flac)",
+    "Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler (zlib)"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/libchdr/LICENSE.txt",
+     "to": "LICENSE.txt"
+    },
+    {
+     "from": "core/deps/libchdr/deps/zstd-1.5.6/LICENSE",
+     "to": "zstd-LICENSE"
+    },
+    {
+     "from": "core/deps/libchdr/deps/zlib-1.3.1/LICENSE",
+     "to": "zlib-LICENSE"
+    },
+    {
+     "from": "core/deps/libchdr/include/dr_libs/dr_flac.h",
+     "to": "dr_flac-licence.txt",
+     "tail": 50
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libjuice",
+   "name": "libjuice",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MPL-2.0",
+   "copyright": [
+    "Copyright (c) 2020-2024 Paul-Louis Ageneau"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/libjuice/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libzip",
+   "name": "libzip",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause",
+   "copyright": [
+    "Copyright (C) 1999-2020 Dieter Baron and Thomas Klausner"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/libzip/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "lzma-sdk",
+   "name": "LZMA SDK (7-Zip's, for .7z arcade sets)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "public domain",
+   "copyright": [
+    "Igor Pavlov, public domain (each file says so)"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/lzma/LzmaDec.c",
+     "to": "LzmaDec.c-header.txt",
+     "head": 3
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "picotcp",
+   "name": "picoTCP",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "GPL-2.0-only OR GPL-3.0-only; used here under GPL-3.0",
+   "copyright": [
+    "Copyright (c) 2012-2017 Altran Intelligent Systems"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/picotcp/COPYING",
+     "to": "COPYING"
+    },
+    {
+     "from": "core/deps/picotcp/LICENSE.GPLv3",
+     "to": "LICENSE.GPLv3"
+    },
+    {
+     "from": "core/deps/picotcp/LICENSE.GPLv2",
+     "to": "LICENSE.GPLv2"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "rcheevos",
+   "name": "rcheevos",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2018 RetroAchievements.org"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/rcheevos/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "tinygettext",
+   "name": "tinygettext",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "Zlib",
+   "copyright": [
+    "Copyright (c) 2004-2016 Ingo Ruhnke and the tinygettext contributors"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/tinygettext/LICENSE.md",
+     "to": "LICENSE.md"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "websocketpp",
+   "name": "WebSocket++",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause, with parts under other permissive licences (COPYING)",
+   "copyright": [
+    "Copyright (c) 2014, Peter Thorson"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/websocketpp/COPYING",
+     "to": "COPYING"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "xbrz",
+   "name": "xBRZ",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "GPL-3.0",
+   "copyright": [
+    "Copyright (c) Zenju (zenju AT gmx DOT de)"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/xbrz/License.txt",
+     "to": "License.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "xbyak",
+   "name": "Xbyak (the dynarec's assembler)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause",
+   "copyright": [
+    "Copyright (c) 2007 MITSUNARI Shigeo"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/xbyak/COPYRIGHT",
+     "to": "COPYRIGHT"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "xxhash",
+   "name": "xxHash",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-2-Clause",
+   "copyright": [
+    "Copyright (c) 2012-2021 Yann Collet"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/xxHash/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "glm",
+   "name": "OpenGL Mathematics (GLM)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT OR The Happy Bunny License",
+   "copyright": [
+    "Copyright (c) 2005 - G-Truc Creation"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/glm/copying.txt",
+     "to": "copying.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "nowide",
+   "name": "Boost.Nowide (standalone)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSL-1.0",
+   "copyright": [
+    "Copyright (c) 2012 Artyom Beilis and the Nowide contributors"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/nowide/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "json",
+   "name": "JSON for Modern C++ 3.10.5",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2013-2022 Niels Lohmann"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/json/json.hpp",
+     "to": "json.hpp-header.txt",
+     "head": 29
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "stb",
+   "name": "stb_image and stb_image_write",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT OR public domain (Unlicense)",
+   "copyright": [
+    "Copyright (c) 2017 Sean Barrett"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/stb/stb_image.h",
+     "to": "stb_image.h-licence.txt",
+     "tail": 40
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "ggpo",
+   "name": "GGPO",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright 2009 GroundStorm Studios, LLC."
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/MIT.txt",
+     "to": "MIT.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libelf",
+   "name": "libelf (University of New South Wales)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-2-Clause",
+   "copyright": [
+    "Copyright (c) 1999-2004 University of New South Wales"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/BSD-2-Clause.txt",
+     "to": "BSD-2-Clause.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "miniupnpc",
+   "name": "MiniUPnPc",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause",
+   "copyright": [
+    "Copyright (c) 2005-2025, Thomas BERNARD"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/BSD-3-Clause.txt",
+     "to": "BSD-3-Clause.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "flycast-small",
+   "name": "Small parts Flycast carries without a licence file of their own: the MD5 code (core/deps/md5, from github.com/ulwanski/md5) and the CDI image reader (core/deps/chdpsr)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "as Flycast distributes them, under its GPL-2.0-or-later",
+   "copyright": [
+    "Their authors, as named in Flycast's source"
+   ],
+   "texts": [],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "fonts",
+   "name": "Fonts in the executable: Roboto Medium and Bold, Font Awesome Free 6 Solid",
+   "kind": "asset",
+   "licence": "Roboto: Apache-2.0; Font Awesome Free's fonts: SIL OFL 1.1",
+   "copyright": [
+    "Roboto: Copyright 2011 Google Inc.",
+    "Font Awesome Free: Copyright (c) Fonticons, Inc. (https://fontawesome.com)"
+   ],
+   "texts": [
+    {
+     "from": "core/deps/Vulkan-Headers/LICENSES/Apache-2.0.txt",
+     "to": "Apache-2.0.txt"
+    },
+    {
+     "from": "shell/ps5/release/texts/OFL-1.1.txt",
+     "to": "OFL-1.1.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified; fonts/ in Flycast's source.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "radv",
+   "name": "RADV, Mesa's Vulkan driver, and the parts of Mesa it links, zlib 1.3.1 among them (PS5_Mesa fork with the PS5 winsys)",
+   "kind": "code",
+   "licence": "MIT AND others stated per file (see Mesa-license.rst); zlib: Zlib",
+   "copyright": [
+    "Copyright the Mesa contributors (per-file notices in the source)",
+    "Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler (zlib)"
+   ],
+   "texts": [
+    {
+     "from": "${MESA}/docs/license.rst",
+     "to": "Mesa-license.rst"
+    },
+    {
+     "from": "${MESA}/licenses",
+     "to": "licenses"
+    },
+    {
+     "from": "shell/ps5/release/texts/zlib-LICENSE.txt",
+     "to": "zlib-LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "provenance",
+    "file": "${VULKAN}/.deps/native/radv-release/PROVENANCE.txt",
+    "path": "${MESA}",
+    "url": "https://github.com/mihawk-99/PS5_Mesa",
+    "base": "0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8",
+    "where": "PS5_Mesa at the base revision, plus this repository's shell/ps5/mesa/*.patch; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
+   },
+   "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI), and one more for this title: 119.88 Hz on a VRR display, and a title may ask for 59.94 Hz (shell/ps5/mesa/).",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "ps5-vulkan",
+   "name": "PS5_Vulkan: the RADV link recipe, the linker script and the tool that makes eboot.bin",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright (C) 2026 Mihawk",
+    "Copyright (C) 2026 BlackBearReloaded"
+   ],
+   "texts": [
+    {
+     "from": "${VULKAN}/LICENSE",
+     "to": "GPL-3.0.txt"
+    },
+    {
+     "from": "${VULKAN}/NOTICE.md",
+     "to": "NOTICE.md",
+     "optional": true
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${VULKAN}",
+    "url": "https://github.com/mihawk-99/PS5_Vulkan",
+    "localnote": "with tools/build-radv.sh's mesa_revision set to the RADV revision above",
+    "base": "3f3ee69607013b345d2baa6d6a37c86745649a08",
+    "where": "PS5_Vulkan at the base revision with one line changed; the tree as built is the archive PS5_Vulkan-<revision>.tar.xz attached to the release"
+   },
+   "modifications": "Unmodified but for the Mesa revision its build-radv.sh names.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libc-prx-shim",
+   "name": "sce_module/libc.prx, the generated loader companion (ps5-native-app-boilerplate)",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright (C) 2026 BlackBearReloaded"
+   ],
+   "texts": [
+    {
+     "from": "${VULKAN}/LICENSE",
+     "to": "GPL-3.0.txt"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${VULKAN}",
+    "url": "https://github.com/mihawk-99/PS5_Vulkan"
+   },
+   "modifications": "Generated by PS5_Vulkan's tools/rebuild-libc.sh; runtime/libc.prx.sha256 there is its expected digest. It holds generated stubs and loader metadata (exported symbol names and sizes), no code taken from a console.",
+   "files": [
+    "sce_module/libc.prx"
+   ]
+  },
+  {
+   "id": "payload-sdk",
+   "name": "PS5 payload SDK fork and its platform layer (libps5platform.a, headers, import stubs)",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright (C) 2022-2026 John Törnblom and ps5-payload-dev contributors",
+    "Copyright (C) 2026 Mihawk (the platform layer)"
+   ],
+   "texts": [
+    {
+     "from": "${SDK_FORK}/LICENSE",
+     "to": "GPL-3.0.txt"
+    },
+    {
+     "from": "${SDK_FORK}/platform/src/regex/COPYRIGHT.musl",
+     "to": "musl-regex-COPYRIGHT.txt"
+    },
+    {
+     "from": "${SDK_FORK}/platform/src/dlmalloc/SOURCE",
+     "to": "dlmalloc-SOURCE.txt"
+    }
+   ],
+   "source": {
+    "kind": "stamp",
+    "file": "${SDK}/.ps5-sdk-revision",
+    "path": "${SDK_FORK}",
+    "url": "https://github.com/mihawk-99/PS5_PayloadSDK",
+    "also": "provenance-sdk"
+   },
+   "modifications": "The fork installs over the ps5-payload-dev SDK v0.42 release. The platform layer's regex is musl's (MIT, with TRE's BSD-2-Clause notice) and its heap is dlmalloc 2.8.6 (MIT). The title is compiled with the fork at the revision given; RADV's archive was compiled with the one PROVENANCE.txt names.",
+   "files": [
+    "eboot.bin",
+    "sandbox-elevator.elf"
+   ]
+  },
+  {
+   "id": "llvm-runtime",
+   "name": "LLVM libc++, libc++abi, libunwind and compiler-rt builtins (statically linked)",
+   "kind": "code",
+   "licence": "Apache-2.0 WITH LLVM-exception",
+   "copyright": [
+    "Copyright (c) 2003-2026 University of Illinois at Urbana-Champaign and the LLVM project contributors"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/LLVM-LICENSE.TXT",
+     "to": "LICENSE.TXT"
+    }
+   ],
+   "source": {
+    "kind": "fixed",
+    "revision": "ps5-payload-dev SDK v0.42 release archives",
+    "url": "https://github.com/ps5-payload-dev/sdk/releases/tag/v0.42"
+   },
+   "modifications": "Unmodified release archives of the SDK.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "sandbox-elevator",
+   "name": "sandbox-elevator.elf and its client: USB drive access (the sandbox-elevation example of ps5-native-app-boilerplate)",
+   "kind": "code",
+   "licence": "GPL-3.0",
+   "copyright": [
+    "Copyright (C) 2026 BlackBearReloaded",
+    "Copyright 2026 the PSFlyCast contributors (its use in this title)"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/elevation/LICENSE-GPL-3.0.txt",
+     "to": "GPL-3.0.txt"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": ".",
+    "where": "shell/ps5/elevation/ in this title's repository; upstream: https://github.com/BlackBearReloaded/ps5-native-app-boilerplate"
+   },
+   "modifications": "The example's helper and protocol, adapted to this title (shell/ps5/elevation/).",
+   "files": [
+    "sandbox-elevator.elf",
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "libsmb2",
+   "name": "libsmb2 (games on network shares)",
+   "kind": "code",
+   "licence": "LGPL-2.1-or-later",
+   "copyright": [
+    "Copyright (C) Ronnie Sahlberg and the libsmb2 contributors"
+   ],
+   "texts": [
+    {
+     "from": "${SMB}/LICENCE-LGPL-2.1.txt",
+     "to": "LICENCE-LGPL-2.1.txt"
+    },
+    {
+     "from": "${SMB}/COPYING",
+     "to": "COPYING"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${SMB}",
+    "url": "https://github.com/sahlberg/libsmb2"
+   },
+   "modifications": "Unmodified; compiled with this title's shell/ps5/smb/config.h and ps5_smb_compat.c. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "cheats",
+   "name": "The Dreamcast cheat files (libretro-database, cht/Sega - Dreamcast)",
+   "kind": "data",
+   "licence": "CC-BY-SA-4.0",
+   "copyright": [
+    "Copyright the libretro-database contributors"
+   ],
+   "texts": [
+    {
+     "from": "${CHEATS}/LICENSE",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${CHEATS}",
+    "url": "https://github.com/libretro/libretro-database"
+   },
+   "modifications": "Unmodified copies of the .cht files.",
+   "files": [
+    "cheats/*.cht"
+   ]
+  },
+  {
+   "id": "title-art",
+   "name": "The title's icon and the picture shown while it loads (sce_sys)",
+   "kind": "asset",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright 2026 the PSFlyCast contributors"
+   ],
+   "texts": [],
+   "source": {
+    "kind": "git",
+    "path": ".",
+    "where": "shell/ps5/sce_sys/ in this title's repository"
+   },
+   "modifications": "Drawn for this project: icon0.png is the app's mark, drawn by a script; pic0.dds and pic1.dds are the first frame of the start-up animation, rendered from the interface's own code (shell/ps5/bigpicture.cpp) and encoded with PS5_Vulkan's tools/prepare-assets.sh.",
+   "files": [
+    "sce_sys/icon0.png",
+    "sce_sys/pic0.dds",
+    "sce_sys/pic1.dds"
+   ]
+  }
+ ]
+}

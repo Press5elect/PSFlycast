@@ -4,7 +4,265 @@
 // Android and OSX since they are slightly different in some areas.
 #include "types.h"
 
-#ifndef __SWITCH__
+#if defined(__PROSPERO__)
+// PS5 (jailbroken, homebrew title): guest memory and JIT code live in direct
+// memory through the payload SDK fork's platform layer (ps5platform/shm.h and
+// ps5platform/exec.h), as in the PS5 RetroArch port's Dolphin and PPSSPP cores.
+//
+// - An anonymous or shm_open mapping is charged to the title's small flexible
+//   memory budget; one direct-memory object can be mapped at every mirror
+//   address and is charged only to the direct pool.
+// - The address space (FPCB, SH4 context, 512 MB guest window) is a reserved
+//   range. The SH4 context and the FPCB are backed by 64 KiB direct-memory
+//   units mapped into it: the FPCB's on first access, a page at a time, as
+//   upstream does with PROT_NONE pages. (Only the ps5_shm_*, ps5_vrange_reserve
+//   and ps5_exec_* functions are used: the released title binds those for its
+//   other cores, so this core loads in it without a title rebuild.)
+// - Execute permission cannot be given to the core's own .text, so the code
+//   caches are allocated (DECLARE_CODE_CACHE is a pointer on this platform)
+//   read-write-execute within +/-2 GiB of the core's code, so the JIT's rel32
+//   calls reach it.
+#include <sys/mman.h>
+#include <cerrno>
+#include <vector>
+
+#include <ps5platform/exec.h>
+#include <ps5platform/shm.h>
+
+#include "hw/mem/addrspace.h"
+#include "hw/sh4/sh4_if.h"
+#include "oslib/virtmem.h"
+
+static_assert(PAGE_SIZE == 16384, "the PS5 kernel page is 16 KiB");
+
+namespace virtmem
+{
+
+// The direct-memory allocation unit.
+constexpr size_t UNIT = 0x10000;
+constexpr size_t FPCB_BYTES = sizeof(((Sh4RCB *)nullptr)->fpcb);
+static_assert(FPCB_BYTES % UNIT == 0, "the FPCB must fill whole 64 KiB units");
+static_assert(sizeof(Sh4RCB) - FPCB_BYTES == UNIT, "the SH4 context must be one 64 KiB unit");
+
+static ps5_shm guest_ram;
+static void *reserved_base;
+static size_t reserved_size;
+
+// The FPCB's units, by index, and the SH4 context's. A fixed table: units are
+// committed from the fault handler, where nothing may allocate.
+static ps5_shm fpcb_units[FPCB_BYTES / UNIT];
+static ps5_shm context_unit;
+static u8 *fpcb_base;
+
+// Backs one unit at the address, inside the reservation, read-write.
+static bool unit_commit(ps5_shm& unit, void *address)
+{
+	if (ps5_shm_create(UNIT, &unit) != 0)
+		return false;
+	void *view = nullptr;
+	if (ps5_shm_map(&unit, 0, UNIT, address, PS5_SHM_READ | PS5_SHM_WRITE, PS5_SHM_FIXED, &view) != 0)
+	{
+		ps5_shm_destroy(&unit);
+		return false;
+	}
+	return true;
+}
+
+// Gives the unit's memory back; its range stays reserved, with no access.
+static void unit_release(ps5_shm& unit, void *address)
+{
+	if (unit.bytes == 0)
+		return;
+	ps5_shm_unmap(address, UNIT, PS5_SHM_KEEP_RESERVED);
+	ps5_shm_destroy(&unit);
+}
+
+struct View
+{
+	void *address;
+	size_t bytes;
+};
+static std::vector<View> views;
+
+static bool protect(void *start, size_t len, int prot)
+{
+	const uintptr_t begin = (uintptr_t)start & ~(uintptr_t)PAGE_MASK;
+	const uintptr_t end = ((uintptr_t)start + len + PAGE_MASK) & ~(uintptr_t)PAGE_MASK;
+	return mprotect((void *)begin, end - begin, prot) == 0;
+}
+
+bool region_lock(void *start, size_t len)
+{
+	if (!protect(start, len, PROT_READ))
+		die("mprotect failed...");
+	return true;
+}
+
+bool region_unlock(void *start, size_t len)
+{
+	if (!protect(start, len, PROT_READ | PROT_WRITE))
+		die("mprotect failed...");
+	return true;
+}
+
+bool region_set_exec(void *start, size_t len)
+{
+	// Only the arm64 back ends call this; executable memory comes from
+	// prepare_jit_block on this platform.
+	WARN_LOG(VMEM, "region_set_exec is not supported on PS5");
+	return false;
+}
+
+bool init(void **vmem_base_addr, void **sh4rcb_addr, size_t ramSize)
+{
+	int rc = ps5_shm_create(ramSize, &guest_ram);
+	if (rc != 0)
+	{
+		WARN_LOG(VMEM, "PS5: direct memory for guest RAM (%zu bytes) failed: %08x", ramSize, (unsigned)rc);
+		return false;
+	}
+
+	reserved_size = 512_MB + sizeof(Sh4RCB) + ARAM_SIZE_MAX + 0x10000;
+	rc = ps5_vrange_reserve(reserved_size, nullptr, 0x10000, &reserved_base);
+	if (rc != 0)
+	{
+		WARN_LOG(VMEM, "PS5: reserving %zu bytes of address space failed: %08x", reserved_size, (unsigned)rc);
+		reserved_base = nullptr;
+		ps5_shm_destroy(&guest_ram);
+		return false;
+	}
+
+	uintptr_t ptrint = (uintptr_t)reserved_base;
+	ptrint = (ptrint + 0x10000 - 1) & ~(uintptr_t)0xffff;
+	*sh4rcb_addr = (void *)ptrint;
+	*vmem_base_addr = (void *)(ptrint + sizeof(Sh4RCB));
+	fpcb_base = (u8 *)ptrint;
+
+	// The SH4 context, without the FPCB (committed on demand).
+	if (!unit_commit(context_unit, fpcb_base + FPCB_BYTES))
+	{
+		WARN_LOG(VMEM, "PS5: backing the SH4 context failed");
+		destroy();
+		return false;
+	}
+	INFO_LOG(VMEM, "PS5: vmem reserved at %p (%zu bytes)", reserved_base, reserved_size);
+
+	return true;
+}
+
+static void unmap_views()
+{
+	for (const View& view : views)
+		ps5_shm_unmap(view.address, view.bytes, PS5_SHM_KEEP_RESERVED);
+	views.clear();
+}
+
+void destroy()
+{
+	if (reserved_base != nullptr)
+	{
+		unmap_views();
+		for (size_t i = 0; i < std::size(fpcb_units); i++)
+			unit_release(fpcb_units[i], fpcb_base + i * UNIT);
+		unit_release(context_unit, fpcb_base + FPCB_BYTES);
+		ps5_vrange_release(reserved_base, reserved_size);
+		reserved_base = nullptr;
+		fpcb_base = nullptr;
+	}
+	ps5_shm_destroy(&guest_ram);
+}
+
+void reset_mem(void *ptr, unsigned size_bytes)
+{
+	// Only the FPCB is reset: its units go back to reserved, with no access,
+	// and are zero when next committed.
+	const uintptr_t begin = (uintptr_t)ptr - (uintptr_t)fpcb_base;
+	verify(fpcb_base != nullptr && begin % UNIT == 0 && begin + size_bytes <= FPCB_BYTES);
+	for (size_t i = begin / UNIT; i < (begin + size_bytes) / UNIT; i++)
+		unit_release(fpcb_units[i], fpcb_base + i * UNIT);
+}
+
+void ondemand_page(void *address, unsigned size_bytes)
+{
+	// Called from the fault handler for an FPCB page: back its unit on first
+	// use, with the unit's other pages kept inaccessible so that their first
+	// access faults and is filled too, then open this page.
+	const uintptr_t offset = (uintptr_t)address - (uintptr_t)fpcb_base;
+	if (fpcb_base == nullptr || offset >= FPCB_BYTES)
+		die("PS5: on-demand page outside the FPCB");
+	ps5_shm& unit = fpcb_units[offset / UNIT];
+	u8 *const unit_address = fpcb_base + offset / UNIT * UNIT;
+	if (unit.bytes == 0)
+	{
+		if (!unit_commit(unit, unit_address))
+			die("PS5: backing an FPCB unit failed");
+		if (mprotect(unit_address, UNIT, PROT_NONE) != 0)
+			die("PS5: protecting an FPCB unit failed");
+	}
+	if (!protect(address, size_bytes, PROT_READ | PROT_WRITE))
+		die("PS5: opening an FPCB page failed");
+}
+
+void create_mappings(const Mapping *vmem_maps, unsigned nummaps)
+{
+	unmap_views();
+	for (unsigned i = 0; i < nummaps; i++)
+	{
+		// Ignore unmapped stuff, it is already reserved with no access
+		if (!vmem_maps[i].memsize)
+			continue;
+
+		u64 address_range_size = vmem_maps[i].end_address - vmem_maps[i].start_address;
+		unsigned num_mirrors = (address_range_size) / vmem_maps[i].memsize;
+		verify((address_range_size % vmem_maps[i].memsize) == 0 && num_mirrors >= 1);
+
+		const int protection = PS5_SHM_READ | (vmem_maps[i].allow_writes ? PS5_SHM_WRITE : 0);
+		for (unsigned j = 0; j < num_mirrors; j++)
+		{
+			u64 offset = vmem_maps[i].start_address + j * vmem_maps[i].memsize;
+			void *view = nullptr;
+			int rc = ps5_shm_map(&guest_ram, vmem_maps[i].memoffset, vmem_maps[i].memsize,
+					&addrspace::ram_base[offset], protection, PS5_SHM_FIXED, &view);
+			if (rc != 0)
+				ERROR_LOG(VMEM, "PS5: mapping %llx bytes of guest memory at %p failed: %08x",
+						(unsigned long long)vmem_maps[i].memsize, &addrspace::ram_base[offset], (unsigned)rc);
+			verify(rc == 0);
+			views.push_back({ view, (size_t)vmem_maps[i].memsize });
+		}
+	}
+}
+
+bool prepare_jit_block(void *code_area, size_t size, void **code_area_rwx)
+{
+	// code_area is null: DECLARE_CODE_CACHE declares a pointer on this platform.
+	void *p = ps5_exec_allocate(size, reinterpret_cast<uintptr_t>(&destroy));
+	if (p == nullptr)
+	{
+		ERROR_LOG(DYNAREC, "PS5: no executable memory for %zu bytes", size);
+		return false;
+	}
+	*code_area_rwx = p;
+	return true;
+}
+
+void release_jit_block(void *code_area, size_t size)
+{
+	ps5_exec_release(code_area);
+}
+
+bool prepare_jit_block(void *code_area, size_t size, void **code_area_rw, ptrdiff_t *rx_offset)
+{
+	// FEAT_NO_RWX_PAGES is not used here: the regions are read-write-execute.
+	return false;
+}
+
+void release_jit_block(void *code_area1, void *code_area2, size_t size)
+{
+}
+
+} // namespace virtmem
+
+#elif !defined(__SWITCH__)
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>

@@ -121,6 +121,7 @@ void GameScanner::fetch_game_list()
 	if (scan_thread && scan_thread->joinable())
 		scan_thread->join();
 	running = true;
+	threadAlive = true;
 	scan_thread = std::make_unique<std::thread>([this]()
 		{
 			ThreadName _("GameScanner");
@@ -136,7 +137,9 @@ void GameScanner::fetch_game_list()
 				LockGuard _(mutex);
 				game_list.clear();
 			}
-			for (const auto& path : config::ContentPath.get())
+			// The folders to scan: this scanner's own, else the content path.
+			const std::vector<std::string> paths = folders.empty() ? config::ContentPath.get() : folders;
+			for (const auto& path : paths)
 			{
 				try {
 					add_game_directory(path);
@@ -146,7 +149,8 @@ void GameScanner::fetch_game_list()
 				if (!running)
 					break;
 			}
-			std::string dcbios = hostfs::findFlash("dc_", "%bios.bin;%boot.bin");
+			std::string dcbios = folders.empty() ? hostfs::findFlash("dc_", "%bios.bin;%boot.bin") : std::string();
+			if (folders.empty())
 			{
 				LockGuard _(mutex);
 				if (!config::loadBool("config", "HideCdromDrives", false))
@@ -169,5 +173,6 @@ void GameScanner::fetch_game_list()
 			if (running)
 				scan_done = true;
 			running = false;
+			threadAlive = false;
 		});
 }

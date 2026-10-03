@@ -39,7 +39,22 @@ int get(const std::string& url, std::vector<u8>& content, std::string& contentTy
 
 }
 
-#if !defined(__ANDROID__) && !defined(__APPLE__)
+#if defined(__PROSPERO__)
+// PS5: http::get is the console's own client (libSceHttp2), in
+// shell/ps5/ps5_covers.cpp: the scraper's descriptions and box art come
+// through it. Nothing is posted (no achievements on the console).
+namespace http {
+void init() {}
+void term() {}
+int post(const std::string& url, const std::vector<PostField>& fields) {
+	return 503;
+}
+int post(const std::string& url, const char *payload, const char *contentType, std::vector<u8>& reply) {
+	reply.clear();
+	return 503;
+}
+}
+#elif !defined(__ANDROID__) && !defined(__APPLE__)
 
 #ifdef _WIN32
 #ifndef TARGET_UWP

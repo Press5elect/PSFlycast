@@ -19,6 +19,7 @@
 #pragma once
 #include "types.h"
 #include "hw/naomi/naomi_roms.h"
+#include <atomic>
 #include <vector>
 #include <mutex>
 #include <memory>
@@ -44,6 +45,7 @@ class GameScanner
 	std::unique_ptr<std::thread> scan_thread;
 	bool scan_done = false;
 	bool running = false;
+	std::atomic<bool> threadAlive{false};
 	std::unordered_map<std::string, const Game*> arcade_games;
 	std::unordered_set<std::string> arcade_gdroms;
 	using LockGuard = std::lock_guard<std::mutex>;
@@ -65,6 +67,19 @@ public:
 
 	void stop();
 	void fetch_game_list();
+
+	// When not empty, these folders are scanned instead of the content path
+	// (and no BIOS or CD-ROM drive entry is added): a second scanner for
+	// another source, such as a network share.
+	std::vector<std::string> folders;
+	bool done() const { return scan_done; }
+	bool busy() const { return running; }
+	// Whether the scan thread is still running (it ends some time after
+	// abandon(), when its current directory listing returns).
+	bool alive() const { return threadAlive; }
+	// Ends the scan without waiting for its thread, which may be blocked on a
+	// share that does not answer; stop() and refresh() wait for it.
+	void abandon() { running = false; }
 
 	std::mutex& get_mutex() { return mutex; }
 	const std::vector<GameMedia>& get_game_list() { return game_list; }
