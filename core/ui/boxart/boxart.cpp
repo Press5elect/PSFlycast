@@ -22,6 +22,10 @@
 #include "oslib/oslib.h"
 #include "cfg/option.h"
 #include "arcade_scraper.h"
+#ifdef USE_PS5
+#include "oslib/storage.h"
+#include <algorithm>
+#endif
 #include <chrono>
 
 GameBoxart Boxart::getBoxart(const GameMedia& media)
@@ -36,6 +40,36 @@ GameBoxart Boxart::getBoxart(const GameMedia& media)
 	}
 	return boxart;
 }
+
+#ifdef USE_PS5
+// A dump's file name as a title to search for: "Legacy of Kain - Soul Reaver
+// (USA) (Disc 1)" is "Legacy of Kain: Soul Reaver", "Legend, The (Europe)" is
+// "The Legend".
+static std::string ps5SearchName(const std::string& fileBase)
+{
+	std::string name;
+	int depth = 0;
+	for (char c : fileBase)
+	{
+		if (c == '(' || c == '[')
+			depth++;
+		else if (c == ')' || c == ']')
+			depth = std::max(0, depth - 1);
+		else if (depth == 0)
+			name += c == '_' ? ' ' : c;
+	}
+	while (!name.empty() && name.back() == ' ')
+		name.pop_back();
+	// "Title, The - Subtitle" -> "The Title - Subtitle"
+	const size_t article = name.find(", The");
+	if (article != std::string::npos && (article + 5 == name.size() || name.compare(article + 5, 3, " - ") == 0))
+		name = "The " + name.substr(0, article) + name.substr(article + 5);
+	size_t dash;
+	while ((dash = name.find(" - ")) != std::string::npos)
+		name.replace(dash, 3, ": ");
+	return name;
+}
+#endif
 
 GameBoxart Boxart::getBoxartAndLoad(const GameMedia& media)
 {
@@ -63,6 +97,17 @@ GameBoxart Boxart::getBoxartAndLoad(const GameMedia& media)
 			boxart.searchName = media.gameName;	// for arcade games
 			boxart.busy = true;
 			boxart.arcade = media.arcade;
+#ifdef USE_PS5
+			// A game on a network share is not opened for its disc ID and
+			// picture (the NAS is left alone): it counts as read, and is
+			// looked up online by the name its file has.
+			if (hostfs::customStorage().isKnownPath(media.path))
+			{
+				boxart.parsed = true;
+				if (!media.arcade)
+					boxart.searchName = ps5SearchName(media.gameName);
+			}
+#endif
 			games[boxart.fileName] = boxart;
 			toFetch.push_back(boxart);
 		}

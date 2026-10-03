@@ -112,7 +112,9 @@ Option<int> TextureFiltering("rend.TextureFiltering", 0); // Default
 Option<bool> ThreadedRendering("rend.ThreadedRendering", true);
 Option<bool> DupeFrames("rend.DupeFrames", false);
 Option<int> PerPixelLayers("rend.PerPixelLayers", 32);
-#ifdef TARGET_UWP
+// PS5: an AMD graphics chip, as in the Xbox consoles the UWP build is for.
+// Without it wall textures warp and flicker (Soldier of Fortune, issue #620).
+#if defined(TARGET_UWP) || defined(__PROSPERO__)
 Option<bool> NativeDepthInterpolation("rend.NativeDepthInterpolation", true);
 #else
 Option<bool> NativeDepthInterpolation("rend.NativeDepthInterpolation", false);
@@ -206,7 +208,12 @@ std::array<Option<MapleDeviceType>, 4> MapleMainDevices {
 };
 std::array<std::array<Option<MapleDeviceType>, 2>, 4> MapleExpansionDevices {{
 	{{Option<MapleDeviceType>("device1.1", MDT_SegaVMU, "input"),
+#ifdef __PROSPERO__
+	// PS5: a memory card and a rumble pack, for the DualSense's motors.
+	Option<MapleDeviceType>("device1.2", MDT_PurupuruPack, "input")}},
+#else
 	Option<MapleDeviceType>("device1.2", MDT_SegaVMU, "input")}},
+#endif
 
 	{{Option<MapleDeviceType>("device2.1", MDT_None, "input"),
 	Option<MapleDeviceType>("device2.2", MDT_None, "input")}},

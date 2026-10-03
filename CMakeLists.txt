@@ -195,6 +195,11 @@ if(NINTENDO_SWITCH)
 		SA_NOCLDWAIT=0
 		IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS)
 
+elseif(FLYCAST_PS5)
+	# PS5 (jailbroken, homebrew title): the executable is linked into a signed
+	# eboot by shell/ps5/ps5-link.sh (see shell/ps5/README.md).
+	add_executable(${PROJECT_NAME} core/emulator.cpp)
+	set(USE_OPENGL OFF)
 elseif(LIBRETRO)
 	add_library(${PROJECT_NAME} SHARED core/emulator.cpp)
 	if(APPLE)
@@ -203,7 +208,9 @@ elseif(LIBRETRO)
 		endif()
 		set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/shell/libretro/libretro.osx.def")
 	else()
-		if(NOT CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+		# PS5: the core's libc and C++ runtime symbols are bound at load time by
+		# the title's native loader, so they are undefined at link time.
+		if(NOT CMAKE_SYSTEM_NAME STREQUAL "OpenBSD" AND NOT FLYCAST_PS5)
 			set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-undefined")
 		endif()
 	endif()
@@ -494,7 +501,7 @@ if(NOT LIBRETRO)
 		target_link_libraries(${PROJECT_NAME} PRIVATE "-static-libgcc -static-libstdc++")
 	endif()
 
-	if(NOT ANDROID AND NOT IOS)
+	if(NOT ANDROID AND NOT IOS AND NOT FLYCAST_PS5)
 		if (NOT NINTENDO_SWITCH)
 			# DreamLink enabled for non-mobile Linux, MacOS, and Windows
 			target_compile_definitions(${PROJECT_NAME} PRIVATE USE_DREAMLINK_DEVICES=1)
@@ -682,7 +689,7 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
 		endif()
 	endif()
 
-	if(NOT SDL2_FOUND AND NOT LIBRETRO)
+	if(NOT SDL2_FOUND AND NOT LIBRETRO AND NOT FLYCAST_PS5)
 		find_package(X11 REQUIRED)
 		if(X11_FOUND)
 			target_compile_definitions(${PROJECT_NAME} PRIVATE SUPPORT_X11)
@@ -1018,7 +1025,7 @@ else()
 	endif()
 endif()
 
-if(NOT LIBRETRO)
+if(NOT LIBRETRO AND NOT FLYCAST_PS5)
 	target_sources(${PROJECT_NAME} PRIVATE
 			core/linux-dist/evdev.cpp
 			core/linux-dist/evdev.h
@@ -1430,6 +1437,8 @@ if(NOT LIBRETRO)
 					$<TARGET_FILE_DIR:flycast>/../Frameworks/libMoltenVK.dylib)
 			endif()
 		endif()
+	elseif(FLYCAST_PS5)
+		include(shell/ps5/ps5.cmake)
 	elseif(UNIX)
 		if(NOT BUILD_TESTING)
 			target_sources(${PROJECT_NAME} PRIVATE

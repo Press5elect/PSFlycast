@@ -1,0 +1,86 @@
+From c8c1b40d7e42343876b58c2f10cf28189712caa4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 2 Oct 2026 08:08:35 +0000
+Subject: [PATCH] wsi/videoout: 119.88 Hz on a VRR display; a title may ask for
+ 59.94 Hz
+
+With the high-frame-rate mode taken and nothing flipped yet, a VRR display's
+vblank comes at the 48 Hz floor of its window (20.877 ms on a tester's
+console), which the check took for a display that went on refreshing at 60
+Hz, and put the mode back. Around 20.8 ms is now 119.88 Hz on a VRR display;
+around 16.7 ms and anything unknown are still put back.
+
+PS5_VIDEOOUT_59HZ in the environment keeps the output at 59.94 Hz whatever
+param.json declares, for a title with a setting of its own.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/vulkan/wsi/wsi_common_videoout.c | 32 ++++++++++++++++++++++++----
+ 1 file changed, 28 insertions(+), 4 deletions(-)
+
+diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
+index 9e2ba819943..511c0de35d1 100644
+--- a/src/vulkan/wsi/wsi_common_videoout.c
++++ b/src/vulkan/wsi/wsi_common_videoout.c
+@@ -60,9 +60,23 @@
+ #define VIDEOOUT_BUFFER_ALIGNMENT (UINT64_C(2) << 20)
+ #define VIDEOOUT_REFRESH_MILLIHERTZ 59940
+ #define VIDEOOUT_HIGH_REFRESH_MILLIHERTZ 119880
+-/* A period above this after the high-frame-rate mode was taken: the display
+- * went on refreshing at 60 Hz, as a tester's did (PS5_Vulkan, R31). */
++/* What the vblank period says of the output once the high-frame-rate mode was
++ * taken, with nothing flipped yet:
++ *  - up to the limit (8.342 ms measured): refreshing at 119.88 Hz;
++ *  - around 16.683 ms: the display went on refreshing at 60 Hz, as a tester's
++ *    did (PS5_Vulkan, R31), and the mode is put back;
++ *  - around 20.8 ms: a VRR display. It refreshes when a frame is flipped, from
++ *    48 to 120 Hz, and with nothing flipped at the 48 Hz floor of that window
++ *    (a tester's read 20.877 ms). The output is at 119.88 Hz: a flip shows
++ *    8.3 ms after the last one.
++ * Anything else is not known, and the mode is put back. */
+ #define VIDEOOUT_HIGH_REFRESH_LIMIT_NS UINT64_C(12500000)
++#define VIDEOOUT_VRR_FLOOR_MIN_NS UINT64_C(19500000)
++#define VIDEOOUT_VRR_FLOOR_MAX_NS UINT64_C(22500000)
++/* The title asks for 59.94 Hz whatever its metadata declares (a setting of
++ * its own, for a display that takes the mode badly): set before the first
++ * Vulkan call. */
++#define VIDEOOUT_NO_HIGH_FRAME_RATE_ENV "PS5_VIDEOOUT_59HZ"
+ #define VIDEOOUT_PERIOD_INTERVALS 6
+ /* param.json's attribute3 bits for high-frame-rate output (PS5_Vulkan R31). */
+ #define VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE 0x80040u
+@@ -307,7 +321,10 @@ videoout_open_locked(void)
+       fprintf(stderr, "wsi/videoout: sceVideoOutOpen failed: 0x%08x\n", (unsigned)out->handle);
+       return false;
+    }
+-   if (videoout_title_declares_high_frame_rate()) {
++   const char *const declined = getenv(VIDEOOUT_NO_HIGH_FRAME_RATE_ENV);
++   if (declined != NULL && declined[0] != '\0' && declined[0] != '0') {
++      fprintf(stderr, "wsi/videoout: 59.94 Hz asked for by the title; 119.88 Hz not tried\n");
++   } else if (videoout_title_declares_high_frame_rate()) {
+       const int supported =
+          sceVideoOutIsOutputSupported(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL);
+       const int configured =
+@@ -317,12 +334,19 @@ videoout_open_locked(void)
+       out->high_frame_rate = configured == 0;
+       if (out->high_frame_rate) {
+          const uint64_t period = videoout_vblank_period_ns(out->handle);
+-         if (period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
++         const bool vrr = period >= VIDEOOUT_VRR_FLOOR_MIN_NS && period <= VIDEOOUT_VRR_FLOOR_MAX_NS;
++         if (period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS && !vrr) {
+             sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
+             out->high_frame_rate = false;
+             fprintf(stderr,
+                     "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; 59.94 Hz restored\n",
+                     (double)period / 1e6);
++         } else if (vrr) {
++            fprintf(stderr,
++                    "wsi/videoout: 119.88 Hz selected on a VRR display (with nothing shown yet, a vblank every %.3f ms)\n",
++                    (double)period / 1e6);
++         } else {
++            fprintf(stderr, "wsi/videoout: 119.88 Hz selected, a vblank every %.3f ms\n", (double)period / 1e6);
+          }
+       } else {
+          fprintf(stderr, "wsi/videoout: 119.88 Hz %s (%d); presenting at 59.94 Hz\n",
+-- 
+2.43.0
+

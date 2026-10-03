@@ -675,6 +675,14 @@ void Emulator::loadGame(const char *path, LoadProgress *progress)
 		loadGameSpecificSettings();
 		NetworkHandshake::init();
 		settings.input.fastForwardMode = false;
+		// The clock was set by the reset above, before the disc was read, and
+		// the flash's "clock last set" time when the flash was loaded, after
+		// it. Reading a disc takes a while here (a network game is read whole
+		// into memory), the clock was then the earlier of the two, and the
+		// BIOS takes that for a flat battery and asks for the date and time.
+		// Set again now, it is not behind the flash.
+		if (settings.platform.isConsole())
+			aica::initRtc();
 		EventManager::event(Event::Start);
 		if (!settings.content.path.empty())
 		{

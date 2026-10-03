@@ -28,7 +28,8 @@ std::string os_PrecomposedString(std::string string);
 namespace hostfs
 {
 
-#if !defined(__ANDROID__) && !defined(LIBRETRO)
+// (PS5: the custom storage is SMB shares, shell/ps5/ps5_smb.cpp.)
+#if !defined(__ANDROID__) && !defined(LIBRETRO) && !defined(USE_PS5)
 CustomStorage& customStorage()
 {
 	class NullStorage : public CustomStorage

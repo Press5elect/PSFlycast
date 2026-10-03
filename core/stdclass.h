@@ -22,6 +22,12 @@ extern const unsigned long PAGE_SIZE;
 #define MAX_PAGE_SIZE 16384
 #elif defined(__APPLE__) && defined(__aarch64__)
 #define PAGE_SIZE 16384
+#elif defined(__PROSPERO__)
+// PS5: 16 KiB kernel pages. Set here for every file, whether or not
+// <sys/param.h> (which defines the same value) was included first.
+#undef PAGE_SIZE
+#undef PAGE_MASK
+#define PAGE_SIZE 16384
 #elif !defined(PAGE_SIZE)
 #define PAGE_SIZE 4096
 #endif

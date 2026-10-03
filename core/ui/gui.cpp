@@ -62,6 +62,9 @@ using namespace i18n;
 #endif
 #include <mutex>
 #include <algorithm>
+#ifdef FLYCAST_BIGPICTURE
+#include "../../shell/ps5/bigpicture.h"
+#endif
 
 bool game_started;
 
@@ -95,6 +98,21 @@ using LockGuard = std::lock_guard<std::recursive_mutex>;
 
 static Toast toast;
 static ThreadRunner uiThreadRunner;
+
+#ifdef FLYCAST_BIGPICTURE
+// The load being cancelled: the request is made once, and the loading screen
+// stays until the loader has stopped (it may be waiting on a network share).
+static bool loadCancelling;
+
+static void requestLoadCancel()
+{
+	if (loadCancelling)
+		return;
+	loadCancelling = true;
+	bigpicture::loadCancelled();
+	gameLoader.requestCancel();
+}
+#endif
 
 static void emuEventCallback(Event event, void *)
 {
@@ -237,6 +255,9 @@ void gui_updateStyle()
 #if defined(__ANDROID__) || defined(TARGET_IPHONE) || defined(__SWITCH__)
     ImGui::GetStyle().TouchExtraPadding = ImVec2(1, 1);	// from 0,0
 #endif
+#ifdef FLYCAST_BIGPICTURE
+	bigpicture::applyTheme();
+#endif
 	if (settings.display.uiScale != 1.f)
 		ImGui::GetStyle().ScaleAllSizes(settings.display.uiScale);
 	
@@ -330,6 +351,12 @@ static void gui_newFrame()
 	io.AddMouseButtonEvent(ImGuiMouseButton_Middle, (mouseButtons & (1 << 2)) != 0);
 	io.AddMouseButtonEvent(3, (mouseButtons & (1 << 3)) != 0);
 
+#ifdef FLYCAST_BIGPICTURE
+	// PS5: navigation comes from the DualSense itself, not the emulated pad.
+	bigpicture::feedNav(io);
+	if (false)
+#endif
+	{
 	// shows a popup navigation window even in game because of the OSD
 	//io.AddKeyEvent(ImGuiKey_GamepadFaceLeft, ((kcode[0] & DC_BTN_X) == 0));
 	io.AddKeyEvent(ImGuiKey_GamepadFaceRight, ((kcode[0] & DC_BTN_B) == 0));
@@ -349,6 +376,7 @@ static void gui_newFrame()
 	io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickUp, analog > 0.1f, analog);
 	analog = joyy[0] > 0 ? (float)joyy[0] / 32768.f : 0.f;
 	io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickDown, analog > 0.1f, analog);
+	}
 
 	ImGui::GetStyle().Colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.06f, 0.06f, 0.06f, 0.94f);
 
@@ -437,7 +465,11 @@ void gui_open_settings()
 	}
 	else if (gui_state == GuiState::Loading)
 	{
+#ifdef FLYCAST_BIGPICTURE
+		requestLoadCancel();
+#else
 		gameLoader.cancel();
+#endif
 	}
 	else if (gui_state == GuiState::Commands)
 	{
@@ -514,6 +546,15 @@ static void savestate()
 	ImguiStateTexture savestatePic;
 	savestatePic.invalidate();
 }
+
+#ifdef FLYCAST_BIGPICTURE
+namespace bigpicture
+{
+GameScanner& scanner() { return ::scanner; }
+Boxart& boxart() { return ::boxart; }
+void saveState() { savestate(); }
+}
+#endif
 
 void cycleSaveStateSlot(int step)
 {
@@ -1233,6 +1274,58 @@ static bool checkUWPProtocolActivation()
 }
 #endif
 
+#ifdef FLYCAST_BIGPICTURE
+// The same steps as the desktop's loading screen below, drawn by
+// bigpicture::loading.
+static void gui_display_loadscreen()
+{
+	if (loadCancelling)
+	{
+		if (gameLoader.cancelDone())
+		{
+			loadCancelling = false;
+			bigpicture::loadEnded();
+		}
+		bigpicture::loading(nullptr, 0.f, true);
+		return;
+	}
+	try {
+		const char *label = gameLoader.getProgress().label;
+		const bool ready = gameLoader.ready();		// throws what the loader threw
+		const bool customTexPreloading = custom_texture.isPreloading();
+		if (label == nullptr)
+			label = ready ? T("Starting...") : T("Loading...");
+		if (ready && !customTexPreloading)
+		{
+			bigpicture::loadEnded();
+			if (NetworkHandshake::instance != nullptr)
+			{
+				networkStatus = NetworkHandshake::instance->start();
+				gui_setState(GuiState::NetworkStart);
+			}
+			else
+				gui_setState(GuiState::Closed);
+			bigpicture::loading(label, 1.f, false);
+			return;
+		}
+		float progress = gameLoader.getProgress().progress;
+		if (ready)
+		{
+			int texLoaded = 0;
+			int texTotal = 0;
+			size_t loaded_size_b = 0;
+			custom_texture.getPreloadProgress(texLoaded, texTotal, loaded_size_b);
+			label = T("Preloading custom textures");
+			progress = texTotal <= 0 ? 0.f : (float)texLoaded / (float)texTotal;
+		}
+		if (bigpicture::loading(label, progress, false))
+			requestLoadCancel();
+	} catch (const FlycastException& ex) {
+		ERROR_LOG(BOOT, "%s", ex.what());
+		gui_stop_game(bigpicture::loadFailed(ex.what()));
+	}
+}
+#else
 static void gui_display_loadscreen()
 {
 	drawBoxartBackground();
@@ -1318,6 +1411,7 @@ static void gui_display_loadscreen()
     }
     ImGui::End();
 }
+#endif
 
 void gui_display_ui()
 {
@@ -1352,6 +1446,20 @@ void gui_display_ui()
 
 	switch (gui_state)
 	{
+#ifdef FLYCAST_BIGPICTURE
+	case GuiState::Settings:
+		bigpicture::settings();
+		break;
+	case GuiState::Commands:
+		bigpicture::quickMenu();
+		break;
+	case GuiState::Main:
+		bigpicture::library(false);
+		break;
+	case GuiState::SelectDisk:
+		bigpicture::library(true);
+		break;
+#else
 	case GuiState::Settings:
 		gui_display_settings();
 		break;
@@ -1366,6 +1474,7 @@ void gui_display_ui()
 		//gui_display_demo();
 		gui_display_content();
 		break;
+#endif
 	case GuiState::Closed:
 		break;
 	case GuiState::Onboarding:
@@ -1377,9 +1486,11 @@ void gui_display_ui()
 	case GuiState::VJoyEditCommands:
 		vgamepad::displayCommands();
 		break;
+#ifndef FLYCAST_BIGPICTURE
 	case GuiState::SelectDisk:
 		gui_display_content();
 		break;
+#endif
 	case GuiState::Loading:
 		gui_display_loadscreen();
 		break;

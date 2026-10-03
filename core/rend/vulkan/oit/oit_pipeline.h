@@ -20,6 +20,8 @@
 */
 #pragma once
 #include "../vulkan.h"
+#include "../pipeline_warm.h"
+#include "stdclass.h"
 #include "oit_shaders.h"
 #include "oit_renderpass.h"
 #include "oit_buffer.h"
@@ -326,17 +328,51 @@ public:
 		trModVolPipelines.clear();
 		finalPipelines.clear();
 		clearPipeline.reset();
+#ifdef USE_PS5
+		warmGeneration = 0;
+#endif
 	}
+
+#ifdef USE_PS5
+	// Builds the pipelines this game is known to use (../pipeline_warm.h).
+	void warmUp(bool useBDA)
+	{
+		warmGeneration = pipelinewarm::generation();
+		const u64 start = getTimeMs();
+		unsigned built = 0;
+		for (const pipelinewarm::Record& r : pipelinewarm::snapshot(warmKind))
+		{
+			const PolyParam pp = pipelinewarm::poly(r);
+			const Pass pass = (Pass)r.pass;
+			if (pipelines.count(hash(r.listType, r.sort, &pp, pass, r.gpuPalette, useBDA)) != 0)
+				continue;
+			try {
+				CreatePipeline(r.listType, r.sort, pp, pass, r.gpuPalette, useBDA);
+				built++;
+			} catch (const std::exception& e) {
+				WARN_LOG(RENDERER, "Pipeline warm-up: %s", e.what());
+			}
+		}
+		pipelinewarm::report(warmKind, built, (double)(getTimeMs() - start));
+	}
+#endif
 
 	vk::Pipeline GetPipeline(u32 listType, bool autosort, const PolyParam& pp, Pass pass, int gpuPalette)
 	{
 		const bool useBDA = oitBuffers->getPixelBufferAddress();
+#ifdef USE_PS5
+		if (warmGeneration != pipelinewarm::generation())
+			warmUp(useBDA);
+#endif
 		u64 pipehash = hash(listType, autosort, &pp, pass, gpuPalette, useBDA);
 		const auto &pipeline = pipelines.find(pipehash);
 		if (pipeline != pipelines.end())
 			return pipeline->second.get();
 
 		CreatePipeline(listType, autosort, pp, pass, gpuPalette, useBDA);
+#ifdef USE_PS5
+		pipelinewarm::record(pipelinewarm::make(warmKind, listType, autosort, (u32)pass, gpuPalette, false, pp));
+#endif
 
 		return *pipelines[pipehash];
 	}
@@ -497,12 +533,22 @@ protected:
 	RenderPasses *renderPasses;
 	OITShaderManager *shaderManager = nullptr;
 	OITBuffers *oitBuffers = nullptr;
+#ifdef USE_PS5
+	pipelinewarm::Kind warmKind = pipelinewarm::Oit;
+	u32 warmGeneration = 0;
+#endif
 };
 
 class RttOITPipelineManager : public OITPipelineManager
 {
 public:
-	RttOITPipelineManager() { renderPasses = &rttRenderPasses; }
+	RttOITPipelineManager()
+	{
+		renderPasses = &rttRenderPasses;
+#ifdef USE_PS5
+		warmKind = pipelinewarm::OitRtt;
+#endif
+	}
 	void Init(OITShaderManager *shaderManager, OITBuffers *oitBuffers) override
 	{
 		OITPipelineManager::Init(shaderManager, oitBuffers);

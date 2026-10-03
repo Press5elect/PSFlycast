@@ -36,7 +36,10 @@ void context_to_segfault(host_context_t* hctx, void* segfault_ctx);
 #ifndef __SWITCH__
 static struct sigaction next_segv_handler;
 #endif
-#if defined(__APPLE__)
+// PS5: an access to a reserved but unmapped page may arrive as SIGBUS, as on
+// Apple platforms (the PS5 RetroArch port's Dolphin core found this).
+#if defined(__APPLE__) || defined(__PROSPERO__)
+#define FLYCAST_FAULT_SIGBUS 1
 static struct sigaction next_bus_handler;
 #endif
 
@@ -68,7 +71,13 @@ void fault_handler(int sn, siginfo_t * si, void *segfault_ctx)
 	ERROR_LOG(COMMON, "SIGSEGV @ %p invalid access to %p", (void *)ctx.pc, si->si_addr);
 #endif
 
-#ifdef __SWITCH__
+#if defined(__PROSPERO__)
+	if (sn == SIGBUS && next_bus_handler.sa_sigaction != nullptr)
+		next_bus_handler.sa_sigaction(sn, si, segfault_ctx);
+	else if (sn != SIGBUS && next_segv_handler.sa_sigaction != nullptr)
+		next_segv_handler.sa_sigaction(sn, si, segfault_ctx);
+	else
+#elif defined(__SWITCH__)
 	MemoryInfo meminfo;
 	u32 pageinfo;
 	svcQueryMemory(&meminfo, &pageinfo, (u64)&__start__);
@@ -95,7 +104,7 @@ void os_InstallFaultHandler()
 	act.sa_flags = SA_SIGINFO;
 	sigaction(SIGSEGV, &act, &next_segv_handler);
 #endif
-#if defined(__APPLE__)
+#if defined(FLYCAST_FAULT_SIGBUS)
     //this is broken on osx/ios/mach in general
     sigaction(SIGBUS, &act, &next_bus_handler);
 #endif
@@ -106,7 +115,7 @@ void os_UninstallFaultHandler()
 #ifndef __SWITCH__
 	sigaction(SIGSEGV, &next_segv_handler, nullptr);
 #endif
-#if defined(__APPLE__)
+#if defined(FLYCAST_FAULT_SIGBUS)
 	sigaction(SIGBUS, &next_bus_handler, nullptr);
 #endif
 }

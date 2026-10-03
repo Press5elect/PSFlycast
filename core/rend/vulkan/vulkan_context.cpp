@@ -18,6 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
+#include <chrono>
 #include "vulkan_context.h"
 #include "vulkan_renderer.h"
 #include "imgui.h"
@@ -47,6 +48,7 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include <set>
 #include <vulkan/vulkan_format_traits.hpp>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 void ReInitOSD();
@@ -141,13 +143,124 @@ static void CheckImGuiResult(VkResult err)
 }
 #endif
 
+#if defined(__PROSPERO__)
+#include "ps5_diag.h"
+#include "ps5_frontend.h"
+#include <cerrno>
+#define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
+
+// Why the display runs at the rate it does, in the boot log: what param.json
+// asks for (the driver reads the same file), and what the driver said when the
+// output did not go to 119.88 Hz (its line is in Flycast's log, on stderr).
+static void ps5ReportRefreshRequest()
+{
+	if (FILE *f = fopen("/app0/sce_sys/param.json", "rb"))
+	{
+		char text[4096];
+		const size_t length = fread(text, 1, sizeof(text) - 1, f);
+		fclose(f);
+		text[length] = '\0';
+		const char *at = strstr(text, "\"attribute3\"");
+		if (at != nullptr && (at = strchr(at, ':')) != nullptr)
+			PS5_MARK("display: param.json attribute3 %#lx (0x80040 asks for 119.88 Hz)", strtoul(at + 1, nullptr, 0));
+		else
+			PS5_MARK("display: param.json has no attribute3");
+	}
+	else
+		PS5_MARK("display: /app0/sce_sys/param.json cannot be read, so 119.88 Hz is not asked for");
+	fflush(stderr);
+	// The driver says on stderr why it did not take 119.88 Hz. stderr is
+	// Flycast's log by now; a line left in a buffer is written out first.
+	fflush(stdout);
+	const std::string logPath = ps5::rootDir + "logs/flycast.log";
+	if (FILE *log = fopen(logPath.c_str(), "r"))
+	{
+		char line[512];
+		int lines = 0, said = 0;
+		while (fgets(line, sizeof(line), log) != nullptr)
+		{
+			lines++;
+			if (strstr(line, "wsi/") != nullptr || strstr(line, "videoout") != nullptr || strstr(line, "VideoOut") != nullptr)
+			{
+				line[strcspn(line, "\r\n")] = '\0';
+				PS5_MARK("display: the driver: %s", line);
+				said++;
+			}
+		}
+		fclose(log);
+		if (said == 0)
+			PS5_MARK("display: the driver said nothing about the refresh rate (%d lines in Flycast's log so far)", lines);
+	}
+	else
+		PS5_MARK("display: %s cannot be read: %s", logPath.c_str(), strerror(errno));
+}
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char *name);
+
+// PS5: VK_KHR_display on VideoOut, as PS5_Vulkan's RADV smoke test drives it.
+// The 4K mode with the highest refresh rate is taken. The driver lists a
+// 119.88 Hz mode, first, only when the title's param.json asks for high frame
+// rate output (attribute3 0x80040), the output takes it and the display is
+// then measured refreshing at it; otherwise the one mode is 59.94 Hz. Once
+// the output runs at 119.88 Hz it flips at every vblank whichever mode the
+// surface names, so the faster mode is the one to take, and each frame of the
+// game is then presented twice (the swap interval below): the Dreamcast is a
+// 60 Hz machine, and FIFO presents pace it one frame every two vblanks, as
+// they pace it one a vblank at 59.94 Hz, with a late frame costing 8 ms
+// instead of 17.
+static vk::UniqueSurfaceKHR createPs5DisplaySurface(vk::Instance instance)
+{
+	const auto physicalDevices = instance.enumeratePhysicalDevices();
+	if (physicalDevices.empty())
+		throw std::runtime_error("PS5: no Vulkan device");
+	const vk::PhysicalDevice gpu = physicalDevices[0];
+	const auto displays = gpu.getDisplayPropertiesKHR();
+	if (displays.empty())
+		throw std::runtime_error("PS5: no display");
+	const auto modes = gpu.getDisplayModePropertiesKHR(displays[0].display);
+	if (modes.empty())
+		throw std::runtime_error("PS5: the display has no mode");
+	const vk::DisplayModePropertiesKHR *best = &modes[0];
+	auto score = [](const vk::DisplayModePropertiesKHR& m) {
+		const auto& p = m.parameters;
+		const int area = (int)(p.visibleRegion.width * p.visibleRegion.height);
+		const int hz = (int)p.refreshRate;	// millihertz
+		return (long long)area * 1000000 + hz;
+	};
+	for (const auto& mode : modes)
+	{
+		INFO_LOG(RENDERER, "PS5: display mode %u x %u @ %.3f Hz", mode.parameters.visibleRegion.width,
+				mode.parameters.visibleRegion.height, mode.parameters.refreshRate / 1000.f);
+		if (score(mode) > score(*best))
+			best = &mode;
+	}
+	const vk::Extent2D extent = best->parameters.visibleRegion;
+	settings.display.width = extent.width;
+	settings.display.height = extent.height;
+	settings.display.refreshRate = best->parameters.refreshRate / 1000.f;
+	settings.display.uiScale = extent.height / 720.f;
+	INFO_LOG(RENDERER, "PS5: using %u x %u @ %.3f Hz", extent.width, extent.height, settings.display.refreshRate);
+	PS5_MARK("display: %u x %u at %.2f Hz (%d mode%s offered)", extent.width, extent.height,
+			settings.display.refreshRate, (int)modes.size(), modes.size() == 1 ? "" : "s");
+	ps5ReportRefreshRequest();
+	vk::DisplaySurfaceCreateInfoKHR info(vk::DisplaySurfaceCreateFlagsKHR(), best->displayMode, 0, 0,
+			vk::SurfaceTransformFlagBitsKHR::eIdentity, 1.0f, vk::DisplayPlaneAlphaFlagBitsKHR::eOpaque, extent);
+	return instance.createDisplayPlaneSurfaceKHRUnique(info);
+}
+#else
+#define PS5_MARK(...) do {} while (0)
+#endif
+
 bool VulkanContext::InitInstance(const char** extensions, uint32_t extensions_count)
 {
 	try
 	{
 #if VULKAN_HPP_DISPATCH_LOADER_DYNAMIC == 1
 		PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
-#if defined(__ANDROID__) && HOST_CPU == CPU_ARM64
+#if defined(__PROSPERO__)
+		// PS5: RADV (PS5_Vulkan / PS5_Mesa) is linked into the title; its ICD
+		// entry point resolves every command.
+		vkGetInstanceProcAddr = vk_icdGetInstanceProcAddr;
+#elif defined(__ANDROID__) && HOST_CPU == CPU_ARM64
 		vkGetInstanceProcAddr = loadVulkanDriver();
 #elif defined(__APPLE__) && defined(USE_SDL)
 		vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(SDL_Vulkan_GetVkGetInstanceProcAddr());
@@ -683,6 +796,7 @@ bool VulkanContext::InitDevice()
 
 void VulkanContext::CreateSwapChain()
 {
+	PS5_MARK("vulkan: swapchain");
 	try
 	{
 		device->waitIdle();
@@ -782,7 +896,13 @@ void VulkanContext::CreateSwapChain()
 				INFO_LOG(RENDERER, "Using mailbox present mode");
 				swapchainPresentMode = vk::PresentModeKHR::eMailbox;
 			}
-#ifndef SWAPPY
+#if defined(USE_PS5)
+			// 119.88 Hz output: two presents for each frame of a 60 Hz machine
+			// (119.88 / 60 is just under 2: rounded, not truncated).
+			if (swapOnVSync && settings.display.refreshRate > 90.f)
+				swapInterval = std::max(1, (int)std::lround(settings.display.refreshRate / 60.f));
+			else
+#elif !defined(SWAPPY)
 			if (swapOnVSync && config::DupeFrames && settings.display.refreshRate > 60.f)
 				swapInterval = settings.display.refreshRate / 60.f;
 			else
@@ -934,11 +1054,16 @@ bool VulkanContext::init()
 	extensions.push_back(vk::KHRXlibSurfaceExtensionName);
 #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
 	extensions.push_back(vk::KHRAndroidSurfaceExtensionName);
+#elif defined(__PROSPERO__)
+	extensions.push_back(vk::KHRDisplayExtensionName);
 #endif
+	PS5_MARK("vulkan: creating the instance (RADV)");
 	if (!InitInstance(&extensions[0], extensions.size())) {
+		PS5_MARK("vulkan: instance failed");
 		term();
 		return false;
 	}
+	PS5_MARK("vulkan: instance created");
 
 #if defined(USE_SDL)
     VkSurfaceKHR surface;
@@ -961,15 +1086,30 @@ bool VulkanContext::init()
 #elif defined(VK_USE_PLATFORM_METAL_EXT)
 	vk::MetalSurfaceCreateInfoEXT createInfo(vk::MetalSurfaceCreateFlagsEXT(), window);
 	surface = instance->createMetalSurfaceEXTUnique(createInfo);
+#elif defined(__PROSPERO__)
+	try {
+		PS5_MARK("vulkan: display surface");
+		surface = createPs5DisplaySurface(*instance);
+		PS5_MARK("vulkan: display %d x %d @ %.2f Hz", settings.display.width, settings.display.height,
+				settings.display.refreshRate);
+	} catch (const std::exception& e) {
+		PS5_MARK("vulkan: display surface failed: %s", e.what());
+		ERROR_LOG(RENDERER, "%s", e.what());
+		term();
+		return false;
+	}
 #else
 #error "Unknown Vulkan platform"
 #endif
 	overlay = std::make_unique<VulkanOverlay>();
 
+	PS5_MARK("vulkan: device");
 	if (!InitDevice()) {
+		PS5_MARK("vulkan: device failed");
 		term();
 		return false;
 	}
+	PS5_MARK("vulkan: ready");
 
 	return true;
 }
@@ -1042,6 +1182,35 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 
 void VulkanContext::Present() noexcept
 {
+#if defined(__PROSPERO__)
+	static int presents;
+	if (presents < 3)
+		PS5_MARK("vulkan: present %d", ++presents);
+	// What the display really does, once: the frames presented in two
+	// seconds of the menus, a little after the start. About 240 at 119.88 Hz
+	// (the menus present every refresh), about 120 at 59.94 Hz.
+	{
+		using namespace std::chrono;
+		static const steady_clock::time_point first = steady_clock::now();
+		static int counted = -1;		// -1 before the window, -2 after it
+		const double at = duration<double>(steady_clock::now() - first).count();
+		if (counted == -1 && at >= 3.0)
+			counted = 0;
+		else if (counted >= 0)
+		{
+			if (!gui_is_open())
+				counted = -2;			// a game started: not the menus' rate
+			else if (at >= 5.0)
+			{
+				PS5_MARK("display: %d frames presented in %.2f s of the menus (%.1f a second), output mode %.2f Hz",
+						counted, at - 3.0, counted / (at - 3.0), settings.display.refreshRate);
+				counted = -2;
+			}
+			else if (renderDone)
+				counted++;
+		}
+	}
+#endif
 	if (renderDone)
 	{
 		try {
@@ -1061,10 +1230,19 @@ void VulkanContext::Present() noexcept
 #endif
 			currentSemaphore = (currentSemaphore + 1) % renderCompleteSemaphores.size();
 #ifndef SWAPPY
+#if defined(USE_PS5)
+			// The display's own factor always (see the swap interval), the
+			// game's (a 30 fps game) only with "Duplicate frames" on, as before.
+			const bool duplicate = swapInterval > 1 || config::DupeFrames;
+			const int presents = config::DupeFrames ? swapInterval * gameSwapInterval : swapInterval;
+#else
+			const bool duplicate = config::DupeFrames;
+			const int presents = swapInterval * gameSwapInterval;
+#endif
 			if (lastFrameView && IsValid() && !gui_is_open()
-					&& swapOnVSync && config::DupeFrames)
+					&& swapOnVSync && duplicate)
 			{
-				const int interval = swapInterval * gameSwapInterval;
+				const int interval = presents;
 				for (int i = 1; i < interval; i++)
 				{
 					PresentFrame(vk::Image(), lastFrameView, lastFrameExtent, lastFrameAR);

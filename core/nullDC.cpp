@@ -33,6 +33,9 @@ static time_t lastStateTime;
     #if __ANDROID_API__ >= 23
         #define HAS_FMEMOPEN
     #endif
+#elif defined(__PROSPERO__)
+    // PS5: the console's libc has no fmemopen; in-RAM states (netplay rollback)
+    // are not used, regular save states are files.
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__GLIBC__)
     // Standard POSIX platforms usually have fmemopen
     #define HAS_FMEMOPEN
@@ -66,6 +69,13 @@ struct SavestateHeader
 	static constexpr const char *MAGIC = "FLYSAVE1";
 };
 
+#ifdef USE_PS5
+#include "ps5_diag.h"
+#define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
+#else
+#define PS5_MARK(...) do {} while (0)
+#endif
+
 int flycast_init(int argc, char* argv[])
 {
 #if defined(TEST_AUTOMATION)
@@ -74,11 +84,13 @@ int flycast_init(int argc, char* argv[])
 	settings.aica.muteAudio = true;
 #endif
 	try {
+		PS5_MARK("init: guest memory");
 		if (!addrspace::reserve())
 		{
 			ERROR_LOG(VMEM, "Failed to alloc mem");
 			return -1;
 		}
+		PS5_MARK("init: settings");
 		config::parseCommandLine(argc, argv);
 		if (config::loadInt("naomi", "BoardId") != 0)
 		{
@@ -101,9 +113,12 @@ int flycast_init(int argc, char* argv[])
 			config::Settings::instance().load(false);
 		}
 		i18n::reloadLanguage();
+		PS5_MARK("init: interface");
 		gui_init();
 		os_CreateWindow();
+		PS5_MARK("init: controllers");
 		os_SetupInput();
+		PS5_MARK("init: done");
 
 		if(config::GDB)
 			debugger::init(config::GDBPort + config::loadInt("naomi", "BoardId"));
@@ -114,6 +129,7 @@ int flycast_init(int argc, char* argv[])
 
 		return 0;
 	} catch (const std::exception& e) {
+		PS5_MARK("init failed: %s", e.what());
 		ERROR_LOG(BOOT, "flycast_init failed: %s", e.what());
 		return 1;
 	} catch (...) {

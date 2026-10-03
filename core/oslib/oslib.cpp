@@ -17,6 +17,11 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "oslib.h"
+#ifdef USE_PS5
+#include "../../shell/ps5/ps5_pad.h"
+#include "../../shell/ps5/ps5_diag.h"
+#include "wsi/context.h"
+#endif
 #include "stdclass.h"
 #include "cfg/cfg.h"
 #include "cfg/option.h"
@@ -431,7 +436,15 @@ const std::vector<std::string>& getCdromDrives() {
 
 void os_CreateWindow()
 {
-#if defined(USE_SDL)
+#if defined(USE_PS5)
+	// No window: the Vulkan context draws to the display (VK_KHR_display).
+	// Vulkan is the only renderer this build has.
+	if (!isVulkan(config::RendererType))
+		config::RendererType = RenderType::Vulkan;
+	ps5::diag::mark("graphics: Vulkan context");
+	initRenderApi();
+	ps5::diag::mark("graphics: Vulkan context ready");
+#elif defined(USE_SDL)
 	sdl_window_create();
 #elif defined(SUPPORT_X11)
 	x11_window_create();
@@ -440,7 +453,9 @@ void os_CreateWindow()
 
 void os_DestroyWindow()
 {
-#if defined(USE_SDL)
+#if defined(USE_PS5)
+	termRenderApi();
+#elif defined(USE_SDL)
 	sdl_window_destroy();
 #elif defined(SUPPORT_X11)
 	x11_window_destroy();
@@ -449,7 +464,9 @@ void os_DestroyWindow()
 
 void os_SetupInput()
 {
-#if defined(USE_SDL)
+#if defined(USE_PS5)
+	ps5::pad::init();
+#elif defined(USE_SDL)
 	input_sdl_init();
 #else
 	#if defined(SUPPORT_X11)
@@ -469,7 +486,9 @@ void os_SetupInput()
 void os_TermInput()
 {
 	dreampotato::term();
-#if defined(USE_SDL)
+#if defined(USE_PS5)
+	ps5::pad::term();
+#elif defined(USE_SDL)
 	input_sdl_quit();
 #else
 	#if defined(SUPPORT_X11)
@@ -490,7 +509,9 @@ void os_UpdateInputState()
 	FC_PROFILE_SCOPE;
 
 	GamepadDevice::RampAnalog();
-#if defined(USE_SDL)
+#if defined(USE_PS5)
+	ps5::pad::poll();
+#elif defined(USE_SDL)
 	input_sdl_handle();
 #elif defined(USE_EVDEV)
 	input_evdev_handle();
