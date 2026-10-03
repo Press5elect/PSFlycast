@@ -22,20 +22,23 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.0.0** (build 30). I ran that build on my PS5 before
-releasing it.
+Latest release: **v1.0.1** (build 34). I ran build 33, which has the same
+code, on my PS5 before releasing it.
 
 Played on a PS5 over the builds that led to it: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; cover downloads;
 the quick menu and the per-game options; games on several discs, grouped and
-swapped from the quick menu; the start-up animation and the library on build
-30; 119.88 Hz output on a display that takes it. No frame rates or audio
-were measured.
+swapped from the quick menu; the start-up animation and the library;
+119.88 Hz output on a display that takes it; internal resolution above 6x and
+the texture options; object draw distance, with which objects appeared from
+further away. No frame rates or audio were measured.
 
-In the build but not confirmed on a console one by one: USB drives, the
-skins and transitions, the letter jump, the Controls page, Restart game and
-the CPU clock. NAOMI and Atomiswave games have not been tried. Per-pixel transparency at 6x resolution drew no frames in one
-test; use per-strip, or a lower resolution, if a game stays black.
+In the build but not confirmed on a console: the left stick as the joystick
+in arcade games (its setting is there), USB drives, the skins and
+transitions, the letter jump, the Controls page, Restart game and the CPU
+clock. NAOMI and Atomiswave games have not been tried. Per-pixel transparency
+at 6x resolution drew no frames in one test; use per-strip, or a lower
+resolution, if a game stays black.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped
@@ -337,7 +340,8 @@ Without a `patches/patches.txt` the switches are not shown.
 - `make_patches.py` does not read the chart's arcade lists (NAOMI,
   Atomiswave).
 
-**Object draw distance (experimental).** The Sonic Adventure games make a
+**Object draw distance (experimental).** Two Dreamcast games (the option's
+own line in the app names them) make a
 stage's objects exist only near the player, by a distance each kind of object
 has in a table, which is why they appear a short way ahead on a Dreamcast as
 here. A game's options have **Object draw distance** (off, 1.5x to 5x): while
@@ -347,9 +351,8 @@ distance (taken to be 400 units) that distance multiplied (`shell/ps5/ps5_drawdi
 recognised; the idea is the PC version's "Higher Draw Distance" mod's, by Kell
 and SonicFreak94). The game's limits on live objects are not raised, and the
 level's own draw distance is not changed. `flycast-boot.log` says what was
-found (`drawdist: ...`). On a console (build 31) the table of a Sonic
-Adventure 2 stage was found; what the option then does to the picture is not
-confirmed.
+found (`drawdist: ...`). On a console (build 33) objects appeared from
+further away with it on.
 
 **Rumble:** the controller holds a memory card and a rumble pack (Flycast's
 own default is two memory cards, with which nothing rumbles).

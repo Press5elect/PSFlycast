@@ -215,9 +215,9 @@ so.
 Settings > Video also has **Widescreen** and **Widescreen game patches**,
 which are the emulator's own and need no file.
 
-**Object draw distance (experimental).** In Sonic Adventure and Sonic
-Adventure 2, rings, enemies and item boxes appear only a short way in front
-of you. That is how the games were made, and a real Dreamcast does the same.
+**Object draw distance (experimental).** In two Dreamcast games (the
+option's own line names them), rings, enemies and item boxes appear only a
+short way in front of you. That is how the games were made, and a real Dreamcast does the same.
 This option, at the top of a game's options, makes them appear from 1.5, 2, 3
 or 5 times as far. It takes effect the next time the game starts, and a stage
 has to be loaded after that for it to show.
