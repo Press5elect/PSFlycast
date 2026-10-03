@@ -10,6 +10,7 @@
 */
 #pragma once
 #include "types.h"
+#include "cfg/option.h"
 
 namespace ps5::pad
 {
@@ -53,6 +54,12 @@ struct State
 // is the index of its bit, and the two triggers are also axes.
 constexpr u32 buttonCode(u32 bit) { return (u32)__builtin_ctz(bit); }
 constexpr u32 AxisCodeL2 = 4, AxisCodeR2 = 5;
+
+// Whether the left stick is also the d-pad: a setting, and a game can have its
+// own. Automatic is on in the arcade games that read no analog stick, whose
+// joystick is the d-pad, and off everywhere else.
+enum { StickDpadAuto, StickDpadOn, StickDpadOff };
+extern config::Option<int> StickAsDpad;
 
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();

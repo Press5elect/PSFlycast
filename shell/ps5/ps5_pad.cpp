@@ -14,6 +14,7 @@
 #include "input/gamepad_device.h"
 #include "input/mapping.h"
 #include "cfg/option.h"
+#include "hw/naomi/naomi_cart.h"
 #include "log/Log.h"
 
 #include <algorithm>
@@ -42,6 +43,9 @@ int sceKernelUsleep(uint32_t microseconds);
 
 namespace ps5::pad
 {
+
+config::Option<int> StickAsDpad("StickAsDpad", StickDpadAuto, "ps5");
+
 namespace
 {
 
@@ -198,17 +202,25 @@ public:
 		update_rumble();
 	}
 
-	// Feeds Flycast what changed since the last poll.
+	// Feeds Flycast what changed since the last poll. Where the left stick is
+	// also the d-pad, the directions it is pushed in are d-pad buttons held:
+	// they go through the layout like the d-pad's own, so a game with a digital
+	// joystick (most arcade games) is played with either.
 	void feed(const State& s, const PadData& raw)
 	{
-		u32 changed = s.buttons ^ lastButtons;
+		u32 buttons = s.buttons;
+		if (stickIsDpad())
+			buttons |= stickDirections(raw.lx, raw.ly);
+		else
+			stickHeld = 0;
+		u32 changed = buttons ^ lastButtons;
 		while (changed != 0)
 		{
 			const u32 bit = changed & -changed;
 			changed &= ~bit;
-			gamepad_btn_input(pad::code(bit), (s.buttons & bit) != 0);
+			gamepad_btn_input(pad::code(bit), (buttons & bit) != 0);
 		}
-		lastButtons = s.buttons;
+		lastButtons = buttons;
 
 		const int axes[6] = {
 			stick(raw.lx), stick(raw.ly), stick(raw.rx), stick(raw.ry),
@@ -250,6 +262,58 @@ private:
 		return (int)v * 65535 / 255 - 32768;
 	}
 
+	// Whether the left stick is also the d-pad, for the game that is loaded.
+	// Automatic: in an arcade game that reads no analog stick. A light gun
+	// game aims with the stick, and a game with a wheel or a flight stick
+	// reads it as one.
+	static bool stickIsDpad()
+	{
+		switch (StickAsDpad)
+		{
+		case StickDpadOn:
+			return true;
+		case StickDpadOff:
+			return false;
+		default:
+			break;
+		}
+		if (!::settings.platform.isArcade() || ::settings.input.lightgunGame)
+			return false;
+		const InputDescriptors *inputs = NaomiGameInputs;
+		if (inputs == nullptr)
+			return true;
+		for (const AxisDescriptor& axis : inputs->axes)
+			if (axis.name != nullptr && axis.type == Full && axis.axis <= 1)
+				return false;
+		return true;
+	}
+
+	// The d-pad directions the left stick is pushed in. A direction is held
+	// from half way out and let go under three eighths, so a stick resting
+	// near the edge of one does not flicker; at the rim that leaves each
+	// diagonal 30 degrees and each of up, down, left and right 60.
+	u32 stickDirections(uint8_t x, uint8_t y)
+	{
+		constexpr int In = 64, Out = 48;
+		const auto axis = [this](int v, u32 negative, u32 positive) {
+			if (v <= -In)
+				stickHeld = (stickHeld & ~positive) | negative;
+			else if (v >= In)
+				stickHeld = (stickHeld & ~negative) | positive;
+			else
+			{
+				if (v > -Out)
+					stickHeld &= ~negative;
+				if (v < Out)
+					stickHeld &= ~positive;
+			}
+		};
+		axis((int)x - 128, Left, Right);
+		axis((int)y - 128, Up, Down);
+		return stickHeld;
+	}
+
+	u32 stickHeld = 0;		// the d-pad directions the left stick holds
 	u32 lastButtons = 0;
 	int lastAxes[6] = { 0, 0, 0, 0, -32768, -32768 };
 	u8 rumbleLevel = 0;

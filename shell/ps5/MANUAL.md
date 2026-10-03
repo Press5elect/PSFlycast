@@ -108,10 +108,17 @@ While a game loads, Circle cancels.
 | L2 / R2 | Left / right trigger | Left / right trigger |
 | L1 / R1 | Z / C | Buttons 6 / 5 |
 | OPTIONS | Start | Start |
-| Left stick | Analog stick | Stick |
-| D-pad | D-pad | D-pad |
+| Left stick | Analog stick | Stick, or joystick (see below) |
+| D-pad | D-pad | Joystick |
 | L3 / R3 | | Insert coin / Service |
 | **Touch pad click** | **Quick menu** | **Quick menu** |
+
+Most arcade games have a digital joystick, which is the D-pad. In those the
+**left stick moves the joystick too**; in a game with a wheel, a flight stick
+or a light gun it stays the analog stick. Settings > Controls >
+**Left stick as D-pad** turns this on for every game or off, and a game can
+have its own choice (Details > Options, or Game options in the quick menu):
+on suits a Dreamcast game that only reads the D-pad.
 
 Any of these can be changed: see [Changing the controls](#11-changing-the-controls).
 
@@ -250,9 +257,9 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 9x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, VSync, the FPS counter, 120 Hz output |
+| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, VSync, the FPS counter, 120 Hz output |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
-| **Controls** | Vibration, stick dead zone, the controller's second slot, restore the default layout |
+| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, restore the default layout |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state |
 | **Interface** | Skin, accent colour, background, motion, the start-up animation |
 | **Library** | Scan for games, library view, cover downloads, USB drives, disc grouping, network game loading |
@@ -265,7 +272,8 @@ what you see, most useful first:
 
 - **Internal resolution.** 5x and up is more than a 4K screen shows, and the
   extra is used to smooth edges. 9x (4320 lines) is exactly twice 4K, which
-  smooths best. If a game slows down or stays black, go lower, and use
+  smooths best; 10x (4800 lines) draws more still, but a 4K screen shows no
+  more of it than of 9x. If a game slows down or stays black, go lower, and use
   per-strip Transparency sorting at the highest settings.
 - **Anisotropic filtering** at 16x keeps floors and walls sharp into the
   distance.

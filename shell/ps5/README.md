@@ -237,7 +237,8 @@ While a game loads, Circle cancels.
 | L2 / R2 | Analog triggers | Analog triggers |
 | L1 / R1 | Z / C | Buttons 6 / 5 |
 | OPTIONS | Start | Start |
-| Left / right stick | Analog stick / second stick | |
+| Left / right stick | Analog stick / second stick | Left: analog stick, or the joystick |
+| D-pad | D-pad | Joystick |
 | L3 / R3 | | Insert coin / Service |
 | **Touch pad click** | **Quick menu** | **Quick menu** |
 
@@ -245,6 +246,12 @@ The **quick menu** pauses the game: resume, save and load states (10 slots,
 with a picture of each), change discs, cheats, game options, controls,
 restart the game, and quit it. Circle or the touch pad resumes. Up to four DualSense controllers
 work, one per logged-in user.
+
+In an arcade game with a digital joystick (most of them) the **left stick
+moves the joystick** as the D-pad does; a game with a wheel, a flight stick or
+a light gun keeps it as the analog stick. Settings > Controls > "Left stick as
+D-pad" is Automatic (that), On (every game, Dreamcast ones too) or Off, and a
+game can have its own choice.
 
 **Restart game** loads the game again from its beginning, as the console's
 power button would: asked twice (press Cross again within four seconds), as
@@ -381,10 +388,10 @@ once.
 
 ## Settings
 
-Interface (above), Video (per-pixel or per-strip transparency, internal resolution up to 9x,
+Interface (above), Video (per-pixel or per-strip transparency, internal resolution up to 10x,
 widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
 frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
-VSync, FPS counter), Audio, Controls (vibration, dead zone, the controller's
+VSync, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
 second slot, default layout), System (region, language, TV standard, cable, built-in BIOS,
 auto save/load states, fast loading, CPU recompiler), Library and About. The
 defaults: Vulkan, 3x resolution (1440p), 4x anisotropic filtering.
