@@ -26,12 +26,12 @@ Played on a PS5 over the builds that led to it: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; cover downloads;
 the quick menu and the per-game options; games on several discs, grouped and
 swapped from the quick menu; the start-up animation and the library on build
-30. No frame rates or audio were measured.
+30; 119.88 Hz output on a display that takes it. No frame rates or audio
+were measured.
 
-In the build but not confirmed on a console one by one: USB drives,
-119.88 Hz output, the skins and transitions, the letter jump, the Controls
-page, Restart game and the CPU clock. NAOMI and Atomiswave games have not
-been tried. Per-pixel transparency at 6x resolution drew no frames in one
+In the build but not confirmed on a console one by one: USB drives, the
+skins and transitions, the letter jump, the Controls page, Restart game and
+the CPU clock. NAOMI and Atomiswave games have not been tried. Per-pixel transparency at 6x resolution drew no frames in one
 test; use per-strip, or a lower resolution, if a game stays black.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
