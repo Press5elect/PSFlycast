@@ -121,6 +121,14 @@ bool biosFound();
 void init();
 }
 
+namespace drawdist
+{
+// "Object draw distance" (ps5_drawdist.cpp): the Sonic Adventure games' objects
+// from further away, for the games that have ps5.drawdist over 100 in their
+// section of emu.cfg.
+void init();
+}
+
 namespace patches
 {
 // Game patches, apart from cheats (ps5_patches.cpp): a 16:9 picture

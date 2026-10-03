@@ -477,6 +477,7 @@ int main(int argc, char *argv[])
 	ps5::cheats::init();
 	ps5::games::init();
 	ps5::patches::init();
+	ps5::drawdist::init();
 	ps5::diag::mark("main loop");
 	try {
 		mainui_loop();

@@ -330,6 +330,17 @@ Without a `patches/patches.txt` the switches are not shown.
 - `make_patches.py` does not read the chart's arcade lists (NAOMI,
   Atomiswave).
 
+**Object draw distance (experimental).** The Sonic Adventure games make a
+stage's objects exist only near the player, by a distance each kind of object
+has in a table, which is why they appear a short way ahead on a Dreamcast as
+here. A game's options have **Object draw distance** (off, 1.5x to 5x): while
+the game runs, PSFlyCast looks through its memory for those tables and
+multiplies their distances (`shell/ps5/ps5_drawdist_scan.h` says how they are
+recognised; the idea is the PC version's "Higher Draw Distance" mod's, by Kell
+and SonicFreak94). The game's limits on live objects are not raised, and the
+level's own draw distance is not changed. `flycast-boot.log` says what was
+found (`drawdist: ...`). Not yet run on a console.
+
 **Rumble:** the controller holds a memory card and a rumble pack (Flycast's
 own default is two memory cards, with which nothing rumbles).
 Settings > Controls > Controller slot 2 puts a second memory card back; the
@@ -417,6 +428,8 @@ On a console: see Status, at the top.
   `tools/prepare-assets.sh --background`.
 - `shell/ps5/ps5_smb.cpp` - SMB shares as a Flycast storage (libsmb2), games
   read into memory or streamed.
+- `shell/ps5/ps5_drawdist.cpp`, `ps5_drawdist_scan.h` - the object draw
+  distance option.
 - `shell/ps5/ps5_covers.cpp`, `ps5_cheats.cpp`, `ps5_pipelines.cpp` - cover
   downloads, `.cht` cheat files, the per-game shader warm-up.
 - `shell/ps5/elevation/` - the USB helper.

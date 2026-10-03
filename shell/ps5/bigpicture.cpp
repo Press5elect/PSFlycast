@@ -2119,6 +2119,26 @@ GameOption patchSwitch(const char *label, const char *desc, const char *key, con
 	return o;
 }
 
+// What only a game can have, and is no patch from the list: kept like a
+// patch's switch, in the game's section of emu.cfg. The first choice is off.
+GameOption ownChoice(const char *label, const char *desc, const char *key, std::vector<const char *> names,
+		std::vector<int> values)
+{
+	GameOption o{ label, desc, key, false, std::move(names), std::move(values), GameOption::Patch, true };
+	const int off = o.values[0];
+	o.get = [key, off] { return config::loadInt(::settings.content.gameId, key, off); };
+	o.set = [key, off](int v) {
+		const std::string& id = ::settings.content.gameId;
+		if (id.empty())
+			return;
+		if (v != off)
+			config::saveInt(id, key, v);
+		else
+			config::deleteEntry(id, key);
+	};
+	return o;
+}
+
 const std::vector<GameOption>& gameOptions()
 {
 	using G = GameOption;
@@ -2128,6 +2148,9 @@ const std::vector<GameOption>& gameOptions()
 		patchSwitch("Widescreen patch",
 				"The game draws a 16:9 picture itself. For a game the Widescreen game patches option does nothing for",
 				"ps5.patch.widescreen", "widescreen"),
+		ownChoice("Object draw distance",
+				"For Sonic Adventure and Sonic Adventure 2: rings, enemies and boxes appear from further away. Experimental: too far can slow the game or break it",
+				"ps5.drawdist", { "Off", "1.5x", "2x", "3x", "5x" }, { 100, 150, 200, 300, 500 }),
 
 		pick("Transparency sorting", "Per-pixel is the most accurate; per-strip is faster", "config.pvr.rend",
 				{ "Per-strip", "Per-pixel" }, { (int)RenderType::Vulkan, (int)RenderType::Vulkan_OIT },
@@ -2252,8 +2275,8 @@ std::pair<std::string, std::string> optionEntry(const GameOption& option)
 // running game's own).
 int settingsValue(const GameOption& option)
 {
-	if (option.patch != nullptr)
-		return 0;		// the Settings have no patches: a patch that is on is the game's own
+	if (option.category == GameOption::Patch)
+		return option.values[0];	// the Settings have none of these: one that is on is the game's own
 	const int now = option.get();
 	if (option.key == nullptr)
 		return now;
