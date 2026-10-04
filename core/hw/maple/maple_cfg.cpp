@@ -4,6 +4,7 @@
 #include "hw/naomi/naomi_cart.h"
 #include "hw/naomi/card_reader.h"
 #include "hw/sh4/modules/modules.h"
+#include "hw/sh4/sh4_sched.h"
 #include "cfg/option.h"
 #include "stdclass.h"
 #include "serialize.h"
@@ -14,6 +15,7 @@ MapleInputState mapleInputState[4];
 extern bool maple_ddt_pending_reset;
 extern std::vector<std::pair<u32, std::vector<u32>>> mapleDmaOut;
 extern bool SDCKBOccupied;
+extern int maple_schid;
 
 void (*MapleConfigMap::UpdateVibration)(u32 port, float power, float inclination, u32 duration_ms);
 
@@ -256,6 +258,12 @@ static void createNaomiDevices()
 			insertRfidCard(0);
 			insertRfidCard(1);
 		}
+	}
+	else if (gameId.substr(0, 4) == "WCCF")
+	{
+		if (config::MultiboardSlaves <= 1)
+			// CCD cam
+			mcfg_Create(MDT_WccfCamera, 1, 5, 0);
 	}
 	else if (gameId == "THE KING OF ROUTE66")
 	{
@@ -502,6 +510,8 @@ void mcfg_SerializeDevices(Serializer& ser)
 {
 	ser << maple_ddt_pending_reset;
 	ser << SDCKBOccupied;
+	sh4_sched_serialize(ser, maple_schid);
+
 	ser << (u32)mapleDmaOut.size();
 	for (const auto& pair : mapleDmaOut)
 	{
@@ -526,30 +536,23 @@ void mcfg_DeserializeDevices(Deserializer& deser)
 {
 	if (!deser.rollback())
 		mcfg_DestroyDevices(false);
-	u8 eeprom[128];
-	if (deser.version() < Deserializer::V23)
-	{
-		deser >> eeprom;
-		deser.skip(128);	// Unused eeprom space
-		deser.skip<bool>(); // EEPROM_loaded
-	}
 	deser >> maple_ddt_pending_reset;
 	if (deser.version() >= Deserializer::V47)
 		deser >> SDCKBOccupied;
+	if (deser.version() >= Deserializer::V62)
+		sh4_sched_deserialize(deser, maple_schid);
+
 	mapleDmaOut.clear();
-	if (deser.version() >= Deserializer::V23)
+	u32 size;
+	deser >> size;
+	for (u32 i = 0; i < size; i++)
 	{
-		u32 size;
-		deser >> size;
-		for (u32 i = 0; i < size; i++)
-		{
-			u32 address;
-			deser >> address;
-			u32 dataSize;
-			deser >> dataSize;
-			mapleDmaOut.emplace_back(address, std::vector<u32>(dataSize));
-			deser.deserialize(mapleDmaOut.back().second.data(), dataSize);
-		}
+		u32 address;
+		deser >> address;
+		u32 dataSize;
+		deser >> dataSize;
+		mapleDmaOut.emplace_back(address, std::vector<u32>(dataSize));
+		deser.deserialize(mapleDmaOut.back().second.data(), dataSize);
 	}
 
 	for (int i = 0; i < MAPLE_PORTS; i++)
@@ -564,8 +567,6 @@ void mcfg_DeserializeDevices(Deserializer& deser)
 				MapleDevices[i][j]->deserialize(deser);
 			}
 		}
-	if (deser.version() < Deserializer::V23 && EEPROM != nullptr)
-		memcpy(EEPROM, eeprom, sizeof(eeprom));
 }
 
 std::shared_ptr<MIE> getMieDevice()

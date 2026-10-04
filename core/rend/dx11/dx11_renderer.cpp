@@ -50,6 +50,7 @@ bool DX11Renderer::Init()
 		WARN_LOG(RENDERER, "Null device or device context. Aborting");
 		return false;
 	}
+	custom_texture.setCapabilities(DX11Texture::getCustomTextureCapabilities());
 
 	shaders = &DX11Context::Instance()->getShaders();
 	samplers = &DX11Context::Instance()->getSamplers();
@@ -173,6 +174,9 @@ bool DX11Renderer::Init()
 void DX11Renderer::Term()
 {
 	NOTICE_LOG(RENDERER, "DX11 renderer terminating");
+	texCache.Clear();
+	texCache.Cleanup();
+	clearGpuPreloadedTextures();
 #ifdef VIDEO_ROUTING
 	os_VideoRoutingTermDX();
 #endif
@@ -185,6 +189,9 @@ void DX11Renderer::Term()
 	fbScaledRenderTarget.reset();
 	fbScaledTextureView.reset();
 	fbScaledTexture.reset();
+	fbSecondAccum.reset();
+	fbSecondAccumView.reset();
+	fbSecondAccumTex.reset();
 	quad.reset();
 	deviceContext.reset();
 	device.reset();
@@ -192,6 +199,18 @@ void DX11Renderer::Term()
 	vrStagingTextureSRV.reset();
 	vrScaledTexture.reset();
 	vrScaledRenderTarget.reset();
+}
+
+void DX11Renderer::processCustomTexturePreloads()
+{
+	custom_texture.processGpuPreloads([this](u32 hash,
+			const PreparedCustomTexture& texture) {
+		GpuPreloadedTexture::Ptr gpuTexture = DX11Texture::createGpuPreloadedTexture(texture);
+		if (!gpuTexture)
+			return false;
+		addGpuPreloadedTexture(hash, std::move(gpuTexture));
+		return true;
+	});
 }
 
 void DX11Renderer::createDepthTexAndView(ComPtr<ID3D11Texture2D>& texture, ComPtr<ID3D11DepthStencilView>& view, int width, int height, DXGI_FORMAT format, UINT bindFlags)
@@ -303,15 +322,18 @@ BaseTextureCacheData *DX11Renderer::GetTexture(TSP tsp, TCW tcw, int area)
 	//update if needed
 	if (tf->NeedsUpdate())
 	{
+		ComPtr<ID3D11Texture2D> oldTexture = tf->texture;
 		if (!tf->Update())
 			tf = nullptr;
+		else if (tf->is_custom_replaced && oldTexture
+				&& oldTexture.get() != tf->texture.get())
+			texCache.DeleteLater(std::move(oldTexture));
 	}
 	else if (tf->IsCustomTextureAvailable())
 	{
-		texCache.DeleteLater(tf->texture);
-		tf->texture.reset();
-		// FIXME textureView
-		tf->loadCustomTexture();
+		ComPtr<ID3D11Texture2D> oldTexture = tf->texture;
+		if (tf->CheckCustomTexture() && oldTexture)
+			texCache.DeleteLater(std::move(oldTexture));
 	}
 	return tf;
 }
@@ -631,8 +653,9 @@ void DX11Renderer::setRenderState(const PolyParam *gp)
 			// Trilinear pass A
 			constants.trilinearAlpha = 1.f - constants.trilinearAlpha;
 	}
-	else
+	else {
 		constants.trilinearAlpha = 1.f;
+	}
 
 	bool color_clamp = gp->tsp.ColorClamp && (rendContext->fog_clamp_min.full != 0 || rendContext->fog_clamp_max.full != 0xffffffff);
 	int fog_ctrl = config::Fog ? gp->tsp.FogCtrl : 2;
@@ -648,6 +671,27 @@ void DX11Renderer::setRenderState(const PolyParam *gp)
 			gpuPalette = 1; // force nearest
 		else if (config::TextureFiltering == 2)
 			gpuPalette = 2; // force linear
+	}
+
+	if (gp->tsp.DstSelect == 1)
+	{
+		if (!renderingToSecAccum)
+		{
+			renderingToSecAccum = true;
+			makeSecondAccumFB();
+			ID3D11ShaderResourceView * const nullView = nullptr;
+			deviceContext->PSSetShaderResources(6, 1, &nullView);
+			deviceContext->OMSetRenderTargets(1, &fbSecondAccum.get(), depthTexView);
+		}
+	}
+	else if (renderingToSecAccum)
+	{
+		renderingToSecAccum = false;
+		if (rendContext->isRTT)
+			deviceContext->OMSetRenderTargets(1, &rttRenderTarget.get(), depthTexView);
+		else
+			deviceContext->OMSetRenderTargets(1, &fbRenderTarget.get(), depthTexView);
+		deviceContext->PSSetShaderResources(6, 1, &fbSecondAccumView.get());
 	}
 
 	ComPtr<ID3D11VertexShader> vertexShader = shaders->getVertexShader(gp->pcw.Gouraud, gp->isNaomi2());
@@ -666,7 +710,8 @@ void DX11Renderer::setRenderState(const PolyParam *gp)
 			gp->pcw.Gouraud,
 			Type == ListType_Punch_Through,
 			clipmode == TileClipping::Inside,
-			dithering);
+			dithering,
+			gp->tsp.SrcSelect == 1);
 	deviceContext->PSSetShader(pixelShader, nullptr, 0);
 
 	if (gpuPalette != 0)
@@ -799,6 +844,7 @@ void DX11Renderer::drawSorted(int first, int count, bool multipass)
 				true,
 				false,
 				false,
+				false,
 				false);
 		deviceContext->PSSetShader(pixelShader, nullptr, 0);
 
@@ -906,6 +952,7 @@ void DX11Renderer::drawModVols(int first, int count)
 
 void DX11Renderer::drawStrips()
 {
+	renderingToSecAccum = false;
 	RenderPass previous_pass {};
     for (int render_pass = 0; render_pass < (int)rendContext->render_passes.size(); render_pass++)
     {
@@ -1472,6 +1519,40 @@ void DX11Renderer::renderVideoRouting()
 		os_VideoRoutingTermDX();
 	}
 #endif
+}
+
+void DX11Renderer::makeSecondAccumFB()
+{
+	u32 width, height;
+	if (rendContext->isRTT) {
+		width = rendContext->framebufferWidth;
+		height = rendContext->framebufferHeight;
+	}
+	else {
+		width = this->width;
+		height = this->height;
+	}
+	if (fbSecondAccumTex != nullptr)
+	{
+		D3D11_TEXTURE2D_DESC desc;
+		fbSecondAccumTex->GetDesc(&desc);
+		if (desc.Width != width || desc.Height != height)
+		{
+			fbSecondAccumTex.reset();
+			fbSecondAccum.reset();
+			fbSecondAccumView.reset();
+		}
+	}
+	if (fbSecondAccumTex == nullptr)
+	{
+		createTexAndRenderTarget(fbSecondAccumTex, fbSecondAccum, width, height);
+
+		D3D11_SHADER_RESOURCE_VIEW_DESC viewDesc{};
+		viewDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+		viewDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+		viewDesc.Texture2D.MipLevels = 1;
+		device->CreateShaderResourceView(fbSecondAccumTex, &viewDesc, &fbSecondAccumView.get());
+	}
 }
 
 Renderer *rend_DirectX11()

@@ -1,6 +1,7 @@
 target_sources(${PROJECT_NAME} PRIVATE
         alienfnt_modem.cpp
         alienfnt_modem.h
+        capcom.cpp
         dns.cpp
         ggpo.cpp
         ggpo.h
@@ -21,4 +22,6 @@ target_sources(${PROJECT_NAME} PRIVATE
         dcnet.h
         ice.cpp
         ice.h
-        ifaddrs.c)
+        ifaddrs.c
+        rawmodem.cpp
+        rawmodem.h)

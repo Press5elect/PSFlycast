@@ -25,6 +25,7 @@
 #include "hw/naomi/naomi_cart.h"
 #include "reios/reios.h"
 #include "hw/sh4/modules/mmu.h"
+#include "hw/sh4/modules/modules.h"
 #include "hw/sh4/sh4_if.h"
 #include "hw/sh4/sh4_mem.h"
 #include "hw/sh4/sh4_sched.h"
@@ -42,14 +43,18 @@
 #include "hw/pvr/pvr.h"
 #include "profiler/fc_profiler.h"
 #include "oslib/storage.h"
-#include "wsi/context.h"
-#include <chrono>
 #ifndef LIBRETRO
 #include "ui/gui.h"
 #endif
-#include "hw/sh4/sh4_interpreter.h"
-#include "hw/sh4/dyna/ngen.h"
 #include "oslib/i18n.h"
+
+#include <algorithm>
+#include <chrono>
+#include <exception>
+#include <future>
+#include <mutex>
+#include <string>
+#include <utility>
 
 settings_t settings;
 constexpr char const *BIOS_TITLE = "Dreamcast BIOS";
@@ -259,7 +264,33 @@ static void loadSpecialSettings()
 				|| prod_id == "T1235M"   // Vampire Chronicle for Matching Service
 				|| prod_id == "T22901N"  // Roadsters (US)
 				|| prod_id == "T28202M"  // Shin Nihon Pro Wrestling 4
-				|| prod_id == "T9512N")) // The Grinch (US)
+				|| prod_id == "T9512N"	 // The Grinch (US)
+				|| prod_id == "51034"	 // Generator Vol.1
+				|| prod_id == "MK-51057" // Generator Vol.2
+				|| prod_id == "T15128N"	 // Coaster Works
+				|| prod_id == "T9505N"	 // ESPN-NBA 2 Night
+				|| prod_id == "T-9703N"  // NFL Blitz 2000
+				|| prod_id == "T-8106N"  // Shadow Man
+				|| prod_id == "T15106N"	 // Slave Zero
+				|| prod_id == "T40402N"	 // Tom Clancy's Rainbow Six - Rouge Spear
+				|| prod_id == "T15125N"	 // Unreal Tournament
+				|| prod_id == "6107140"  // Dorimaga GD Vol.1
+				|| prod_id == "T41202M"	 // Boku no tennis jinsei
+				|| prod_id == "T9503M"	 // Eisei Meijin III
+				|| prod_id == "T41201M"	 // Jet Coaster Dream
+				|| prod_id == "T40902M"	 // Jet Coaster Dream 2
+				|| prod_id == "T20105M"	 // Kanon
+				|| prod_id == "T19702M"	 // Memories Off Complete
+				|| prod_id == "T17001M"	 // Pen Pen Tri Iceron (JP)
+				|| prod_id == "T1301M"	 // Revive - Sosei
+				|| prod_id == "T15003M"	 // Seitai Heiki Expendable
+				|| prod_id == "T38805M"	 // Sengoku Turb FID
+				|| prod_id == "T20104M"	 // Sentimental Graffiti 2
+				|| prod_id == "T16601M"	 // Shin Honkaku Hanafuda
+				|| prod_id == "T1236M"	 // Super Street Fighter IIX For Matching Service
+				|| prod_id == "T36501M"	 // Vigilante 8 (JP)
+				|| prod_id == "T5301M"	 // World Neverland Plus - Olerud Kingdom Story
+				|| prod_id == "HDR-0198")) // World Series Baseball 2K2 (JP)
 		{
 			NOTICE_LOG(BOOT, "Game doesn't support RGB. Using TV Composite instead");
 			config::Cable.override(3);
@@ -279,8 +310,7 @@ static void loadSpecialSettings()
 		}
 		else if (prod_id == "T17708N"	// Stupid Invaders (US)
 			|| prod_id == "T17711D"		// Stupid Invaders (EU)
-			|| prod_id == "T46509M"		// Suika (JP)
-			|| prod_id == "T36901M")	// Cool Boarders Burrrn (JP)
+			|| prod_id == "T46509M")	// Suika (JP)
 		{
 			NOTICE_LOG(BOOT, "Forcing HLE BIOS");
 			config::UseReios.override(true);
@@ -875,7 +905,6 @@ void loadGameSpecificSettings()
 	loadSpecialSettings();
 
 	config::Settings::instance().setGameId(settings.content.gameId);
-	custom_texture.init();
 
 	// Reload per-game settings
 	config::Settings::instance().load(true);
@@ -907,11 +936,8 @@ void Emulator::stepRange(u32 from, u32 to)
 
 void Emulator::loadstate(Deserializer& deser)
 {
-	if (!custom_texture.preloaded())
-	{
-		custom_texture.terminate();
-		custom_texture.init();
-	}
+	if (config::customTexturePreloadMode() == config::CustomTexturePreloadMode::Off)
+		custom_texture.refresh();
 #if FEAT_AREC == DYNAREC_JIT
 	aica::arm::recompiler::flush();
 #endif
@@ -1133,7 +1159,6 @@ void Emulator::diskChange()
 {
 	config::Settings::instance().reset();
 	config::Settings::instance().load(false);
-	custom_texture.terminate();
 	if (!settings.content.path.empty())
 	{
 		hostfs::FileInfo info = hostfs::storage().getFileInfo(settings.content.path);

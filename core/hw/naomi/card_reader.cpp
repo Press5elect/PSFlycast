@@ -22,6 +22,8 @@
 #include "hw/maple/maple_cfg.h"
 #include "hw/maple/maple_devs.h"
 #include "oslib/i18n.h"
+#include "stdclass.h"
+#include "input/gamepad_device.h"
 #include <deque>
 #include <memory>
 #include <cerrno>
@@ -39,6 +41,8 @@ public:
 		if (cardInserted)
 			INFO_LOG(NAOMI, "Card inserted");
 	}
+
+	virtual void ejectCard() {}
 
 protected:
 	virtual bool loadCard() = 0;
@@ -655,6 +659,289 @@ const u8 ClubKartCardReader::CommandBytes[][2]
 
 static std::unique_ptr<CardReaderWriter> cardReader;
 
+#define HWLOG(...) DEBUG_LOG(NAOMI, __VA_ARGS__)
+
+// WCCF, Dragon Treasure IC card reader/writer (Saxa HW210), hooked to the SH4 SCIF port
+class SaxaHW210 : public CardReaderWriter, public SerialPort::Pipe
+{
+public:
+	SaxaHW210() {
+		SCIFSerialPort::Instance().setPipe(this);
+	}
+	~SaxaHW210() override {
+		SCIFSerialPort::Instance().setPipe(nullptr);
+		kcode[1] |= DC_DPAD_UP;
+	}
+
+	void write(u8 b) override
+	{
+		inBuffer.push_back(b);
+		if (inBuffer.size() < 6)
+			return;
+
+		u32 size = (inBuffer[2] << 8) + inBuffer[3] + 5;
+		if (inBuffer.size() < size)
+			return;
+
+		u8 crc = calcCrc(inBuffer.begin(), inBuffer.begin() + size - 1);
+		if (crc != inBuffer[size - 1]) {
+			WARN_LOG(NAOMI, "Invalid CRC for command %02x size %d", inBuffer[1], size);
+		}
+		else
+		{
+			dumpPkt();
+			size_t outStart = outBuffer.size();
+			const u16 arg = (inBuffer[4] << 8) | inBuffer[5];
+			switch (inBuffer[1])
+			{
+			case 0x10: // sz 0 arg 1000
+				sendCmd(0x10); // returned arg should be != 0x20
+				break;
+			case 0x11: // sz 8 arg 6: 00 00 00 00 00 00
+				sendCmd(0x11);
+				break;
+			case 0x14: // sz 0 arg 1400:
+				// when returning arg=0x20 in cmd 10
+				sendCmd(0x14);
+				break;
+			case 0x20: // Select card slot
+				// sz 8 arg 1: 00 00 00 00 00 00
+				// arg is selected card slot#. Normally 1 but set to 0 to access other card
+				// expects arg=0, no payload
+				cardIndex = arg;
+				sendCmd(0x20);
+				break;
+			case 0x21: // sz 10 arg 0: 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+				// Returning arg=1 indicates that 2 cards are in the reader
+				// payload is some card identifier, sent back in cmd 22
+				sendCmd(0x21, 8, cardExpired && cardIndex == 1);
+				outBuffer.push_back(0);
+				outBuffer.push_back(cardIndex);
+				outBuffer.push_back(0);
+				outBuffer.push_back(cardIndex);
+				for (int i = 0; i < 4; i++)
+					outBuffer.push_back(0);
+				break;
+			case 0x22: // sz 8 arg 0: 00 00 00 00 00 00
+				// expects arg=0
+				// payload[0-1] is used as cmd arg for all operations below
+				sendCmd(0x22, 8);
+				outBuffer.push_back(0);
+				outBuffer.push_back(arg);
+				for (int i = 0; i < 6; i++)
+					outBuffer.push_back(0);
+				break;
+
+			case 0x24: // Read single block
+				{
+					// sz 8 arg 0: 00 04 00 00 00 00
+					sendCmd(0x24, 8);
+					u32 offset = inBuffer[7] * 8;
+					for (int i = 0; i < 8; i++)
+					{
+						if (offset + i < CARD_SZ)
+							outBuffer.push_back(cardData[arg][offset + i]);
+						else
+							outBuffer.push_back(0);
+					}
+					break;
+				}
+			case 0x25: // Write single block
+				// sz 10 arg 0: 00 00 00 04 95 71 25 76 12 34 56 78 00 00
+				writeCard(arg, inBuffer[9], 1, &inBuffer[10]);
+				sendCmd(0x25);
+				break;
+
+			case 0x26:	// Decrement remaining writes
+				// sz 8 arg 800: 00 05 00 01 00 00
+				// sz 8 arg 800: 00 05 ff fd 00 00 after resigning
+				{
+					u8 *p = &cardData[arg][inBuffer[7] * 8];
+					u16 remain = (p[0] << 8) | p[1];
+					const u16 count = (inBuffer[8] << 8) | inBuffer[9];
+					remain -= count;
+					p[0] = remain >> 8;
+					p[1] = remain & 0xff;
+					// After transferring an expired club card, the game will decrease
+					// the source card write count to 0. This prevents the card from being
+					// transferred again. In the Flycast case, the old card doesn't exist anymore
+					// so we ignore it.
+					saveCard(arg);
+					sendCmd(0x26);
+					break;
+				}
+			case 0x27: // sz 8 arg 800: 00 00 00 00 00 00
+				sendCmd(0x27);
+				break;
+			case 0x31: // sz 8 arg 800: 00 00 00 06 00 00
+				sendCmd(0x31);
+				break;
+			case 0x33: // Get remaining writes
+				{
+					// sz 8 arg 0: 00 05 00 00 00 00
+					// expects arg=8008 or 0
+					sendCmd(0x33, 8);
+					// must be ffff for blank cards
+					const u8 *p = &cardData[arg][inBuffer[7] * 8];
+					outBuffer.push_back(p[0]);
+					outBuffer.push_back(p[1]);
+					for (int i = 0; i < 6; i++)
+						outBuffer.push_back(0);
+
+					break;
+				}
+
+			case 0x34: // Read card
+				{
+					// sz 8 arg 0: 00 08 00 1e 00 00
+					//            offset size (in 8-byte blocks)
+					const u32 offset = ((inBuffer[6] << 8) | inBuffer[7]) * 8;
+					u32 size = ((inBuffer[8] << 8) | inBuffer[9]) * 8;
+					size = std::min(size, (u32)CARD_SZ - offset);
+					sendCmd(0x34, size);
+					for (u32 i = 0; i < size; i++)
+						outBuffer.push_back(cardData[arg][offset + i]);
+					break;
+				}
+			case 0x35: // Write card
+				writeCard(arg, (inBuffer[6] << 8) | inBuffer[7],
+						(inBuffer[8] << 8) | inBuffer[9], &inBuffer[10]);
+				sendCmd(0x35);
+				break;
+
+			default:
+				WARN_LOG(NAOMI, "HW210: unhandled command %02x", inBuffer[1]);
+				break;
+			}
+			if (outBuffer.size() != outStart)
+				outBuffer.push_back(calcCrc(outBuffer.begin() + outStart, outBuffer.end()));
+		}
+		inBuffer.erase(inBuffer.begin(), inBuffer.begin() + size);
+	}
+
+	int available() override {
+		return outBuffer.size();
+	}
+
+	u8 read() override
+	{
+		if (outBuffer.empty())
+			return 0;
+		u8 b = outBuffer.front();
+		outBuffer.pop_front();
+		return b;
+	}
+
+	void ejectCard() override
+	{
+		if (!cardInserted)
+			return;
+		NOTICE_LOG(NAOMI, "Card ejected");
+		os_notify(i18n::T("Card ejected"), 2000);
+		cardInserted = false;
+		cardExpired = false;
+		memset(cardData[0], 0, CARD_SZ);
+		memset(cardData[1], 0, CARD_SZ);
+		kcode[1] |= DC_DPAD_UP;
+	}
+
+protected:
+	bool loadCard() override
+	{
+		memset(cardData[0], 0, CARD_SZ);
+		memset(cardData[1], 0, CARD_SZ);
+		bool ret = CardReaderWriter::loadCard(cardData[1], CARD_SZ);
+		if (!ret) {
+			initCard(1);
+		}
+		else
+		{
+			cardExpired = cardData[1][0x28] == 0 && cardData[1][0x29] == 1;
+			if (cardExpired) {
+				memcpy(cardData[0], cardData[1], CARD_SZ);
+				initCard(1);
+			}
+		}
+		kcode[1] &= ~DC_DPAD_UP; // card sensor
+		return true;
+	}
+
+private:
+	void dumpPkt()
+	{
+		std::string payload;
+		u32 size = (inBuffer[2] << 8) + inBuffer[3];
+		for (u32 i = 2; i < size; i++)
+			payload += strprintf("%02x ", inBuffer[4 + i]);
+		if (inBuffer[1] != 0x24 || inBuffer[6] != 0 || inBuffer[7] != 0)
+			HWLOG("HW210: cmd %02x sz %x arg %x: %s", inBuffer[1], size, (inBuffer[4] << 8) + inBuffer[5], payload.c_str());
+	}
+
+	void sendCmd(u8 cmd, u16 payloadSz = 0, u16 arg = 0)
+	{
+		outBuffer.push_back(0x10);	// status = OK? FF seems to be accepted too
+		outBuffer.push_back(cmd);
+		outBuffer.push_back((payloadSz + 2) >> 8);
+		outBuffer.push_back(payloadSz + 2);
+		outBuffer.push_back(arg >> 8);
+		outBuffer.push_back(arg);
+	}
+
+	void initCard(int index)
+	{
+		u8 *card = cardData[index];
+		// Must start with 95 71 25 7x ?? ?? ?? ??
+		// ? can be any digit [0-9]
+		// x must be the sum of all ? digits % 10
+		static constexpr u8 UID[] = { 0x95, 0x71, 0x25, 0x70 };
+		memset(card, 0, CARD_SZ);
+		const u32 offset = 4 * 8;
+		memcpy(&card[offset], UID, sizeof(UID));
+		int sum = 0;
+		srand(time(nullptr) + index * 2);
+		for (int i = 0; i < 4; i++)
+		{
+			const u8 n = rand() % 100;
+			card[i + offset + 4] = ((n / 10) << 4) | (n % 10);
+			sum += n / 10 + n % 10;
+		}
+		card[offset + 3] = (card[offset + 3] & 0xf0) | (sum % 10);
+		card[0x28] = 0xff;
+		card[0x29] = 0xff;
+		NOTICE_LOG(NAOMI, "WCCF IC card %d created: %02x %02x %02x %02x %02x", index, card[offset + 3],
+				card[offset + 4], card[offset + 5],
+				card[offset + 6], card[offset + 7]);
+	}
+
+	void writeCard(int cardIndex, u32 offset, u32 blocks, const u8 *data)
+	{
+		offset *= 8; // in bytes
+		if (offset >= CARD_SZ)
+			return;
+
+		u32 size = blocks * 8;
+		size = std::min(size, (u32)CARD_SZ - offset);
+		if (memcmp(&cardData[cardIndex][offset], data, size) == 0)
+			return;
+
+		memcpy(&cardData[cardIndex][offset], data, size);
+		saveCard(cardIndex);
+	}
+
+	void saveCard(int cardIndex)
+	{
+		if (cardIndex == 1)
+			CardReaderWriter::saveCard(cardData[1], CARD_SZ);
+		else
+			WARN_LOG(NAOMI, "Card #0 not saved");
+	}
+
+	static constexpr size_t CARD_SZ = 0x270;
+	u8 cardData[2][CARD_SZ] {};
+	int cardIndex = 1;
+	bool cardExpired = false;
+};
+
 void initdInit() {
 	term();
 	cardReader = std::make_unique<InitialDCardReader>();
@@ -672,6 +959,11 @@ void derbyInit()
 void clubkInit() {
 	term();
 	cardReader = std::make_unique<ClubKartCardReader>();
+}
+
+void wccfInit() {
+	term();
+	cardReader = std::make_unique<SaxaHW210>();
 }
 
 void term() {
@@ -764,6 +1056,11 @@ void insertCard(int playerNum)
 		barcodeReader->insertCard();
 	else
 		insertRfidCard(playerNum);
+}
+void ejectCard()
+{
+	if (cardReader != nullptr)
+		cardReader->ejectCard();
 }
 
 bool readerAvailable()

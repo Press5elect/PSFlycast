@@ -20,7 +20,13 @@
 #include "hw/mem/addrspace.h"
 
 #include <mutex>
+#include <new>
+#include <type_traits>
 #include <xxhash.h>
+
+#if HOST_CPU == CPU_ARM64
+#include <arm_neon.h>
+#endif
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -285,12 +291,12 @@ void BaseTextureCacheData::unprotectVRam()
 bool BaseTextureCacheData::Delete()
 {
 	unprotectVRam();
-
-	if (custom_load_in_progress > 0)
-		return false;
-
-	free(custom_image_data);
-	custom_image_data = nullptr;
+	custom_texture.cancelRequest(customRequestId);
+	customRequestId = {};
+	customPayload.reset();
+	gpuPreloadedTexture.reset();
+	usingGpuPreloadedTexture = false;
+	customMipLevels = 0;
 
 	return true;
 }
@@ -310,10 +316,13 @@ BaseTextureCacheData::BaseTextureCacheData(TSP tsp, TCW tcw, int area)
 	Updates = 0;
 	dirty = FrameCount;
 	lock_block = nullptr;
-	custom_image_data = nullptr;
-	custom_load_in_progress = 0;
+	customPayload.reset();
+	gpuPreloadedTexture.reset();
+	customRequestId = {};
 	gpuPalette = false;
 	is_custom_replaced = false;
+	usingGpuPreloadedTexture = false;
+	customMipLevels = 0;
 
 	//decode info from tsp/tcw into the texture struct
 	tex = &pvrTexInfo[tcw.PixelFmt == PixelReserved ? Pixel1555 : tcw.PixelFmt];	//texture format table entry
@@ -443,6 +452,8 @@ bool BaseTextureCacheData::Update()
 	gpuPalette = false;
 	tex_type = tex->type;
 
+	const u8 *vqCodebook = nullptr;
+	u32 paletteIndex = 0;
 	bool has_alpha = false;
 	if (IsPaletted())
 	{
@@ -459,21 +470,20 @@ bool BaseTextureCacheData::Update()
 		}
 
 		// Get the palette hash to check for future updates
-		// TODO get rid of ::palette_index and ::vq_codebook
 		if (tcw.PixelFmt == PixelPal4)
 		{
 			palette_hash = pal_hash_16[tcw.PalSelect];
-			::palette_index = tcw.PalSelect << 4;
+			paletteIndex = tcw.PalSelect << 4;
 		}
 		else
 		{
 			palette_hash = pal_hash_256[tcw.PalSelect >> 4];
-			::palette_index = (tcw.PalSelect >> 4) << 8;
+			paletteIndex = (tcw.PalSelect >> 4) << 8;
 		}
 	}
 
 	if (tcw.VQ_Comp)
-		::vq_codebook = &vram[startAddress];
+		vqCodebook = &vram[startAddress];
 
 	//texture conversion work
 	u32 stride = width;
@@ -506,6 +516,7 @@ bool BaseTextureCacheData::Update()
 			return false;
 		}
 	}
+	bool dumpReplacedTexture = false;
 	if (custom_texture.enabled())
 	{
 		u32 oldHash = texture_hash;
@@ -522,11 +533,38 @@ bool BaseTextureCacheData::Update()
 			size = originalSize;
 			return true;
 		}
-		custom_texture.loadCustomTextureAsync(this);
+		gpuPreloadedTexture = renderer == nullptr ? nullptr
+				: renderer->findGpuPreloadedTexture(texture_hash,
+						old_vqtexture_hash, old_texture_hash);
+		if (gpuPreloadedTexture)
+		{
+			custom_texture.cancelRequest(customRequestId);
+			customRequestId = {};
+			customPayload.reset();
+		}
+		else
+			custom_texture.loadCustomTextureAsync(this);
+		if (gpuPreloadedTexture || customPayload)
+		{
+			dumpReplacedTexture = config::DumpTextures && config::DumpReplacedTextures.get();
+			if (!dumpReplacedTexture)
+			{
+				const TextureType originalTextureType = tex_type;
+				if (CheckCustomTexture())
+				{
+					protectVRam();
+					PrintTextureName();
+					size = originalSize;
+					return true;
+				}
+				tex_type = originalTextureType;
+			}
+		}
 	}
 	is_custom_replaced = false;
+	customMipLevels = 0;
 
-	void *temp_tex_buffer = NULL;
+	void *temp_tex_buffer = nullptr;
 	u32 upscaled_w = width;
 	u32 upscaled_h = height;
 
@@ -557,6 +595,8 @@ bool BaseTextureCacheData::Update()
 			mipmapped = false;
 		// Force the texture type since that's the only 32-bit one we know
 		tex_type = TextureType::_8888;
+		pb32.setVQCodebook(vqCodebook);
+		pb32.setPaletteIndex(paletteIndex);
 
 		if (mipmapped)
 		{
@@ -572,6 +612,8 @@ bool BaseTextureCacheData::Update()
 					{
 						PixelBuffer<u32> pb0;
 						pb0.init(2, 2 ,false);
+						pb0.setVQCodebook(vqCodebook);
+						pb0.setPaletteIndex(paletteIndex);
 						if (tcw.PixelFmt == PixelYUV)
 							// Use higher LoD mipmap
 							vram_addr = startAddress + VQMipPoint[1];
@@ -614,6 +656,9 @@ bool BaseTextureCacheData::Update()
 	}
 	else if (texconv8 != NULL && tex_type == TextureType::_8)
 	{
+		pb8.setVQCodebook(vqCodebook);
+		pb8.setPaletteIndex(paletteIndex);
+
 		if (mipmapped)
 		{
 			// This shouldn't happen since mipmapped palette textures are converted to rgba
@@ -635,6 +680,9 @@ bool BaseTextureCacheData::Update()
 	}
 	else if (texconv != NULL)
 	{
+		pb16.setVQCodebook(vqCodebook);
+		pb16.setPaletteIndex(paletteIndex);
+
 		if (mipmapped)
 		{
 			pb16.init(width, height, true);
@@ -649,6 +697,8 @@ bool BaseTextureCacheData::Update()
 					{
 						PixelBuffer<u16> pb0;
 						pb0.init(2, 2 ,false);
+						pb0.setVQCodebook(vqCodebook);
+						pb0.setPaletteIndex(paletteIndex);
 						texconv(&pb0, (u8*)&vram[vram_addr], 2, 2);
 						*pb16.data() = *pb0.data(1, 1);
 						continue;
@@ -679,8 +729,20 @@ bool BaseTextureCacheData::Update()
 	//lock the texture to detect changes in it
 	protectVRam();
 
-	UploadToGPU(upscaled_w, upscaled_h, (const u8 *)temp_tex_buffer, IsMipmapped(), mipmapped);
-	if (config::DumpTextures)
+	bool customTextureUploaded = false;
+	if (dumpReplacedTexture)
+	{
+		ComputeHash();
+		custom_texture.dumpTexture(this, upscaled_w, upscaled_h, temp_tex_buffer);
+		NOTICE_LOG(RENDERER, "Dumped texture %x.png. Old hash %x", texture_hash, old_texture_hash);
+		const TextureType originalTextureType = tex_type;
+		customTextureUploaded = CheckCustomTexture();
+		if (!customTextureUploaded)
+			tex_type = originalTextureType;
+	}
+	if (!customTextureUploaded)
+		UploadToGPU(upscaled_w, upscaled_h, (const u8 *)temp_tex_buffer, IsMipmapped(), mipmapped);
+	if (config::DumpTextures && !dumpReplacedTexture)
 	{
 		ComputeHash();
 		custom_texture.dumpTexture(this, upscaled_w, upscaled_h, temp_tex_buffer);
@@ -693,23 +755,242 @@ bool BaseTextureCacheData::Update()
 	return true;
 }
 
-void BaseTextureCacheData::CheckCustomTexture()
+bool BaseTextureCacheData::uploadCustomTexture(const PreparedCustomTexture& texture, bool mipmapped)
 {
-	if (IsCustomTextureAvailable())
+	if (texture.nativeFormat != NativeTextureFormat::Rgba8Unorm || texture.levels.size() != 1)
+		return false;
+	tex_type = TextureType::_8888;
+	UploadToGPU(texture.width, texture.height, texture.bytes.data(),
+			mipmapped && texture.generateMipmaps, false);
+	return true;
+}
+
+bool BaseTextureCacheData::CheckCustomTexture()
+{
+	if (gpuPreloadedTexture)
 	{
+		if (!useGpuPreloadedTexture(gpuPreloadedTexture))
+		{
+			WARN_LOG(RENDERER, "Could not use GPU-preloaded custom texture");
+			custom_texture.reportError(CustomTextureException::Error::Upload);
+			custom_texture.showErrorNotification();
+			gpuPreloadedTexture.reset();
+			return false;
+		}
 		tex_type = TextureType::_8888;
 		gpuPalette = false;
 		is_custom_replaced = true;
-		UploadToGPU(custom_width, custom_height, custom_image_data, IsMipmapped(), false);
-		free(custom_image_data);
-		custom_image_data = nullptr;
+		usingGpuPreloadedTexture = true;
+		customMipLevels = gpuPreloadedTexture->mipLevels;
+		return true;
 	}
+	if (!customPayload && customRequestId)
+	{
+		bool failed = false;
+		customPayload = custom_texture.takePreparedTexture(customRequestId, failed);
+		if (failed)
+			customRequestId = {};
+	}
+	if (!customPayload)
+		return false;
+	const CustomTextureCapabilities capabilities = custom_texture.getCapabilities();
+	if (!capabilities.canUpload(customPayload->nativeFormat, customPayload->width,
+			customPayload->height, static_cast<u32>(customPayload->levels.size())))
+	{
+		WARN_LOG(RENDERER, "Discarding incompatible prepared custom texture %08x",
+				customPayload->replacementHash);
+		custom_texture.reportError(customPayload->width > capabilities.max2DWidth
+				|| customPayload->height > capabilities.max2DHeight
+				? CustomTextureException::Error::TextureTooLarge
+				: CustomTextureException::Error::Upload);
+		custom_texture.showErrorNotification();
+		customPayload.reset();
+		customRequestId = {};
+		return false;
+	}
+	bool uploaded = false;
+	bool uploadFailureLogged = false;
+	const bool mipmapped = tcw.MipMapped != 0 && tcw.ScanOrder == 0 && config::UseMipmaps;
+	try
+	{
+		uploaded = uploadCustomTexture(*customPayload, mipmapped);
+	}
+	catch (const FlycastException& exception)
+	{
+		WARN_LOG(RENDERER, "Custom texture validation failed for %08x (%s): %s",
+				customPayload->replacementHash,
+				nativeTextureFormatName(customPayload->nativeFormat), exception.what());
+		uploadFailureLogged = true;
+	}
+	catch (const std::bad_alloc& exception)
+	{
+		WARN_LOG(RENDERER, "Custom texture upload allocation failed for %08x (%s): %s",
+				customPayload->replacementHash,
+				nativeTextureFormatName(customPayload->nativeFormat), exception.what());
+		uploadFailureLogged = true;
+	}
+	if (!uploaded)
+	{
+		if (!uploadFailureLogged)
+			WARN_LOG(RENDERER, "Custom texture upload failed for %08x (%s)",
+					customPayload->replacementHash, nativeTextureFormatName(customPayload->nativeFormat));
+		custom_texture.reportError(CustomTextureException::Error::Upload);
+		custom_texture.showErrorNotification();
+		customPayload.reset();
+		customRequestId = {};
+		return false;
+	}
+	tex_type = TextureType::_8888;
+	gpuPalette = false;
+	is_custom_replaced = true;
+	customMipLevels = static_cast<u8>(mipmapped && customPayload->generateMipmaps
+			? mipmapLevelCount(customPayload->width, customPayload->height)
+			: customPayload->levels.size());
+	customPayload.reset();
+	customRequestId = {};
+	return true;
 }
 
 void BaseTextureCacheData::SetDirectXColorOrder(bool enabled) {
 	pvrTexInfo = enabled ? directx::pvrTexInfo : opengl::pvrTexInfo;
 	pal_needs_update = true;
 }
+
+#if HOST_CPU == CPU_ARM64
+static inline bool pvr32SpanIsContiguous(u32 addr, u32 logicalBytes)
+{
+	const u32 maskedAddr = addr & VRAM_MASK;
+	if ((maskedAddr & 3) != 0
+			|| logicalBytes > VRAM_32_BANK_BIT
+			|| (maskedAddr & (VRAM_32_BANK_BIT - 1)) > VRAM_32_BANK_BIT - logicalBytes
+			|| maskedAddr > VRAM_MASK - (logicalBytes - 1))
+		return false;
+
+	// The 32-bit bus doubles the offset and adds bank * 4. NEON deinterleaving
+	// loads therefore access twice the logical span, including the other bank.
+	return (u64)pvr_map32(maskedAddr) + (u64)logicalBytes * 2 <= (u64)vram.getSize();
+}
+
+template<typename Packer>
+static inline void storeFramebufferRgba(u32 *dst, uint8x16_t red, uint8x16_t green, uint8x16_t blue)
+{
+	uint8x16x4_t rgba;
+	if constexpr (std::is_same_v<Packer, RGBAPacker>)
+	{
+		rgba.val[0] = red;
+		rgba.val[2] = blue;
+	}
+	else
+	{
+		rgba.val[0] = blue;
+		rgba.val[2] = red;
+	}
+	rgba.val[1] = green;
+	rgba.val[3] = vdupq_n_u8(0xff);
+	vst4q_u8((u8 *)dst, rgba);
+}
+
+template<typename Packer, bool RGB565>
+static void readFramebuffer16Line(u32 addr, u32 *dst, int width, u32 fb_concat)
+{
+	int x = 0;
+	for (; x < width && (addr & 3) != 0; x++, addr += 2)
+	{
+		const u16 src = pvr_read32p<u16>(addr);
+		if constexpr (RGB565)
+			dst[x] = Packer::pack((((src >> 11) & 0x1f) << 3) | fb_concat,
+					(((src >> 5) & 0x3f) << 2) | (fb_concat & 3),
+					((src & 0x1f) << 3) | fb_concat, 0xff);
+		else
+			dst[x] = Packer::pack((((src >> 10) & 0x1f) << 3) | fb_concat,
+					(((src >> 5) & 0x1f) << 3) | fb_concat,
+					((src & 0x1f) << 3) | fb_concat, 0xff);
+	}
+
+	for (; x + 16 <= width && pvr32SpanIsContiguous(addr, 32); x += 16, addr += 32)
+	{
+		const u8 *mapped = &vram[pvr_map32(addr)];
+		const uint16x8_t src0 = vreinterpretq_u16_u32(vld2q_u32((const u32 *)mapped).val[0]);
+		const uint16x8_t src1 = vreinterpretq_u16_u32(vld2q_u32((const u32 *)(mapped + 32)).val[0]);
+		const uint16x8_t concat5 = vdupq_n_u16(fb_concat);
+
+		uint16x8_t red0;
+		uint16x8_t red1;
+		uint16x8_t green0;
+		uint16x8_t green1;
+		if constexpr (RGB565)
+		{
+			red0 = vorrq_u16(vshlq_n_u16(vshrq_n_u16(src0, 11), 3), concat5);
+			red1 = vorrq_u16(vshlq_n_u16(vshrq_n_u16(src1, 11), 3), concat5);
+			const uint16x8_t concat6 = vdupq_n_u16(fb_concat & 3);
+			green0 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src0, 5), vdupq_n_u16(0x3f)), 2), concat6);
+			green1 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src1, 5), vdupq_n_u16(0x3f)), 2), concat6);
+		}
+		else
+		{
+			red0 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src0, 10), vdupq_n_u16(0x1f)), 3), concat5);
+			red1 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src1, 10), vdupq_n_u16(0x1f)), 3), concat5);
+			green0 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src0, 5), vdupq_n_u16(0x1f)), 3), concat5);
+			green1 = vorrq_u16(vshlq_n_u16(vandq_u16(vshrq_n_u16(src1, 5), vdupq_n_u16(0x1f)), 3), concat5);
+		}
+		const uint16x8_t blue0 = vorrq_u16(vshlq_n_u16(vandq_u16(src0, vdupq_n_u16(0x1f)), 3), concat5);
+		const uint16x8_t blue1 = vorrq_u16(vshlq_n_u16(vandq_u16(src1, vdupq_n_u16(0x1f)), 3), concat5);
+		storeFramebufferRgba<Packer>(dst + x,
+				vcombine_u8(vmovn_u16(red0), vmovn_u16(red1)),
+				vcombine_u8(vmovn_u16(green0), vmovn_u16(green1)),
+				vcombine_u8(vmovn_u16(blue0), vmovn_u16(blue1)));
+	}
+
+	for (; x < width; x++, addr += 2)
+	{
+		const u16 src = pvr_read32p<u16>(addr);
+		if constexpr (RGB565)
+			dst[x] = Packer::pack((((src >> 11) & 0x1f) << 3) | fb_concat,
+					(((src >> 5) & 0x3f) << 2) | (fb_concat & 3),
+					((src & 0x1f) << 3) | fb_concat, 0xff);
+		else
+			dst[x] = Packer::pack((((src >> 10) & 0x1f) << 3) | fb_concat,
+					(((src >> 5) & 0x1f) << 3) | fb_concat,
+					((src & 0x1f) << 3) | fb_concat, 0xff);
+	}
+}
+
+template<typename Packer>
+static void readFramebufferC888Line(u32 addr, u32 *dst, int width)
+{
+	int x = 0;
+	for (; x + 8 <= width && pvr32SpanIsContiguous(addr, 32); x += 8, addr += 32)
+	{
+		const u8 *mapped = &vram[pvr_map32(addr)];
+		const uint32x4_t src0 = vld2q_u32((const u32 *)mapped).val[0];
+		const uint32x4_t src1 = vld2q_u32((const u32 *)(mapped + 32)).val[0];
+		const uint8x8_t red = vmovn_u16(vcombine_u16(
+				vmovn_u32(vshrq_n_u32(src0, 16)), vmovn_u32(vshrq_n_u32(src1, 16))));
+		const uint8x8_t green = vmovn_u16(vcombine_u16(
+				vmovn_u32(vshrq_n_u32(src0, 8)), vmovn_u32(vshrq_n_u32(src1, 8))));
+		const uint8x8_t blue = vmovn_u16(vcombine_u16(vmovn_u32(src0), vmovn_u32(src1)));
+		uint8x8x4_t rgba;
+		if constexpr (std::is_same_v<Packer, RGBAPacker>)
+		{
+			rgba.val[0] = red;
+			rgba.val[2] = blue;
+		}
+		else
+		{
+			rgba.val[0] = blue;
+			rgba.val[2] = red;
+		}
+		rgba.val[1] = green;
+		rgba.val[3] = vdup_n_u8(0xff);
+		vst4_u8((u8 *)(dst + x), rgba);
+	}
+	for (; x < width; x++, addr += 4)
+	{
+		const u32 src = pvr_read32p<u32>(addr);
+		dst[x] = Packer::pack(src >> 16, src >> 8, src, 0xff);
+	}
+}
+#endif
 
 template<typename Packer>
 void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& width, int& height)
@@ -769,6 +1050,11 @@ void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& wid
 		case fbde_0555:    // 555 RGB
 			for (int y = 0; y < height; y++)
 			{
+#if HOST_CPU == CPU_ARM64
+				readFramebuffer16Line<Packer, false>(addr, dst, width, fb_concat);
+				dst += width;
+				addr += (width + modulus) * bpp;
+#else
 				for (int i = 0; i < width; i++)
 				{
 					u16 src = pvr_read32p<u16>(addr);
@@ -780,12 +1066,18 @@ void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& wid
 					addr += bpp;
 				}
 				addr += modulus * bpp;
+#endif
 			}
 			break;
 
 		case fbde_565:    // 565 RGB
 			for (int y = 0; y < height; y++)
 			{
+#if HOST_CPU == CPU_ARM64
+				readFramebuffer16Line<Packer, true>(addr, dst, width, fb_concat);
+				dst += width;
+				addr += (width + modulus) * bpp;
+#else
 				for (int i = 0; i < width; i++)
 				{
 					u16 src = pvr_read32p<u16>(addr);
@@ -797,6 +1089,7 @@ void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& wid
 					addr += bpp;
 				}
 				addr += modulus * bpp;
+#endif
 			}
 			break;
 		case fbde_888:		// 888 RGB
@@ -827,6 +1120,11 @@ void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& wid
 		case fbde_C888:     // 0888 RGB
 			for (int y = 0; y < height; y++)
 			{
+#if HOST_CPU == CPU_ARM64
+				readFramebufferC888Line<Packer>(addr, dst, width);
+				dst += width;
+				addr += (width + modulus) * bpp;
+#else
 				for (int i = 0; i < width; i++)
 				{
 					u32 src = pvr_read32p<u32>(addr);
@@ -834,6 +1132,7 @@ void ReadFramebuffer(const FramebufferInfo& info, PixelBuffer<u32>& pb, int& wid
 					addr += bpp;
 				}
 				addr += modulus * bpp;
+#endif
 			}
 			break;
 	}
@@ -897,7 +1196,7 @@ public:
 		kval_bit = (fb_w_ctrl.fb_kval & 0x80) << 8;
 	}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -933,7 +1232,7 @@ class FBLineWriter565
 public:
 	FBLineWriter565(FB_W_CTRL_type fb_w_ctrl, PixelWriter& pixWriter) : pixWriter(pixWriter) {}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -968,7 +1267,7 @@ class FBLineWriter4444
 public:
 	FBLineWriter4444(FB_W_CTRL_type fb_w_ctrl, PixelWriter& pixWriter) : pixWriter(pixWriter) {}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -1007,7 +1306,7 @@ public:
 		fb_alpha_threshold = fb_w_ctrl.fb_alpha_threshold;
 	}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -1044,7 +1343,7 @@ class FBLineWriter888
 public:
 	FBLineWriter888(FB_W_CTRL_type fb_w_ctrl, PixelWriter& pixWriter) : pixWriter(pixWriter) {}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -1070,7 +1369,7 @@ public:
 		fb_kval = fb_w_ctrl.fb_kval << 24;
 	}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -1093,7 +1392,7 @@ class FBLineWriter8888
 public:
 	FBLineWriter8888(FB_W_CTRL_type fb_w_ctrl, PixelWriter& pixWriter) : pixWriter(pixWriter) {}
 
-	void write(int xmin, int xmax, const u8 *& pixel, int y)
+	void write(int xmin, int xmax, const u8 *& pixel)
 	{
 		for (int c = xmin; c < xmax; c++)
 		{
@@ -1132,7 +1431,7 @@ static void writeTexture(u32 width, u32 height, const u8 *data, u16 *dst, FB_W_C
 	FBLineWriter lineWriter(fb_w_ctrl, pixWriter);
 	for (u32 l = clip.origin.y; l < height; l++)
 	{
-		lineWriter.write(xmin, xmax, data, l);
+		lineWriter.write(xmin, xmax, data);
 		pixWriter.advance(destPadding);
 		data += srcPadding;
 	}
@@ -1206,12 +1505,128 @@ static void writeFramebufferLW(u32 width, u32 height, const u8 *data, u32 dstAdd
 		p += dp1;
 		pixWriter.advance(adv1);
 
-		lineWriter.write(clip.origin.x, clipWidth, p, l);
+		lineWriter.write(clip.origin.x, clipWidth, p);
 
 		pixWriter.advance(adv2);
 		p += dp2;
 	}
 }
+
+#if HOST_CPU == CPU_ARM64
+template<int PackMode, int Red, int Green, int Blue, int Alpha>
+static inline u16 packFramebuffer16Pixel(const u8 *pixel, FB_W_CTRL_type fb_w_ctrl)
+{
+	const u16 red = pixel[Red];
+	const u16 green = pixel[Green];
+	const u16 blue = pixel[Blue];
+	if constexpr (PackMode == 0)
+		return ((red >> 3) << 10) | ((green >> 3) << 5) | (blue >> 3)
+				| ((fb_w_ctrl.fb_kval & 0x80) << 8);
+	else if constexpr (PackMode == 1)
+		return ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
+	else if constexpr (PackMode == 2)
+		return ((pixel[Alpha] >> 4) << 12) | ((red >> 4) << 8)
+				| ((green >> 4) << 4) | (blue >> 4);
+	else
+		return (pixel[Alpha] >= fb_w_ctrl.fb_alpha_threshold ? 0x8000 : 0)
+				| ((red >> 3) << 10) | ((green >> 3) << 5) | (blue >> 3);
+}
+
+template<int PackMode>
+static inline uint16x8_t packFramebuffer16Pixels(uint8x8_t red, uint8x8_t green,
+		uint8x8_t blue, uint8x8_t alpha, FB_W_CTRL_type fb_w_ctrl)
+{
+	const uint16x8_t red16 = vmovl_u8(red);
+	const uint16x8_t green16 = vmovl_u8(green);
+	const uint16x8_t blue16 = vmovl_u8(blue);
+	if constexpr (PackMode == 0)
+	{
+		uint16x8_t packed = vshlq_n_u16(vshrq_n_u16(red16, 3), 10);
+		packed = vorrq_u16(packed, vshlq_n_u16(vshrq_n_u16(green16, 3), 5));
+		packed = vorrq_u16(packed, vshrq_n_u16(blue16, 3));
+		return vorrq_u16(packed, vdupq_n_u16((fb_w_ctrl.fb_kval & 0x80) << 8));
+	}
+	else if constexpr (PackMode == 1)
+	{
+		uint16x8_t packed = vshlq_n_u16(vshrq_n_u16(red16, 3), 11);
+		packed = vorrq_u16(packed, vshlq_n_u16(vshrq_n_u16(green16, 2), 5));
+		return vorrq_u16(packed, vshrq_n_u16(blue16, 3));
+	}
+	else if constexpr (PackMode == 2)
+	{
+		uint16x8_t packed = vshlq_n_u16(vshrq_n_u16(vmovl_u8(alpha), 4), 12);
+		packed = vorrq_u16(packed, vshlq_n_u16(vshrq_n_u16(red16, 4), 8));
+		packed = vorrq_u16(packed, vshlq_n_u16(vshrq_n_u16(green16, 4), 4));
+		return vorrq_u16(packed, vshrq_n_u16(blue16, 4));
+	}
+	else
+	{
+		uint16x8_t packed = vshlq_n_u16(vshrq_n_u16(red16, 3), 10);
+		packed = vorrq_u16(packed, vshlq_n_u16(vshrq_n_u16(green16, 3), 5));
+		packed = vorrq_u16(packed, vshrq_n_u16(blue16, 3));
+		const uint16x8_t alphaBit = vandq_u16(
+				vshlq_n_u16(vmovl_u8(vcge_u8(alpha, vdup_n_u8(fb_w_ctrl.fb_alpha_threshold))), 8),
+				vdupq_n_u16(0x8000));
+		return vorrq_u16(packed, alphaBit);
+	}
+}
+
+static inline void storeFramebuffer16Pixels(u8 *mapped, uint16x8_t pixels0, uint16x8_t pixels1)
+{
+	const uint32x4_t pairs0 = vreinterpretq_u32_u16(pixels0);
+	const uint32x4_t pairs1 = vreinterpretq_u32_u16(pixels1);
+	vst1q_lane_u32((u32 *)(mapped + 0), pairs0, 0);
+	vst1q_lane_u32((u32 *)(mapped + 8), pairs0, 1);
+	vst1q_lane_u32((u32 *)(mapped + 16), pairs0, 2);
+	vst1q_lane_u32((u32 *)(mapped + 24), pairs0, 3);
+	vst1q_lane_u32((u32 *)(mapped + 32), pairs1, 0);
+	vst1q_lane_u32((u32 *)(mapped + 40), pairs1, 1);
+	vst1q_lane_u32((u32 *)(mapped + 48), pairs1, 2);
+	vst1q_lane_u32((u32 *)(mapped + 56), pairs1, 3);
+}
+
+template<int PackMode, int Red, int Green, int Blue, int Alpha>
+static void writeFramebuffer16Neon(u32 width, u32 height, const u8 *data, u32 dstAddr,
+		FB_W_CTRL_type fb_w_ctrl, u32 linestride, const Rect& clip)
+{
+	u32 padding = linestride;
+	if (padding > width * 2)
+		padding -= width * 2;
+	else
+		padding = 0;
+
+	const int clipWidth = std::min<int>(width, clip.origin.x + clip.size.x);
+	height = std::min<u32>(height, clip.origin.y + clip.size.y);
+	if (clip.origin.x >= clipWidth || clip.origin.y >= (int)height)
+		return;
+
+	const u32 lineStride = width * 2 + padding;
+	const int count = clipWidth - clip.origin.x;
+	for (u32 y = clip.origin.y; y < height; y++)
+	{
+		const u8 *pixel = data + ((size_t)y * width + clip.origin.x) * 4;
+		u32 addr = dstAddr + y * lineStride + clip.origin.x * 2;
+		int x = 0;
+		for (; x < count && (addr & 3) != 0; x++, addr += 2, pixel += 4)
+			pvr_write32p<u16, true>(addr, packFramebuffer16Pixel<PackMode, Red, Green, Blue, Alpha>(pixel, fb_w_ctrl));
+
+		for (; x + 16 <= count && pvr32SpanIsContiguous(addr, 32); x += 16, addr += 32, pixel += 64)
+		{
+			const uint8x16x4_t rgba = vld4q_u8(pixel);
+			const uint16x8_t packed0 = packFramebuffer16Pixels<PackMode>(
+					vget_low_u8(rgba.val[Red]), vget_low_u8(rgba.val[Green]),
+					vget_low_u8(rgba.val[Blue]), vget_low_u8(rgba.val[Alpha]), fb_w_ctrl);
+			const uint16x8_t packed1 = packFramebuffer16Pixels<PackMode>(
+					vget_high_u8(rgba.val[Red]), vget_high_u8(rgba.val[Green]),
+					vget_high_u8(rgba.val[Blue]), vget_high_u8(rgba.val[Alpha]), fb_w_ctrl);
+			storeFramebuffer16Pixels(&vram[pvr_map32(addr)], packed0, packed1);
+		}
+
+		for (; x < count; x++, addr += 2, pixel += 4)
+			pvr_write32p<u16, true>(addr, packFramebuffer16Pixel<PackMode, Red, Green, Blue, Alpha>(pixel, fb_w_ctrl));
+	}
+}
+#endif
 
 template<int Red, int Green, int Blue, int Alpha>
 void WriteFramebuffer(u32 width, u32 height, const u8 *data, u32 dstAddr, FB_W_CTRL_type fb_w_ctrl, u32 linestride, const Rect& clip)
@@ -1219,16 +1634,32 @@ void WriteFramebuffer(u32 width, u32 height, const u8 *data, u32 dstAddr, FB_W_C
 	switch (fb_w_ctrl.fb_packmode)
 	{
 	case 0: // 0555 KRGB 16 bit
+#if HOST_CPU == CPU_ARM64
+		writeFramebuffer16Neon<0, Red, Green, Blue, Alpha>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#else
 		writeFramebufferLW<FBLineWriter0555<Red, Green, Blue, Alpha, FBPixelWriter>>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#endif
 		break;
 	case 1: // 565 RGB 16 bit
+#if HOST_CPU == CPU_ARM64
+		writeFramebuffer16Neon<1, Red, Green, Blue, Alpha>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#else
 		writeFramebufferLW<FBLineWriter565<Red, Green, Blue, Alpha, FBPixelWriter>>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#endif
 		break;
 	case 2: // 4444 ARGB 16 bit
+#if HOST_CPU == CPU_ARM64
+		writeFramebuffer16Neon<2, Red, Green, Blue, Alpha>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#else
 		writeFramebufferLW<FBLineWriter4444<Red, Green, Blue, Alpha, FBPixelWriter>>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#endif
 		break;
 	case 3: // 1555 ARGB 16 bit
+#if HOST_CPU == CPU_ARM64
+		writeFramebuffer16Neon<3, Red, Green, Blue, Alpha>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#else
 		writeFramebufferLW<FBLineWriter1555<Red, Green, Blue, Alpha, FBPixelWriter>>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);
+#endif
 		break;
 	case 4: // 888 RGB 24 bit packed
 		writeFramebufferLW<FBLineWriter888<Red, Green, Blue, Alpha, FBPixelWriter>>(width, height, data, dstAddr, fb_w_ctrl, linestride, clip);

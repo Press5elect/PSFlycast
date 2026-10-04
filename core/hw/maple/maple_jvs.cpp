@@ -26,7 +26,10 @@
 #include "cfg/option.h"
 #include "network/output.h"
 #include "hw/naomi/printer.h"
+#include "hw/naomi/card_reader.h"
+#include "hw/sh4/sh4_sched.h"
 #include "input/haptic.h"
+#include "hw/sh4/sh4_mem.h"
 
 #include <algorithm>
 #include <array>
@@ -635,10 +638,7 @@ public:
 	}
 	void deserialize(Deserializer& deser) override
 	{
-		if (deser.version() >= Deserializer::V31)
-			deser >> out;
-		else
-			out = 0xff;
+		deser >> out;
 		jvs_837_13844::deserialize(deser);
 	}
 
@@ -756,10 +756,7 @@ public:
 	}
 	void deserialize(Deserializer& deser) override
 	{
-		if (deser.version() >= Deserializer::V31)
-			deser >> testMode;
-		else
-			testMode = false;
+		deser >> testMode;
 		if (deser.version() >= Deserializer::V51)
 		{
 			deser >> damper_high;
@@ -942,8 +939,7 @@ public:
 	}
 	void deserialize(Deserializer& deser) override
 	{
-		if (deser.version() >= Deserializer::V31)
-			deser >> gear;
+		deser >> gear;
 		jvs_837_13844_racing::deserialize(deser);
 	}
 
@@ -1020,6 +1016,69 @@ public:
 			v = std::min((int)v + 0x2000, 0xf000);
 		return v;
 	}
+};
+
+class jvs_837_13844_wccf : public jvs_837_13844
+{
+public:
+	jvs_837_13844_wccf(u8 node_id, MIEImpl *parent, int first_player = 0)
+		: jvs_837_13844(node_id, parent, first_player)
+	{}
+
+	void write_digital_out(int count, const u8 *data) override
+	{
+		jvs_837_13844::write_digital_out(count, data);
+		if (count >= 3)
+		{
+			if (data[2] & 0x80) {
+				// solenoid is on
+				solenoidOn = true;
+				solenoidWait = 0;
+			}
+			else
+			{
+				// solenoid is off
+				if (solenoidOn)
+				{
+					// wait 30 frames before ejecting the card
+					if (++solenoidWait >= 30) {
+						card_reader::ejectCard();
+						solenoidOn = false;
+					}
+				}
+			}
+			if (data[0] & 1)
+			{
+				// Player card dispenser
+				if (cardDispenser == 0)
+					NOTICE_LOG(JVS, "WCCF player card dispensed");
+				cardDispenser = sh4_sched_now64();
+			}
+		}
+	}
+
+	void read_digital_in(const u32 *buttons, u32 *v) override
+	{
+		jvs_837_13844::read_digital_in(buttons, v);
+		v[1] |= NAOMI_RIGHT_KEY | NAOMI_BTN1_KEY; // card dispenser sensor off, standby on
+		if (cardDispenser != 0)
+		{
+			// idle: wait for owed cards > 0 && standby=on
+			// payout: assert card vendor payout
+			// payoutwait: wait for !sensor on, decrement owed cards
+			// recvwait: wait for !sensor off -> idle
+			u64 now = sh4_sched_now64();
+			if (now - cardDispenser > 1000_sh4ms)
+				cardDispenser = 0;
+			else
+				v[1] &= ~(NAOMI_RIGHT_KEY | NAOMI_BTN1_KEY); // card dispenser sensor on, standby off
+		}
+	}
+
+private:
+	bool solenoidOn = false;
+	int solenoidWait = 0;
+	u64 cardDispenser = 0;
 };
 
 // Ninja assault
@@ -1309,8 +1368,11 @@ u32 BaseMIE::RawDma(const u32 *buffer_in, u32 buffer_in_len, u32 *buffer_out)
 	u32 resp = dma(cmd);
 	if (resp != MDRE_UnknownCmd)
 	{
-		const u32 reci = (buffer_in[0] >> 8) & 0xFF;
+		u32 reci = (buffer_in[0] >> 8) & 0xFF;
 		const u32 sender = (buffer_in[0] >> 16) & 0xFF;
+		if (reci & 0x20)
+			reci |= getExtDeviceMap();
+
 		buffer_out[0] = (resp << 0 ) | (sender << 8) | (reci << 16) | ((out_len / 4) << 24);
 		return out_len + 4;
 	}
@@ -1383,7 +1445,7 @@ u32 BaseMIE::RawDma(const u32 *buffer_in, u32 buffer_in_len, u32 *buffer_out)
 
 	case MDC_JVSGetId:
 		{
-			DEBUG_LOG(JVS, "bus[%d] JVS Get Id", bus_id);
+			LOGJVS("bus[%d] JVS Get Id", bus_id);
 			static const char ID[56] = "315-6149    COPYRIGHT SEGA ENTERPRISES CO,LTD.  1998";
 			reply(MDRS_JVSGetIdReply, 7);
 			wptr(ID, 28);
@@ -1395,7 +1457,7 @@ u32 BaseMIE::RawDma(const u32 *buffer_in, u32 buffer_in_len, u32 *buffer_out)
 		break;
 
 	default:
-		INFO_LOG(MAPLE, "BaseMIE: Unknown Maple command %x", cmd);
+		INFO_LOG(MAPLE, "bus[%d] BaseMIE: Unknown Maple command %x", bus_id, cmd);
 		reply(MDRE_UnknownCmd);
 		break;;
 	}
@@ -1597,6 +1659,10 @@ MIEImpl::MIEImpl()
 		else if (gameId == "SAMBA DE AMIGO")
 		{
 			io_boards.push_back(std::make_unique<jvs_837_13844_samba>(1, this));
+		}
+		else if (gameId.substr(0, 4) == "WCCF" && config::MultiboardSlaves <= 1)
+		{
+			io_boards.push_back(std::make_unique<jvs_837_13844_wccf>(1, this));
 		}
 		else
 		{
@@ -2038,18 +2104,13 @@ void MIEImpl::deserialize(Deserializer& deser)
 {
 	maple_base::deserialize(deser);
 	deser >> crazy_mode;
-	if (deser.version() >= Deserializer::V35)
-		deser >> hotd2p;
-	else
-		hotd2p = settings.content.gameId == "hotd2p";
+	deser >> hotd2p;
 	deser >> jvs_repeat_request;
 	deser >> jvs_receive_length;
 	deser >> jvs_receive_buffer;
-	if (deser.version() >= Deserializer::V23)
-		deser >> eeprom;
+	deser >> eeprom;
 	u32 board_count;
 	deser >> board_count;
-	deser.skip(sizeof(size_t) - sizeof(u32), Deserializer::V23);
 	for (u32 i = 0; i < board_count; i++)
 		io_boards[i]->deserialize(deser);
 }
@@ -2638,7 +2699,7 @@ u32 RFIDReaderWriterImpl::dma(u32 cmd)
 		return (MapleDeviceRV)0xfe;
 
 	case 0xA1:	// read card data
-		DEBUG_LOG(JVS, "RFID card read (data? %d)", d4Seen);
+		LOGJVS("RFID card read (data? %d)", d4Seen);
 		w32(getStatus());
 		if (!d4Seen)
 			// serial0 and serial1 only
@@ -2667,7 +2728,7 @@ u32 RFIDReaderWriterImpl::dma(u32 cmd)
 			u32 offset = r8() * 4;
 			size_t size = r8() * 4;
 			skip(2);
-			DEBUG_LOG(JVS, "RFID card write: offset 0x%x len %d", offset, (int)size);
+			LOGJVS("RFID card write: offset 0x%x len %d", offset, (int)size);
 			rptr(cardData + offset, std::min(size, sizeof(cardData) - offset));
 			saveCard();
 			return (MapleDeviceRV)0xfe;
@@ -2694,7 +2755,7 @@ u32 RFIDReaderWriterImpl::dma(u32 cmd)
 				counter = 0;
 				break;
 			}
-			DEBUG_LOG(JVS, "RFID decrement %d", counter);
+			LOGJVS("RFID decrement %d", counter);
 			cardData[19 - counter]--;
 			saveCard();
 			w32(getStatus());

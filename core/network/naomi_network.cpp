@@ -199,7 +199,9 @@ bool NaomiNetwork::receive(const sockaddr_in *addr, const Packet *packet, u32 si
 	switch (packet->type)
 	{
 	case SyncReq:
-		if (config::ActAsServer && !_startNow)
+		if (!config::ActAsServer)
+			break;
+		if (!_startNow)
 		{
 			Slave *slave = nullptr;
 			for (auto& s : slaves)
@@ -210,6 +212,13 @@ bool NaomiNetwork::receive(const sockaddr_in *addr, const Packet *packet, u32 si
 				}
 			if (slave == nullptr)
 			{
+				if (maxSlots != 0 && slaves.size() >= (unsigned)maxSlots - 1)
+				{
+					INFO_LOG(NETWORK, "Server is full. Sending NAK");
+					Packet reply(NAck);
+					send(addr, &reply, reply.size());
+					break;
+				}
 				slaves.push_back(Slave());
 				slave = &slaves.back();
 				slave->state = 0; // unused
@@ -240,6 +249,12 @@ bool NaomiNetwork::receive(const sockaddr_in *addr, const Packet *packet, u32 si
 				slave = &slaves[reply.sync.nodeId - 1];
 				send(&slave->addr, &reply, reply.size());
 			}
+		}
+		else
+		{
+			INFO_LOG(NETWORK, "Server has already started. Sending NAK");
+			Packet reply(NAck);
+			send(addr, &reply, reply.size());
 		}
 		break;
 
@@ -279,7 +294,7 @@ bool NaomiNetwork::receive(const sockaddr_in *addr, const Packet *packet, u32 si
 
 	case NAck:
 		WARN_LOG(NETWORK, "NAK received");
-		throw Exception("NAK received");
+		throw Exception("Server has already started");
 		break;
 
 	default:
@@ -459,6 +474,26 @@ void setNaomiNetworkConfig(int node, int nodeCount, bool satellite)
 				WARN_LOG(NETWORK,"Derby Owners Club doesn't support less than 4 satellites");
 			write_naomi_eeprom(0x4e, (read_naomi_eeprom(0x4e) & 0xf8) | std::max(nodeCount - 2, 3));
 		}
+	}
+	else if (gameId.substr(0, 4) == "WCCF" && node != -1)
+	{
+		// wccf420e:
+		//	offset 34h left proj=0, right proj=1, sat0=a, sat1=b, ...
+		//	offset 36h
+		//		max sat 4: 86 (1 * 4), 46 (2 + 2)
+		//		max sat 6: 84 (4 + 2), 85 (2 * 3)
+		//		max sat 8: 80 (or 00) (2 * 4), 81 (3 + 3 + 2), 82 (3 + 2 + 3), 83 (2 + 3 + 3)
+		//		msb is show numbers on/off
+		write_naomi_eeprom(0x34, node);
+		/* Not really needed
+		if (nodeCount >= 8)
+			nodeCount = 0x80;	// 2 rows * 4 sats
+		else if (nodeCount >= 6)
+			nodeCount = 0x85;	// 2 rows * 3 sats
+		else
+			nodeCount = 0x86;	// 1 row * 4 sats
+		write_naomi_eeprom(0x36, nodeCount);
+		*/
 	}
 }
 

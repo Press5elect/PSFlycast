@@ -27,6 +27,9 @@
 #include <algorithm>
 #endif
 #include <chrono>
+#include <future>
+#include <memory>
+#include <mutex>
 
 GameBoxart Boxart::getBoxart(const GameMedia& media)
 {

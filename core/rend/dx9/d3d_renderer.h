@@ -119,6 +119,12 @@ struct D3DRenderer : public Renderer
 	bool GetLastFrame(std::vector<u8>& data, int& width, int& height) override;
 
 private:
+	void clearTextureCache() override
+	{
+		texCache.Clear();
+		texCache.Cleanup();
+	}
+
 	enum ModifierVolumeMode { Xor, Or, Inclusion, Exclusion, ModeCount };
 
 	void resize(int w, int h);
@@ -142,6 +148,7 @@ private:
 	void writeFramebufferToVRAM();
 	void drawOSD();
 	TileClipping setTileClip(u32 tileclip, Rect& rect);
+	void makeSecAccumSurface();
 
 	RenderStateCache devCache;
 	ComPtr<IDirect3DDevice9> device;
@@ -166,6 +173,11 @@ private:
 	ComPtr<IDirect3DSurface9> depthSurface;
 	ComPtr<IDirect3DTexture9> fbScaledTexture;
 	ComPtr<IDirect3DSurface9> fbScaledSurface;
+	ComPtr<IDirect3DTexture9> secAccumTexture;
+	ComPtr<IDirect3DSurface9> secAccumSurface;
+	ComPtr<IDirect3DSurface9> primAccumSurface;
+	u32 secAccumWidth = 0;
+	u32 secAccumHeight = 0;
 
 	u32 width = 0;
 	u32 height = 0;
@@ -181,4 +193,3 @@ private:
 	bool dithering = false;
 	rend_context *rendContext;
 };
-

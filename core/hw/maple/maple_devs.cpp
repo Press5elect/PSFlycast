@@ -841,7 +841,6 @@ struct maple_microphone: maple_base
 		deser >> gain;
 		deser >> sampling;
 		deser >> eight_khz;
-		deser.skip(480 - sizeof(u32) - sizeof(bool) * 2, Deserializer::V23);
 		if (sampling)
 			StartAudioRecording(eight_khz);
 	}
@@ -1888,6 +1887,7 @@ std::shared_ptr<maple_device> maple_Create(MapleDeviceType type)
 	case MDT_SegaControllerXL:	return std::make_shared<FullController>();
 	case MDT_DreamParaParaController:	return std::make_shared<maple_dreamparapara_controller>();
 	case MDT_RFIDReaderWriter:	return RFIDReaderWriter::Create();
+	case MDT_WccfCamera:		return WccfCamera::Create();
 
 	default:
 		ERROR_LOG(MAPLE, "Invalid device type %d", type);

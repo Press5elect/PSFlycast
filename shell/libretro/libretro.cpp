@@ -1261,6 +1261,26 @@ void retro_run()
 	if (devices_need_refresh)
 		refresh_devices(false);
 
+	if (custom_texture.needsRefresh())
+	{
+		custom_texture.refresh();
+	}
+	else if (!custom_texture.isInitialized())
+		custom_texture.init();
+	const bool customTexturePreloading = custom_texture.isPreloading();
+	if (customTexturePreloading)
+	{
+#if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
+		if (isOpenGL(config::RendererType))
+			glsm_ctl(GLSM_CTL_STATE_BIND, nullptr);
+#endif
+		rend_process_custom_texture_preloads();
+#if defined(HAVE_OPENGL) || defined(HAVE_OPENGLES)
+		if (isOpenGL(config::RendererType))
+			glsm_ctl(GLSM_CTL_STATE_UNBIND, nullptr);
+#endif
+	}
+
 	if (custom_texture.isPreloading())
 	{
 		int texLoaded, texTotal;
@@ -1378,7 +1398,7 @@ void retro_reset()
 	retro_audio_flush_buffer();
 	coin_inserted = 0;
 
-	emu.start();
+	first_run = true;
 }
 
 #if defined(HAVE_OIT) || defined(HAVE_VULKAN) || defined(HAVE_D3D11)
@@ -2094,7 +2114,13 @@ static bool set_opengl_hw_render(u32 preferred)
 	if (config::RendererType == RenderType::OpenGL_OIT || config::RendererType == RenderType::DirectX11_OIT || config::RendererType == RenderType::Vulkan_OIT)
 	{
 		config::RendererType = RenderType::OpenGL_OIT;
-#ifndef HAVE_OPENGLES
+#ifdef HAVE_OPENGLES
+		// The PPLL renderer only needs GLES 3.1. Request it explicitly instead
+		// of relying on the frontend to return a newer context for OPENGLES3.
+		params.context_type = RETRO_HW_CONTEXT_OPENGLES_VERSION;
+		params.major = 3;
+		params.minor = 1;
+#else
 		params.context_type = (retro_hw_context_type)preferred;
 		if (preferred == RETRO_HW_CONTEXT_OPENGL)
 		{
@@ -2116,7 +2142,10 @@ static bool set_opengl_hw_render(u32 preferred)
 	else
 #endif
 	{
-#ifndef HAVE_OPENGLES
+#ifdef HAVE_OPENGLES
+		params.context_type = preferred == RETRO_HW_CONTEXT_OPENGLES_VERSION
+				? RETRO_HW_CONTEXT_OPENGLES3 : (retro_hw_context_type)preferred;
+#else
 		params.context_type          = (retro_hw_context_type)preferred;
 		params.major                 = 3;
 		params.minor                 = preferred == RETRO_HW_CONTEXT_OPENGL_CORE ? 2 : 0;
@@ -2127,7 +2156,12 @@ static bool set_opengl_hw_render(u32 preferred)
 	if (glsm_ctl(GLSM_CTL_STATE_CONTEXT_INIT, &params))
 		return true;
 
-#if defined(HAVE_GL3)
+#if defined(HAVE_OPENGLES)
+	params.context_type       = preferred == RETRO_HW_CONTEXT_OPENGLES_VERSION
+			? RETRO_HW_CONTEXT_OPENGLES3 : (retro_hw_context_type)preferred;
+	params.major              = 0;
+	params.minor              = 0;
+#elif defined(HAVE_GL3)
 	params.context_type       = (retro_hw_context_type)preferred;
 	params.major              = 3;
 	params.minor              = 0;
@@ -3701,12 +3735,14 @@ static bool retro_set_eject_state(bool ejected)
 	if (ejected)
 	{
 		emu.openGdrom();
+		custom_texture.init();
 		return true;
 	}
 	else
 	{
 		try {
 			emu.insertGdrom(disk_paths[disk_index]);
+			custom_texture.init();
 			return true;
 		} catch (const FlycastException& e) {
 			ERROR_LOG(GDROM, "%s", e.what());
@@ -3733,6 +3769,7 @@ static bool retro_set_image_index(unsigned index)
 		{
 			// No disk in drive
 			emu.insertGdrom("");
+			custom_texture.init();
 			return true;
 		}
 
@@ -3740,6 +3777,7 @@ static bool retro_set_image_index(unsigned index)
 			return true;
 
 		emu.insertGdrom(disk_paths[index]);
+		custom_texture.init();
 		return true;
 	} catch (const FlycastException& e) {
 		ERROR_LOG(GDROM, "%s", e.what());

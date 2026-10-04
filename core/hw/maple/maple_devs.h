@@ -2,13 +2,12 @@
 #include "types.h"
 #include "maple_cfg.h"
 #include "maple_helper.h"
-#include <cmath>
 #include "input/gamepad.h"
 #include "serialize.h"
 #include "hw/hwreg.h"
 
+#include <cmath>
 #include <memory>
-#include <vector>
 
 enum MapleFunctionID
 {
@@ -204,8 +203,6 @@ void limit_joystick_magnitude(s8& joyx, s8& joyy)
 	}
 }
 
-extern u8 *EEPROM;
-
 #define SWAP32(a) ((((a) & 0xff) << 24)  | (((a) & 0xff00) << 8) | (((a) >> 8) & 0xff00) | (((a) >> 24) & 0xff))
 
 const char *GetCurrentGameButtonName(DreamcastKey key);
@@ -305,6 +302,8 @@ struct BaseMIE : public maple_base
 	u32 dma(u32 cmd) override;
 	void reply(u8 code, u8 sizew = 0);
 
+	virtual u8 getExtDeviceMap() const { return maple_GetAttachedDevices(bus_id); }
+
 	virtual void handle_86_subcommand();
 	virtual void firmwareLoaded(u32 hash) {}
 };
@@ -315,6 +314,11 @@ struct MIE : public BaseMIE, public SerialPort
 };
 
 struct RFIDReaderWriter : public BaseMIE
+{
+	static std::shared_ptr<maple_device> Create();
+};
+
+struct WccfCamera : public BaseMIE
 {
 	static std::shared_ptr<maple_device> Create();
 };

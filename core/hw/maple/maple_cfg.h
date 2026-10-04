@@ -25,6 +25,7 @@ enum MapleDeviceType
 	MDT_Dreameye                = 17,
 	MDT_SegaControllerXL        = 18,
 	MDT_DreamParaParaController = 19,
+	MDT_WccfCamera				= 20,
 	MDT_Count
 };
 
@@ -46,6 +47,11 @@ enum PlainJoystickTriggerId
 	PJTI_L2 = 2,
 	PJTI_R2 = 3,
 	PJTI_Count = 4
+};
+
+enum class MaplePortType {
+	user_accessible,
+	built_in,
 };
 
 struct PlainJoystickState
@@ -118,10 +124,12 @@ void mcfg_DestroyDevices(bool full = true);
 void mcfg_SerializeDevices(Serializer& ser);
 void mcfg_DeserializeDevices(Deserializer& deser);
 
-constexpr int maple_getPortCount(MapleDeviceType type)
+constexpr int maple_getPortCount(MapleDeviceType type, MaplePortType port)
 {
 	switch (type)
 	{
+		case MDT_FishingController:
+			return port == MaplePortType::user_accessible ? 0 : 1;
 		case MDT_SegaController:
 		case MDT_SegaControllerXL:
 			return 2;

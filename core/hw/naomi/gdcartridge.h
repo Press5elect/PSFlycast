@@ -33,10 +33,13 @@ public:
 	void Serialize(Serializer &ser) const override;
 	void Deserialize(Deserializer &deser) override;
 
+	u32 getFileSize() const { return fileSize; }
+	u32 getCrc() const { return ~crc; }
+
 protected:
 	virtual void process();
 	virtual int schedCallback();
-	void returnToNaomi(bool failed, u16 offsetl, u32 parameter);
+	void returnToNaomi(u16 cmd, bool failed, u16 offsetl, u32 parameter);
 
 	template<typename T>
 	void peek(u32 address)
@@ -69,6 +72,9 @@ protected:
 	u16 dimm_parameterh;
 	static constexpr u16 DIMM_STATUS = 0x111;
 	int schedId;
+	u32 fileSize = 0;
+	u32 crc = 0;
+	bool fullLoad = false;
 
 private:
 	const char *gdrom_name = nullptr;

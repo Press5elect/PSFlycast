@@ -106,6 +106,7 @@ option(ENABLE_DC_PROFILER "Build with support for target machine (SH4) profiler"
 option(ENABLE_FC_PROFILER "Build with support for host app (Flycast) profiler" OFF)
 option(USE_DISCORD "Use Discord Presence API" OFF)
 option(USE_LIBCDIO "Use libcdio for CDROM access" OFF)
+option(USE_DREAMLINK_DEVICES "Use DreamLink devices" ON)
 
 if(IOS AND NOT LIBRETRO)
 	set(USE_VULKAN OFF CACHE BOOL "Force vulkan off" FORCE)
@@ -119,6 +120,11 @@ if(WEBOS)
 		set(USE_OPENMP OFF CACHE BOOL "Force openmp off" FORCE)
 	endif()
 	set(USE_VULKAN OFF CACHE BOOL "Force vulkan off" FORCE)
+endif()
+
+if(ANDROID OR IOS OR NINTENDO_SWITCH OR LIBRETRO OR FLYCAST_PS5)
+	# DreamLink only available for non-mobile Linux, MacOS, and Windows
+	set(USE_DREAMLINK_DEVICES OFF CACHE BOOL "Force DreamLink devices off" FORCE)
 endif()
 
 include(GNUInstallDirs)
@@ -226,7 +232,7 @@ elseif(LIBRETRO)
 		target_link_libraries(${PROJECT_NAME} PRIVATE ${FOUNDATION})
 	endif()
 	if(ANDROID OR USE_GLES)
-		target_compile_definitions(${PROJECT_NAME} PRIVATE GLES GLES3 HAVE_OPENGLES HAVE_OPENGLES3 HAVE_OIT)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE GLES GLES3 HAVE_OPENGLES HAVE_OPENGLES3 HAVE_OPENGLES_3_1 HAVE_OIT)
 		if(ANDROID)
 			target_link_libraries(${PROJECT_NAME} PRIVATE android)
 		endif()
@@ -290,6 +296,25 @@ endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
 		CMAKE_CXX_STANDARD 20
 		CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library(flycast_basis_transcoder STATIC
+		core/deps/basis_universal/transcoder/basisu_transcoder.cpp
+		core/deps/basis_universal/zstd/zstddeclib.c)
+target_compile_features(flycast_basis_transcoder PRIVATE cxx_std_17)
+target_compile_definitions(flycast_basis_transcoder PRIVATE
+		BASISD_SUPPORT_KTX2=1
+		BASISD_SUPPORT_KTX2_ZSTD=1
+		BASISD_SUPPORT_DXT1=1
+		BASISD_SUPPORT_DXT5A=1
+		BASISD_SUPPORT_ETC2_EAC_A8=1
+		BASISD_SUPPORT_XUASTC=1)
+target_include_directories(flycast_basis_transcoder PUBLIC core/deps)
+set_target_properties(flycast_basis_transcoder PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	target_compile_options(flycast_basis_transcoder PRIVATE
+			$<$<COMPILE_LANGUAGE:CXX>:-fno-strict-aliasing>)
+endif()
+target_link_libraries(${PROJECT_NAME} PRIVATE flycast_basis_transcoder)
 
 if(WINDOWS_STORE)
 	set(USE_OPENGL OFF)
@@ -483,6 +508,37 @@ if(USE_VULKAN)
 	target_link_libraries(${PROJECT_NAME} PRIVATE glslang::glslang-default-resource-limits glslang::SPIRV)
 endif()
 
+if(USE_DREAMLINK_DEVICES)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE USE_DREAMLINK_DEVICES=1)
+
+	if (WINDOWS_STORE)
+		# Use winrt implementation of the DreamPicoPort-API
+		option(DREAMPICOPORT_WITH_LIBUSB "Use libusb to access DreamPicoPort-API" OFF)
+	elseif (CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|NetBSD|OpenBSD|Haiku")
+		find_package(PkgConfig REQUIRED)
+		pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
+
+		set(DREAMPICOPORT_LIBUSB_LIBRARIES "${LIBUSB_LIBRARIES}" CACHE STRING "Name of the libusb library to link against")
+		set(DREAMPICOPORT_LIBUSB_INCLUDE_DIRS "${LIBUSB_INCLUDE_DIRS}" CACHE STRING "Path to libusb include directory, when applicable")
+	else()
+		if(MINGW)
+			# Shim 'windowsapp' to prevent libusb from linking against the UWP library
+			# and link against standard desktop libraries instead for Windows 7 support.
+			if(NOT TARGET windowsapp)
+				add_library(windowsapp INTERFACE)
+				target_link_libraries(windowsapp INTERFACE advapi32 ole32 shell32 user32)
+			endif()
+		endif()
+		# libusb
+		add_subdirectory(core/deps/DreamPicoPort-API/ext/libusb-cmake)
+	endif()
+
+	# DreamPicoPort-API
+	option(DREAMPICOPORT_ADD_LIBUSB "Add internal libusb library" OFF) # Already included above, when applicable
+	add_subdirectory(core/deps/DreamPicoPort-API EXCLUDE_FROM_ALL)
+	target_link_libraries(${PROJECT_NAME} PRIVATE dream_pico_port_api)
+endif()
+
 if(NOT LIBRETRO)
 	if(USE_OSS)
 		target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OSS)
@@ -502,39 +558,6 @@ if(NOT LIBRETRO)
 	endif()
 
 	if(NOT ANDROID AND NOT IOS AND NOT FLYCAST_PS5)
-		if (NOT NINTENDO_SWITCH)
-			# DreamLink enabled for non-mobile Linux, MacOS, and Windows
-			target_compile_definitions(${PROJECT_NAME} PRIVATE USE_DREAMLINK_DEVICES=1)
-			set(USE_DREAMLINK_DEVICES ON) # Must be set before adding core/sdl
-
-			if (WINDOWS_STORE)
-				# Use winrt implementation of the DreamPicoPort-API
-				option(DREAMPICOPORT_WITH_LIBUSB "Use libusb to access DreamPicoPort-API" OFF)
-			elseif (CMAKE_SYSTEM_NAME MATCHES "DragonFly|FreeBSD|NetBSD|OpenBSD|Haiku")
-				find_package(PkgConfig REQUIRED)
-   	 			pkg_check_modules(LIBUSB REQUIRED libusb-1.0)
-
-				set(DREAMPICOPORT_LIBUSB_LIBRARIES "${LIBUSB_LIBRARIES}" CACHE STRING "Name of the libusb library to link against")
-				set(DREAMPICOPORT_LIBUSB_INCLUDE_DIRS "${LIBUSB_INCLUDE_DIRS}" CACHE STRING "Path to libusb include directory, when applicable")
-			else()
-				if(MINGW)
-					# Shim 'windowsapp' to prevent libusb from linking against the UWP library
-					# and link against standard desktop libraries instead for Windows 7 support.
-					if(NOT TARGET windowsapp)
-						add_library(windowsapp INTERFACE)
-						target_link_libraries(windowsapp INTERFACE advapi32 ole32 shell32 user32)
-					endif()
-				endif()
-				# libusb
-				add_subdirectory(core/deps/DreamPicoPort-API/ext/libusb-cmake)
-			endif()
-
-			# DreamPicoPort-API
-			option(DREAMPICOPORT_ADD_LIBUSB "Add internal libusb library" OFF) # Already included above, when applicable
-			add_subdirectory(core/deps/DreamPicoPort-API EXCLUDE_FROM_ALL)
-			target_link_libraries(${PROJECT_NAME} PRIVATE dream_pico_port_api)
-		endif()
-
 		if(USE_HOST_SDL)
 			find_package(SDL2 2.0.18)
 		endif()

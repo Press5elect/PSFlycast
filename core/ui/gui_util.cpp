@@ -17,11 +17,6 @@
     along with reicast.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "gui_util.h"
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <cstdlib>
-
 #include "types.h"
 #include "stdclass.h"
 #include "oslib/oslib.h"
@@ -36,6 +31,13 @@
 #include "stdclass.h"
 #include "rend/osd.h"
 #include <stb_image.h>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <future>
+#include <string>
+#include <vector>
 
 using namespace i18n;
 
@@ -860,4 +862,14 @@ bool InputTextMultiline(const char* label, char* buf, size_t buf_size, const ImV
 		return ImGui::InputTextMultiline(label, buf, buf_size, size, flags | ImGuiInputTextFlags_CallbackAlways | Flags_Multiline, switchInputTextCallback);
 #endif
 	return ImGui::InputTextMultiline(label, buf, buf_size, size, flags, callback, user_data);
+}
+
+bool TextFilter::Draw(const char* label, float width)
+{
+    if (width != 0.0f)
+        ImGui::SetNextItemWidth(width);
+    bool value_changed = InputText(label, InputBuf, IM_COUNTOF(InputBuf));
+    if (value_changed)
+        Build();
+    return value_changed;
 }

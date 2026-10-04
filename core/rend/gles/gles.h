@@ -43,8 +43,6 @@
 // Naomi2
 #define VERTEX_NORM_ARRAY 7
 
-void DrawStrips();
-
 struct PipelineShader
 {
 	GLuint program;
@@ -61,6 +59,7 @@ struct PipelineShader
 	GLint palette_index;
 	GLint ditherDivisor;
 	GLint texSize;
+	GLint secAccumSize;
 
 	// Naomi2
 	GLint mvMat;
@@ -118,6 +117,7 @@ struct PipelineShader
 	bool naomi2;
 	bool divPosZ;
 	bool dithering;
+	bool secAccum;
 };
 
 class GlBuffer
@@ -166,6 +166,7 @@ class GlFramebuffer
 public:
 	GlFramebuffer(int width, int height, bool withDepth = false, GLuint texture = 0);
 	GlFramebuffer(int width, int height, bool withDepth, bool withTexture);
+	explicit GlFramebuffer(int width, int height, GLuint depthBuffer);
 	~GlFramebuffer();
 
 	void bind(GLenum type = GL_FRAMEBUFFER) const {
@@ -182,9 +183,11 @@ public:
 		return t;
 	}
 	GLuint getFramebuffer() const { return framebuffer; }
+	GLuint getDepthBuffer() const { return depthBuffer; }
 
-private:
-	void makeFramebuffer(bool withDepth);
+protected:
+	GlFramebuffer() = default;
+	void makeFramebuffer(bool withDepth, GLuint depthBuffer = 0);
 
 	int width;
 	int height;
@@ -192,6 +195,7 @@ private:
 	GLuint framebuffer = 0;
 	GLuint colorBuffer = 0;
 	GLuint depthBuffer = 0;
+	bool ownsDepthBuffer = true;
 };
 
 class GlVertexArray
@@ -273,10 +277,13 @@ struct gl_ctx
 
 	struct
 	{
-		GLuint tex;
-		int width;
-		int height;
+		GLuint tex = 0;
+		int width = 0;
+		int height = 0;
+		int textureWidth = 0;
+		int textureHeight = 0;
 	} dcfb;
+	PixelBuffer<u32> framebufferBuffer;
 
 	struct
 	{
@@ -294,6 +301,8 @@ struct gl_ctx
 		std::unique_ptr<GlFramebuffer> framebuffer;
 	} videorouting;
 
+	std::unique_ptr<GlFramebuffer> secondaryBuffer;
+
 	std::unique_ptr<GlQuadDrawer> quadDrawer;
 	const char *gl_version;
 	const char *glsl_version_header;
@@ -305,6 +314,7 @@ struct gl_ctx
 	bool GL_OES_packed_depth_stencil_supported;
 	bool GL_OES_depth24_supported;
 	bool highp_float_supported;
+	bool textureStorageSupported;
 	float max_anisotropy;
 	bool mesa_nouveau;
 	bool mali;
@@ -375,20 +385,22 @@ enum ModifierVolumeMode { Xor, Or, Inclusion, Exclusion, ModeCount };
 
 void termGLCommon();
 void findGLVersion();
+bool hasGlExtension(const char *wanted);
+bool allocateImmutableTextureStorage(GLsizei levels, GLenum internalFormat,
+		GLsizei width, GLsizei height);
+void uploadCompressedTextureSubImage2D(GLint level, GLsizei width, GLsizei height,
+		GLenum format, GLsizei imageSize, const void *data);
 
-void SetCull(u32 CullMode);
-void SetMVS_Mode(ModifierVolumeMode mv_mode, ISP_Modvol ispc);
-
-GLuint BindRTT(bool withDepthBuffer = true);
+GlFramebuffer *BindRTT(bool withDepthBuffer = true);
 void ReadRTTBuffer();
 void glReadFramebuffer(const FramebufferInfo& info);
-GLuint init_output_framebuffer(int width, int height);
+GlFramebuffer *init_output_framebuffer(int width, int height);
 void writeFramebufferToVRAM();
 
 PipelineShader *GetProgram(bool cp_AlphaTest, bool pp_InsideClipping,
 		bool pp_Texture, bool pp_UseAlpha, bool pp_IgnoreTexA, u32 pp_ShadInstr, bool pp_Offset,
 		u32 pp_FogCtrl, bool pp_Gouraud, bool pp_BumpMap, bool fog_clamping, bool trilinear,
-		int palette, bool naomi2, bool dithering);
+		int palette, bool naomi2, bool dithering, bool secAccum);
 
 GLuint gl_CompileShader(const char* shader, GLuint type);
 GLuint gl_CompileAndLink(const char *vertexShader, const char *fragmentShader);
@@ -453,12 +465,18 @@ public:
 	}
 	TextureCacheData(TextureCacheData&& other) : BaseTextureCacheData(std::move(other)) {
 		std::swap(texID, other.texID);
+		std::swap(customTextureObject, other.customTextureObject);
 	}
 
 	GLuint texID = 0;   //gl texture
+	bool customTextureObject = false;
 	std::string GetId() override { return std::to_string(texID); }
 	void UploadToGPU(int width, int height, const u8 *temp_tex_buffer, bool mipmapped, bool mipmapsIncluded = false) override;
+	bool uploadCustomTexture(const PreparedCustomTexture& texture, bool mipmapped) override;
+	bool useGpuPreloadedTexture(const GpuPreloadedTexture::Ptr& texture) override;
 	bool Delete() override;
+	static GpuPreloadedTexture::Ptr createGpuPreloadedTexture(const PreparedCustomTexture& texture);
+	static CustomTextureCapabilities getCustomTextureCapabilities();
 
 	static void setUploadToGPUFlavor();
 
@@ -488,9 +506,6 @@ private:
 };
 extern GlTextureCache TexCache;
 
-extern const u32 Zfunction[8];
-extern const u32 SrcBlendGL[], DstBlendGL[];
-
 struct OpenGLRenderer : Renderer
 {
 	bool Init() override;
@@ -513,6 +528,8 @@ struct OpenGLRenderer : Renderer
 		return ret;
 	}
 	bool GetLastFrame(std::vector<u8>& data, int& width, int& height) override;
+	void processCustomTexturePreloads() override;
+	bool supportsGpuTexturePreload() const override { return gl.textureStorageSupported; }
 
 	BaseTextureCacheData *GetTexture(TSP tsp, TCW tcw, int area) override;
 
@@ -527,7 +544,19 @@ struct OpenGLRenderer : Renderer
 		return true;
 	}
 
+	static void setCull(u32 CullMode);
+	static void setModVolMode(ModifierVolumeMode mv_mode, ISP_Modvol ispc);
+	static GLenum depthModeToGL(u32 depthMode);
+	static GLenum srcBlendToGL(u32 mode);
+	static GLenum dstBlendToGL(u32 mode);
+
 protected:
+	void clearTextureCache() override
+	{
+		TexCache.Clear();
+		TexCache.Cleanup();
+	}
+
 	virtual GLenum getFogTextureSlot() const {
 		return GL_TEXTURE1;
 	}
@@ -551,14 +580,46 @@ protected:
 	void renderVideoRouting();
 	void drawOSD();
 
+	virtual GlFramebuffer *getPrimaryFB() {
+		return outputFB;
+	}
+
+	GlFramebuffer *getSecondaryAccum()
+	{
+		std::unique_ptr<GlFramebuffer>& secAccum = gl.secondaryBuffer;
+		GlFramebuffer *primaryFB = getPrimaryFB();
+		verify(primaryFB != nullptr);
+		if (secAccum == nullptr || secAccum->getWidth() != primaryFB->getWidth()
+				|| secAccum->getHeight() != primaryFB->getHeight()
+				|| secAccum->getDepthBuffer() != primaryFB->getDepthBuffer())
+		{
+			secAccum.reset();
+			secAccum = std::make_unique<GlFramebuffer>(primaryFB->getWidth(), primaryFB->getHeight(),
+					primaryFB->getDepthBuffer());
+			glcache.Disable(GL_SCISSOR_TEST);
+			glcache.ClearColor(0.f, 0.f, 0.f, 0.f);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		return secAccum.get();
+	}
+
 private:
 	bool renderFrame(int width, int height);
+	void drawStrips();
+	template <u32 Type, bool SortingEnabled>
+	void drawList(const std::vector<PolyParam>& gply, int first, int count);
+	void drawSorted(int first, int count, bool multipass);
+	template <u32 Type, bool SortingEnabled>
+	void setGPState(const PolyParam *gp, u32 cflip = 0);
+	void drawModVols(int first, int count);
 
 protected:
 	bool frameRendered = false;
 	int width = 640;
 	int height = 480;
+	GlFramebuffer *outputFB = nullptr;
 	void initVideoRoutingFrameBuffer();
+	bool renderingToSecAccum = false;
 };
 
 extern const char* ShaderCompatSource;

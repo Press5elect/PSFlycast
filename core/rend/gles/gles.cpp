@@ -19,6 +19,7 @@
 
 #include <cmath>
 #include <memory>
+#include <string>
 
 #ifdef GLES
 #ifndef GL_RED
@@ -31,6 +32,115 @@
 #define GL_MINOR_VERSION                  0x821C
 #endif
 #endif
+
+namespace
+{
+#if defined(_WIN32)
+using TextureStorage2DProc = void (__stdcall *)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+using CompressedTextureSubImage2DProc = void (__stdcall *)(GLenum, GLint, GLint, GLint,
+		GLsizei, GLsizei, GLenum, GLsizei, const void *);
+#else
+using TextureStorage2DProc = void (*)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+using CompressedTextureSubImage2DProc = void (*)(GLenum, GLint, GLint, GLint,
+		GLsizei, GLsizei, GLenum, GLsizei, const void *);
+#endif
+
+#if !defined(TARGET_IPHONE)
+TextureStorage2DProc textureStorage2DProc = nullptr;
+CompressedTextureSubImage2DProc compressedTextureSubImage2DProc = nullptr;
+#endif
+}
+
+bool hasGlExtension(const char *wanted)
+{
+#if !defined(GLES2)
+	if (!gl.is_gles && gl.gl_major >= 3)
+	{
+		GLint count = 0;
+		glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+		for (GLint i = 0; i < count; ++i)
+		{
+			const char *extension = reinterpret_cast<const char *>(glGetStringi(GL_EXTENSIONS, i));
+			if (extension != nullptr && !strcmp(extension, wanted))
+				return true;
+		}
+		return false;
+	}
+#endif
+	const char *extensions = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+	if (extensions == nullptr)
+		return false;
+	const std::string allExtensions = std::string(" ") + extensions + " ";
+	return allExtensions.find(std::string(" ") + wanted + " ") != std::string::npos;
+}
+
+namespace
+{
+void findTextureStorageSupport()
+{
+	gl.textureStorageSupported = false;
+#if !defined(TARGET_IPHONE)
+	textureStorage2DProc = nullptr;
+	compressedTextureSubImage2DProc = nullptr;
+#endif
+	const bool core = gl.is_gles
+			? gl.gl_major >= 3
+			: gl.gl_major > 4 || (gl.gl_major == 4 && gl.gl_minor >= 2);
+	const bool arb = !gl.is_gles && hasGlExtension("GL_ARB_texture_storage");
+	const bool ext = hasGlExtension("GL_EXT_texture_storage");
+	if (!core && !arb && !ext)
+		return;
+
+#if defined(TARGET_IPHONE)
+	gl.textureStorageSupported = core;
+#else
+#if defined(LIBRETRO)
+	const char *procName = core || arb ? "glTexStorage2D" : "glTexStorage2DEXT";
+	glsm_ctx_proc_address_t procAddress{};
+	if (glsm_ctl(GLSM_CTL_PROC_ADDRESS_GET, &procAddress) && procAddress.addr != nullptr)
+	{
+		textureStorage2DProc = reinterpret_cast<TextureStorage2DProc>(procAddress.addr(procName));
+		compressedTextureSubImage2DProc = reinterpret_cast<CompressedTextureSubImage2DProc>(
+				procAddress.addr("glCompressedTexSubImage2D"));
+	}
+#else
+	if (core || arb)
+		textureStorage2DProc = reinterpret_cast<TextureStorage2DProc>(glTexStorage2D);
+	else
+		textureStorage2DProc = reinterpret_cast<TextureStorage2DProc>(glTexStorage2DEXT);
+	compressedTextureSubImage2DProc = reinterpret_cast<CompressedTextureSubImage2DProc>(
+			glCompressedTexSubImage2D);
+#endif
+	gl.textureStorageSupported = textureStorage2DProc != nullptr
+			&& compressedTextureSubImage2DProc != nullptr;
+#endif
+}
+}
+
+bool allocateImmutableTextureStorage(GLsizei levels, GLenum internalFormat,
+		GLsizei width, GLsizei height)
+{
+	if (!gl.textureStorageSupported)
+		return false;
+#if defined(TARGET_IPHONE)
+	glTexStorage2D(GL_TEXTURE_2D, levels, internalFormat, width, height);
+#else
+	textureStorage2DProc(GL_TEXTURE_2D, levels, internalFormat, width, height);
+#endif
+	return true;
+}
+
+void uploadCompressedTextureSubImage2D(GLint level, GLsizei width, GLsizei height,
+		GLenum format, GLsizei imageSize, const void *data)
+{
+#if defined(TARGET_IPHONE)
+	glCompressedTexSubImage2D(GL_TEXTURE_2D, level, 0, 0, width, height,
+			format, imageSize, data);
+#else
+	compressedTextureSubImage2DProc(GL_TEXTURE_2D, level, 0, 0, width, height,
+			format, imageSize, data);
+#endif
+}
 
 //Fragment and vertex shaders code
 
@@ -149,6 +259,12 @@ uniform lowp vec2 texSize;
 #if DITHERING == 1
 uniform lowp vec4 ditherDivisor;
 #endif
+#if SECACCUM == 1
+uniform sampler2D secAccum;
+#if TARGET_GL == GLES2 || TARGET_GL == GL2
+uniform lowp vec2 secAccumSize;
+#endif
+#endif
 
 /* Vertex input*/
 INTERPOLATION in highp vec4 vtx_base;
@@ -265,6 +381,7 @@ void main()
 			discard;
 	#endif
 	
+#if SECACCUM == 0
 	highp vec4 color = vtx_base;
 	highp vec4 offset = vtx_offs;
 	#if pp_Gouraud == 1 && TARGET_GL != GLES2 && DIV_POS_Z != 1
@@ -347,9 +464,16 @@ void main()
 		if (cp_AlphaTestValue > color.a)
 			discard;
 		color.a = 1.0;
-	#endif 
-
+	#endif
 	//color.rgb = vec3(vtx_uv.z * sp_FOG_DENSITY / 128.0);
+#else
+	// SECACCUM == 1
+	#if TARGET_GL != GLES2 && TARGET_GL != GL2
+		mediump vec2 secAccumSize = vec2(textureSize(secAccum, 0));
+	#endif
+	highp vec4 color = texture(secAccum, gl_FragCoord.xy / secAccumSize);
+#endif
+
 #if TARGET_GL != GLES2
 #if DIV_POS_Z == 1
 	highp float w = 100000.0 / vtx_uv.z;
@@ -477,6 +601,7 @@ void termGLCommon()
 	gl.ofbo2.framebuffer.reset();
 	gl.fbscaling.framebuffer.reset();
 	gl.videorouting.framebuffer.reset();
+	gl.secondaryBuffer.reset();
 	termVmuLightgun();
 #ifdef LIBRETRO
 	postProcessor.term();
@@ -570,6 +695,7 @@ void findGLVersion()
     	gl.highp_float_supported = true;
     	gl.border_clamp_supported = true;
 	}
+	findTextureStorageSupport();
 	gl.max_anisotropy = 1.f;
 #if !defined(GLES2)
 	if (gl.gl_major >= 3)
@@ -713,7 +839,7 @@ GLuint gl_CompileAndLink(const char *vertexShader, const char *fragmentShader)
 PipelineShader *GetProgram(bool cp_AlphaTest, bool pp_InsideClipping,
 		bool pp_Texture, bool pp_UseAlpha, bool pp_IgnoreTexA, u32 pp_ShadInstr, bool pp_Offset,
 		u32 pp_FogCtrl, bool pp_Gouraud, bool pp_BumpMap, bool fog_clamping, bool trilinear,
-		int palette, bool naomi2, bool dithering)
+		int palette, bool naomi2, bool dithering, bool secAccum)
 {
 	u32 rv=0;
 
@@ -733,6 +859,7 @@ PipelineShader *GetProgram(bool cp_AlphaTest, bool pp_InsideClipping,
 	rv <<= 1; rv |= naomi2;
 	rv <<= 1, rv |= !settings.platform.isNaomi2() && config::NativeDepthInterpolation;
 	rv <<= 1; rv |= dithering;
+	rv <<= 1; rv |= secAccum;
 
 	PipelineShader *shader = &gl.shaders[rv];
 	if (shader->program == 0)
@@ -753,6 +880,7 @@ PipelineShader *GetProgram(bool cp_AlphaTest, bool pp_InsideClipping,
 		shader->naomi2 = naomi2;
 		shader->divPosZ = !settings.platform.isNaomi2() && config::NativeDepthInterpolation;
 		shader->dithering = dithering;
+		shader->secAccum = secAccum;
 		CompilePipelineShader(shader);
 	}
 
@@ -792,6 +920,7 @@ public:
 		addConstant("pp_Palette", s->palette);
 		addConstant("DIV_POS_Z", s->divPosZ);
 		addConstant("DITHERING", s->dithering);
+		addConstant("SECACCUM", s->secAccum);
 
 		addSource(PixelCompatShader);
 		addSource(GouraudSource);
@@ -862,6 +991,12 @@ bool CompilePipelineShader(PipelineShader* s)
 	s->ndcMat = glGetUniformLocation(s->program, "ndcMat");
 	s->ditherDivisor = glGetUniformLocation(s->program, "ditherDivisor");
 	s->texSize = glGetUniformLocation(s->program, "texSize");
+
+	// Set secAccum uniform to texture slot 3
+	gu = glGetUniformLocation(s->program, "secAccum");
+	if (gu != -1)
+		glUniform1i(gu, 3);
+	s->secAccumSize = glGetUniformLocation(s->program, "secAccumSize");
 
 	if (s->naomi2)
 		initN2Uniforms(s);
@@ -993,6 +1128,7 @@ bool OpenGLRenderer::Init()
 	updateFogTable = true;
 	TextureCacheData::SetDirectXColorOrder(false);
 	TextureCacheData::setUploadToGPUFlavor();
+	custom_texture.setCapabilities(TextureCacheData::getCustomTextureCapabilities());
 
 	return true;
 }
@@ -1003,14 +1139,14 @@ static void updateFogTexture(u8 *fog_table, GLenum texture_slot, GLint fog_image
 	if (fogTextureId == 0)
 	{
 		fogTextureId = glcache.GenTexture();
-		glcache.BindTexture(GL_TEXTURE_2D, fogTextureId);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(GL_TEXTURE_2D, fogTextureId);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
 	else {
-		glcache.BindTexture(GL_TEXTURE_2D, fogTextureId);
+		glBindTexture(GL_TEXTURE_2D, fogTextureId);
 	}
 
 	u8 temp_tex_buffer[256];
@@ -1034,14 +1170,14 @@ static void updatePaletteTexture(GLenum texture_slot)
 	if (paletteTextureId == 0)
 	{
 		paletteTextureId = glcache.GenTexture();
-		glcache.BindTexture(GL_TEXTURE_2D, paletteTextureId);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glcache.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glBindTexture(GL_TEXTURE_2D, paletteTextureId);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
 	else {
-		glcache.BindTexture(GL_TEXTURE_2D, paletteTextureId);
+		glBindTexture(GL_TEXTURE_2D, paletteTextureId);
 	}
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -1195,10 +1331,8 @@ bool OpenGLRenderer::renderFrame(int width, int height)
 #endif
 #endif
 	//setup render target first
-	if (is_rtt)
-	{
-		if (BindRTT() == 0)
-			return false;
+	if (is_rtt) {
+		outputFB = BindRTT();
 	}
 	else
 	{
@@ -1206,21 +1340,22 @@ bool OpenGLRenderer::renderFrame(int width, int height)
 		this->height = height;
 		getVideoShift(gl.ofbo.shiftX, gl.ofbo.shiftY);
 #ifdef LIBRETRO
-		if (config::EmulateFramebuffer)
-		{
-			if (init_output_framebuffer(width, height) == 0)
-				return false;
+		if (config::EmulateFramebuffer) {
+			outputFB = init_output_framebuffer(width, height);
 		}
 		else
 		{
-			glBindFramebuffer(GL_FRAMEBUFFER, postProcessor.getFramebuffer(width, height));
+			outputFB = postProcessor.getFramebuffer(width, height);
+			if (outputFB != nullptr)
+				outputFB->bind();
 			glViewport(0, 0, width, height);
 		}
 #else
-		if (init_output_framebuffer(width, height) == 0)
-			return false;
+		outputFB = init_output_framebuffer(width, height);
 #endif
 	}
+	if (outputFB == nullptr)
+		return false;
 
 	//Color is cleared by the background plane
 
@@ -1273,7 +1408,7 @@ bool OpenGLRenderer::renderFrame(int width, int height)
 		glcache.Enable(GL_SCISSOR_TEST);
 	}
 
-	DrawStrips();
+	drawStrips();
 #ifdef LIBRETRO
 	if (!is_rtt && !config::EmulateFramebuffer)
 		postProcessor.render(glsm_get_current_framebuffer());
@@ -1314,7 +1449,20 @@ void OpenGLRenderer::initVideoRoutingFrameBuffer()
 void OpenGLRenderer::Term()
 {
 	TexCache.Clear();
+	clearGpuPreloadedTextures();
 	gles_term();
+}
+
+void OpenGLRenderer::processCustomTexturePreloads()
+{
+	custom_texture.processGpuPreloads([this](u32 hash,
+			const PreparedCustomTexture& texture) {
+		GpuPreloadedTexture::Ptr gpuTexture = TextureCacheData::createGpuPreloadedTexture(texture);
+		if (!gpuTexture)
+			return false;
+		addGpuPreloadedTexture(hash, std::move(gpuTexture));
+		return true;
+	});
 }
 
 bool OpenGLRenderer::Render()

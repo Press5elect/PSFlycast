@@ -17,16 +17,16 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
-#include <string>
-#include <vector>
-#include <array>
-#include <cmath>
-#include <type_traits>
 #include "cfg.h"
 #include "hw/maple/maple_cfg.h"
 #ifdef LIBRETRO
 #include <libretro.h>
 #endif
+#include <array>
+#include <cmath>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 namespace config {
 
@@ -447,7 +447,14 @@ extern Option<int> PerPixelLayers;
 #endif
 extern Option<float> ExtraDepthScale;
 extern Option<bool> CustomTextures;
-extern Option<bool> PreloadCustomTextures;
+enum class CustomTexturePreloadMode : int
+{
+	Off = 0,
+	SystemMemory = 1,
+	VideoMemory = 2,
+};
+extern Option<int> PreloadCustomTextures;
+CustomTexturePreloadMode customTexturePreloadMode();
 extern Option<bool> DumpTextures;
 extern Option<bool> DumpUniqueTextures;
 extern Option<bool> DumpReplacedTextures;

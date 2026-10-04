@@ -45,6 +45,12 @@
 #ifndef GL_BUFFER_UPDATE_BARRIER_BIT
 #define GL_BUFFER_UPDATE_BARRIER_BIT 0x00000200
 #endif
+#ifndef GL_SHADER_STORAGE_BARRIER_BIT
+#define GL_SHADER_STORAGE_BARRIER_BIT 0x00002000
+#endif
+
+// Keep the sole PPLL image within the GLES 3.1 guaranteed image-unit range.
+#define ABUFFER_POINTER_IMAGE_UNIT 0
 
 void gl4DrawStrips(GLuint output_fbo, int width, int height);
 
@@ -127,6 +133,7 @@ struct gl4PipelineShader
 	int palette;
 	bool naomi2;
 	bool divPosZ;
+	bool secAccum;
 };
 
 class Gl4MainVertexArray final : public GlVertexArray
@@ -207,13 +214,15 @@ void initABuffer();
 void termABuffer();
 void reshapeABuffer(int width, int height);
 void renderABuffer(bool lastPass);
-void DrawTranslucentModVols(int first, int count, bool useOpaqueGeom);
 void checkOverflowAndReset();
 
-extern GLuint stencilTexId;
-extern GLuint depthTexId;
-extern GLuint opaqueTexId[2];
-extern GLuint geom_fbo[2];
+class OITFramebuffer : public GlFramebuffer
+{
+public:
+	OITFramebuffer(int width, int height, GLuint texId, GLuint depth, GLuint stencil);
+};
+
+extern std::unique_ptr<OITFramebuffer> framebuffers[2];
 extern GLuint texSamplers[2];
 
 extern const char* ShaderHeader;
@@ -221,13 +230,20 @@ extern const char* ShaderHeader;
 class OpenGl4Source : public ShaderSource
 {
 public:
-	OpenGl4Source()
-		: ShaderSource(gl.is_gles ? "#version 320 es" : "#version 430")
+	OpenGl4Source(bool needsImageAtomics = false)
+		: ShaderSource(gl.is_gles
+				? (gl.gl_major > 3 || (gl.gl_major == 3 && gl.gl_minor >= 2)
+						? "#version 320 es" : "#version 310 es")
+				: "#version 430")
 	{
 		if (gl.is_gles)
+		{
+			if (needsImageAtomics && gl.gl_major == 3 && gl.gl_minor < 2)
+				addSource("#extension GL_OES_shader_image_atomic : require");
 			addSource("precision highp float;\n"
 					"precision highp int;\n"
 					"precision highp sampler2D;");
+		}
 	}
 };
 
@@ -293,4 +309,33 @@ extern struct gl4ShaderUniforms_t
 	}
 
 } gl4ShaderUniforms;
+struct OpenGL4Renderer : OpenGLRenderer
+{
+	bool Init() override;
+	void Term() override;
+	bool Render() override;
 
+	GLenum getFogTextureSlot() const override {
+		return GL_TEXTURE5;
+	}
+	GLenum getPaletteTextureSlot() const override {
+		return GL_TEXTURE6;
+	}
+
+protected:
+	// Return the framebuffer being written to
+	// (only valid for color pass of OP, PT and TR in !autosort mode)
+	GlFramebuffer *getPrimaryFB() override {
+		return framebuffers[1].get();
+	}
+
+private:
+	bool renderFrame(int width, int height);
+	void drawStrips(int width, int height);
+	template <u32 Type, bool SortingEnabled, Pass pass>
+	void drawList(const std::vector<PolyParam>& gply, int first, int count);
+	void drawModVols(int first, int count);
+	template <u32 Type, bool SortingEnabled, Pass pass>
+	void setGPState(const PolyParam *gp);
+	void drawTranslucentModVols(int first, int count, bool useOpaqueGeom);
+};

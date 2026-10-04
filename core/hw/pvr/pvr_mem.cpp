@@ -11,8 +11,6 @@
 #include "hw/holly/holly_intc.h"
 #include "serialize.h"
 
-static u32 pvr_map32(u32 offset32);
-
 RamRegion vram;
 
 // YUV converter code
@@ -226,11 +224,14 @@ void DYNACALL pvr_write32p(u32 addr, T data)
 		return;
 	}
 	addr &= ~(sizeof(T) - 1);
-	u32 vaddr = addr & VRAM_MASK;
-	if (vaddr >= fb_watch_addr_start && vaddr < fb_watch_addr_end)
-		fb_dirty = true;
-
-	*(T *)&vram[pvr_map32(addr)] = data;
+	T *pVram = (T *)&vram[pvr_map32(addr)];
+	if constexpr (!Internal)
+	{
+		// check needed to avoid spurious FB write detections with VF3tb history videos
+		if (data != *pVram)
+			FramebufferWatcher::Instance().vramCheck(addr & VRAM_MASK);
+	}
+	*pVram = data;
 }
 template void pvr_write32p<u8, false>(u32 addr, u8 data);
 template void pvr_write32p<u8, true>(u32 addr, u8 data);
@@ -284,25 +285,6 @@ void DYNACALL TAWriteSQ(u32 address, const SQBuffer *sqb)
 
 //Misc interface
 
-#define VRAM_BANK_BIT 0x400000
-
-static u32 pvr_map32(u32 offset32)
-{
-	//64b wide bus is achieved by interleaving the banks every 32 bits
-	const u32 static_bits = VRAM_MASK - (VRAM_BANK_BIT * 2 - 1) + 3;
-	const u32 offset_bits = (VRAM_BANK_BIT - 1) & ~3;
-
-	u32 bank = (offset32 & VRAM_BANK_BIT) / VRAM_BANK_BIT;
-
-	u32 rv = offset32 & static_bits;
-
-	rv |= (offset32 & offset_bits) * 2;
-
-	rv |= bank * 4;
-	
-	return rv;
-}
-
 template<typename T, bool upper>
 T DYNACALL pvr_read_area4(u32 addr)
 {
@@ -334,3 +316,88 @@ template void pvr_write_area4<u32, false>(u32 addr, u32 data);
 template void pvr_write_area4<u8, true>(u32 addr, u8 data);
 template void pvr_write_area4<u16, true>(u32 addr, u16 data);
 template void pvr_write_area4<u32, true>(u32 addr, u32 data);
+
+
+FramebufferWatcher::FramebufferWatcher() {
+	fbSizeUpdated();
+	fbSofUpdated(FB_R_SOF1);
+}
+
+void FramebufferWatcher::fbSizeUpdated()
+{
+	size = (FB_R_SIZE.fb_y_size + 1) * (FB_R_SIZE.fb_x_size + FB_R_SIZE.fb_modulus) * 4;
+	fbs[0].end = fbs[0].start + size;
+	fbs[1].end = fbs[1].start + size;
+}
+
+void FramebufferWatcher::fbSofUpdated(u32 sof)
+{
+	u32 waddr = sof & VRAM_MASK;
+	if (waddr == fbs[0].start || waddr == fbs[1].start)
+		return;
+	fbs[1] = fbs[0];
+	fbs[0].start = waddr;
+	fbs[0].end = waddr + size;
+	fbs[0].dirty = false;
+	DEBUG_LOG(PVR, "FramebufferWatcher: watching new %x old %x SOF1 %x", fbs[0].start, fbs[1].start, sof);
+}
+
+void FramebufferWatcher::vramCheck(u32 vramOffset)
+{
+	for (Framebuffer& fb : fbs)
+	{
+		if (vramOffset >= fb.start && vramOffset < fb.end)
+		{
+			if (!fb.dirty)
+				DEBUG_LOG(PVR, "FB Write detected in [%x - %x]: %x", fb.start, fb.end, vramOffset);
+			fb.dirty = true;
+			break;
+		}
+	}
+}
+
+bool FramebufferWatcher::isDirty()
+{
+	for (Framebuffer& fb : fbs)
+		if (fb.dirty) {
+			fb.dirty = false;
+			return true;
+		}
+	return false;
+}
+
+void FramebufferWatcher::serialize(Serializer& ser)
+{
+	for (const Framebuffer& fb : fbs)
+	{
+		ser << fb.dirty;
+		ser << fb.start;
+		ser << fb.end;
+	}
+}
+
+void FramebufferWatcher::deserialize(Deserializer& deser)
+{
+	if (deser.version() >= Deserializer::V61)
+	{
+		for (Framebuffer& fb : fbs)
+		{
+			deser >> fb.dirty;
+			deser >> fb.start;
+			deser >> fb.end;
+		}
+	}
+	else
+	{
+		deser >> fbs[0].dirty;
+		deser >> fbs[0].start;
+		deser >> fbs[0].end;
+		fbs[1] = {};
+	}
+	fbSizeUpdated();
+}
+
+FramebufferWatcher& FramebufferWatcher::Instance() {
+	static FramebufferWatcher instance;
+	return instance;
+}

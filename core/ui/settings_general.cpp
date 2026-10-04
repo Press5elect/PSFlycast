@@ -195,6 +195,9 @@ void gui_settings_general()
 		{ "日本語", "ja" },
 		{ "Português (Brasil)", "pt_BR" },
 		{ "Svenska", "sv" },
+		{ "Türkçe", "tr" },
+		{ "简体中文", "zh_CN" },
+		{ "正體中文", "zh_TW" },
 	};
 
 	// Determine the preview text

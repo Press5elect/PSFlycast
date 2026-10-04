@@ -11,7 +11,7 @@
 #include <vector>
 #include <functional>
 #include <cassert>
-#include <time.h>
+#include <ctime>
 
 #if defined(__ANDROID__)
 #undef PAGE_MASK
@@ -108,6 +108,9 @@ public:
 
 	void zero() {
 		std::memset(data, 0, size);
+	}
+	size_t getSize() const {
+		return size;
 	}
 
 	u8& operator [](size_t i) {

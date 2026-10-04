@@ -2,7 +2,12 @@
 #include "types.h"
 #include "ta_ctx.h"
 #include "emulator.h"
+#include <string>
+#include <memory>
+#include <unordered_map>
 #include <vector>
+
+struct GpuPreloadedTexture;
 
 extern u32 FrameCount;
 
@@ -21,6 +26,8 @@ void rend_start_rollback();
 void rend_allow_rollback();
 void rend_enable_renderer(bool enabled);
 bool rend_is_enabled();
+void rend_process_custom_texture_preloads();
+bool rend_supports_gpu_texture_preload();
 void rend_serialize(Serializer& ser);
 void rend_deserialize(Deserializer& deser);
 static void rend_updatePalette();
@@ -75,10 +82,20 @@ struct Renderer
 	virtual bool GetLastFrame(std::vector<u8>& data, int& width, int& height) { return false; }
 
 	virtual bool Present() { return true; }
+	virtual void processCustomTexturePreloads() {}
+	virtual bool supportsGpuTexturePreload() const { return false; }
 
 	virtual BaseTextureCacheData *GetTexture(TSP tsp, TCW tcw, int area = 0) { return nullptr; }
+	std::shared_ptr<GpuPreloadedTexture> findGpuPreloadedTexture(
+			u32 currentHash, u32 oldVqHash, u32 oldHash) const;
+	void processGpuCleanupOperations();
 
 protected:
+	virtual void clearTextureCache() {}
+	void addGpuPreloadedTexture(u32 hash, std::shared_ptr<GpuPreloadedTexture> texture);
+	void clearGpuPreloadedTextures();
+
+	std::unordered_map<u32, std::shared_ptr<GpuPreloadedTexture>> gpuPreloadedTextures;
 	bool resetTextureCache = false;
 	bool clearLastFrame = false;
 	bool updatePalette = true;
@@ -100,11 +117,6 @@ private:
 
 extern Renderer* renderer;
 
-extern u32 fb_watch_addr_start;
-extern u32 fb_watch_addr_end;
-extern bool fb_dirty;
-
-void check_framebuffer_write();
 static inline void rend_updatePalette() {
 	if (renderer != nullptr)
 		renderer->updatePalette = true;

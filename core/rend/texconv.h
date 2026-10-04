@@ -18,8 +18,6 @@
 #include "types.h"
 
 constexpr int VQ_CODEBOOK_SIZE = 256 * 8;
-extern const u8 *vq_codebook;
-extern u32 palette_index;
 extern u32 palette16_ram[1024];
 extern u32 palette32_ram[1024];
 extern u32 pal_hash_256[4];
@@ -36,6 +34,21 @@ class PixelBuffer
 	Pixel* p_current_pixel = nullptr;
 
 	u32 pixels_per_line = 0;
+	const u8 *vqCodebook = nullptr;
+	u32 paletteIndex = 0;
+	size_t capacity = 0;
+
+	void allocate(size_t size)
+	{
+		if (size > capacity)
+		{
+			Pixel *new_buffer = (Pixel *)realloc(p_buffer_start, size);
+			verify(new_buffer != nullptr);
+			p_buffer_start = new_buffer;
+			capacity = size;
+		}
+		p_current_line = p_current_pixel = p_current_mipmap = p_buffer_start;
+	}
 
 public:
 	~PixelBuffer() {
@@ -44,7 +57,6 @@ public:
 
 	void init(u32 width, u32 height, bool mipmapped)
 	{
-		deinit();
 		size_t size = width * height * sizeof(Pixel);
 		if (mipmapped)
 		{
@@ -56,14 +68,13 @@ public:
 			}
 			while (width != 0 && height != 0);
 		}
-		p_buffer_start = p_current_line = p_current_pixel = p_current_mipmap = (Pixel *)malloc(size);
+		allocate(size);
 		this->pixels_per_line = 1;
 	}
 
 	void init(u32 width, u32 height)
 	{
-		deinit();
-		p_buffer_start = p_current_line = p_current_pixel = p_current_mipmap = (Pixel *)malloc(width * height * sizeof(Pixel));
+		allocate(width * height * sizeof(Pixel));
 		this->pixels_per_line = width;
 	}
 
@@ -73,6 +84,7 @@ public:
 		{
 			free(p_buffer_start);
 			p_buffer_start = p_current_mipmap = p_current_line = p_current_pixel = nullptr;
+			capacity = 0;
 		}
 	}
 
@@ -81,7 +93,9 @@ public:
 		deinit();
 		p_buffer_start = p_current_mipmap = p_current_line = p_current_pixel = buffer.p_buffer_start;
 		pixels_per_line = buffer.pixels_per_line;
+		capacity = buffer.capacity;
 		buffer.p_buffer_start = buffer.p_current_mipmap = buffer.p_current_line = buffer.p_current_pixel = nullptr;
+		buffer.capacity = 0;
 	}
 
 	void set_mipmap(int level)
@@ -125,6 +139,22 @@ public:
 		p_current_line = p_current_mipmap + pixels_per_line * y_m;
 		p_current_pixel = p_current_line + x_m;
 	}
+
+	const u8 *getVQCodebook() const {
+		return vqCodebook;
+	}
+
+	void setVQCodebook(const u8 *codebook) {
+		vqCodebook = codebook;
+	}
+
+	u32 getPaletteIndex() const {
+		return paletteIndex;
+	}
+
+	void setPaletteIndex(u32 index) {
+		paletteIndex = index;
+	}
 };
 
 // OpenGL
@@ -143,7 +173,7 @@ struct BGRAPacker {
 template<typename Pixel>
 struct UnpackerNop {
 	using unpacked_type = Pixel;
-	static Pixel unpack(Pixel word) {
+	static Pixel unpack(Pixel word, u32 = 0) {
 		return word;
 	}
 };

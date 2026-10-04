@@ -56,11 +56,11 @@
    ],
    "source": {
     "kind": "fixed",
-    "revision": "59ed35a7ea7c1940d4c8ac221a662d0e6d6dc9ea",
+    "revision": "f83fda7069ee7a32e206cb5092c38fd0216d80af",
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
    },
-   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
     "eboot.bin"
    ]
@@ -490,6 +490,56 @@
     "kind": "in-tree"
    },
    "modifications": "Unmodified, as Flycast carries it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "basis-universal",
+   "name": "Basis Universal transcoder",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "Apache-2.0",
+   "copyright": [
+    "Copyright (c) 2016-2026 Binomial LLC. \"Basis Universal\" is a trademark of Binomial LLC."
+   ],
+   "texts": [
+    {
+     "from": "core/deps/basis_universal/LICENSE",
+     "to": "LICENSE"
+    },
+    {
+     "from": "core/deps/basis_universal/NOTICE",
+     "to": "NOTICE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Flycast carries it: the transcoder only (transcoder/basisu_transcoder.cpp), for compressed custom textures.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "zstd-decoder",
+   "name": "Zstandard decompressor (single file, in Basis Universal)",
+   "kind": "code",
+   "group": "flycast-library",
+   "licence": "BSD-3-Clause",
+   "copyright": [
+    "Copyright (c) Meta Platforms, Inc. and affiliates."
+   ],
+   "texts": [
+    {
+     "from": "core/deps/basis_universal/zstd/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified, as Basis Universal carries it (zstd/zstddeclib.c).",
    "files": [
     "eboot.bin"
    ]

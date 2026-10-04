@@ -19,17 +19,36 @@
 #pragma once
 #include "gdcartridge.h"
 #include "network/net_platform.h"
+#include "util/tsqueue.h"
+#include <memory>
+#include <functional>
+
+//#define NET_TRACE
+
+class NetDimmServer;
 
 class NetDimm : public GDCartridge
 {
 public:
+	enum ServerMsg { ControlRead, Reboot };
+
 	NetDimm(u32 size);
+	~NetDimm();
 
 	void Init(LoadProgress *progress = nullptr, std::vector<u8> *digest = nullptr) override;
 
 	bool Write(u32 offset, u32 size, u32 data) override;
 
 	void Deserialize(Deserializer &deser) override;
+
+	u32 getDimmSize() const { return dimm_data_size; }
+
+	u8 *getDimmData(u32 offset) {
+		return &dimm_data[offset & (dimm_data_size - 1)];
+	}
+
+	void controlRead(std::function<void(u32)> callback);
+	void reboot();
 
 protected:
 	void process() override;
@@ -62,12 +81,7 @@ private:
 		dimm_parameterh = value >> 16;
 	}
 
-	sock_t getSocket(int idx)
-	{
-		if (idx < 1 || idx > (int)sockets.size())
-			return INVALID_SOCKET;
-		return sockets[idx - 1].fd;
-	}
+	sock_t getSocket(int idx);
 
 	bool isBusy() const
 	{
@@ -81,23 +95,7 @@ private:
 		Socket() = default;
 		Socket(sock_t fd) : fd(fd) {}
 
-		int close()
-		{
-			int rc = 0;
-			if (fd != INVALID_SOCKET)
-				rc = ::closesocket(fd);
-			fd = INVALID_SOCKET;
-			connecting = false;
-			receiving = false;
-			sending = false;
-			connectTimeout = 0;
-			connectTime = 0;
-			sendTimeout = 0;
-			sendTime = 0;
-			recvTimeout = 0;
-			recvTime = 0;
-			return rc;
-		}
+		int close();
 
 		bool isClosed() const {
 			return fd == INVALID_SOCKET;
@@ -122,13 +120,28 @@ private:
 		u64 recvTimeout = 0;
 		u64 recvTime = 0;
 		int lastError = 0;
+		int port = 0;
+		sockaddr *srcAddr = nullptr;
+		socklen_t *addrLen = nullptr;
+#ifdef NET_TRACE
+		void openTrace();
+		void closeTrace();
+		void traceRecv(const u8 *data, size_t len);
+		void traceSend(const u8 *data, size_t len);
+
+		FILE *trcFile = nullptr;
+#endif
 	};
 	std::vector<Socket> sockets;
+	int lastError = 0; // for socket() and select()
 	bool dnsInProgress = false;
 	u32 serverIp = 0; //0x0100007f for testing only
-	bool finalTuned = false;
+	bool wccf = false;
 
 	u32 dimmBufferOffset = 0x0f000000;
+	std::unique_ptr<NetDimmServer> server;
+	std::function<void(u32)> controlReadCallback;
+	TsQueue<ServerMsg> serverQueue;
 
-	static constexpr int POLL_CYCLES = SH4_MAIN_CLOCK / 60;
+	static constexpr int POLL_CYCLES = SH4_MAIN_CLOCK / 120;
 };
