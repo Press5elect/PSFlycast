@@ -257,7 +257,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, VSync, the FPS counter, 120 Hz output |
+| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, upscaling (FSR 1), frame pacing, the FPS counter, 120 Hz output |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, restore the default layout |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state |
@@ -281,7 +281,20 @@ what you see, most useful first:
   every see-through layer of the picture in memory. That memory grows with
   the internal resolution (up to 3 GB); when it runs out, what a game draws
   last - its HUD, its menus - is missing, and a lower resolution brings it
-  back. **Sort by strip** makes per-triangle sorting coarser and faster.
+  back. The layers in its name (32 to 128) are how many see-through surfaces
+  it can order at one pixel: 32 is enough for most games, and more is slower.
+  Per-strip is per-triangle made coarser: faster, and wrong in more games.
+- **Upscaling.** With FSR 1 a picture rendered below the screen's resolution
+  is stretched to it by AMD's FidelityFX Super Resolution 1.0, which keeps
+  edges clean and sharpens the result, instead of the plain stretch. It is
+  the way to a sharp 4K picture when a high internal resolution is too heavy
+  - with per-pixel sorting above all: try 3x or 4x with FSR 1. It does
+  nothing at 5x and up, where the picture is already larger than the screen.
+- **Frame pacing.** Sync to display: the TV's refresh paces the game, and the
+  sound follows it by playing a hair faster or slower, which nobody hears:
+  the smoothest. VSync: the sound keeps its exact speed, and when the game
+  and the TV drift apart a frame is shown twice or the sound has a tiny gap.
+  Off: frames are shown as soon as they are ready.
 - **Anisotropic filtering** at 16x keeps floors and walls sharp into the
   distance.
 - **Texture upscaling** redraws the game's small textures 2 to 6 times

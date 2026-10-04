@@ -19,12 +19,24 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_cheats.cpp
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_drawdist.cpp
+	shell/ps5/ps5_fsr.cpp
+	shell/ps5/ps5_fsr.h
 	shell/ps5/ps5_frontend.h
 	shell/ps5/elevation/elevation.cpp
 	shell/ps5/elevation/ps5_elevate.cpp
 	shell/ps5/ps5_diag.h
 	shell/ps5/bigpicture.cpp
 	shell/ps5/bigpicture.h)
+
+# FSR 1's two headers (shell/ps5/fsr, AMD's, MIT) are compiled at run time as
+# GLSL: each is wrapped in a string literal for ps5_fsr.cpp to include.
+foreach(header ffx_a ffx_fsr1)
+	file(READ ${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/fsr/${header}.h FSR_TEXT)
+	file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc.new "R\"FFX(${FSR_TEXT})FFX\"")
+	execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc.new ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc)
+endforeach()
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated)
 
 # CMake gives the executable's objects and archives, in link order, to
 # ps5-link.sh, which links them with RADV and the console's runtime, then

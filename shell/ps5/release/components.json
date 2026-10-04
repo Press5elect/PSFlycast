@@ -60,7 +60,7 @@
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
    },
-   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
     "eboot.bin"
    ]
@@ -540,6 +540,28 @@
     "kind": "in-tree"
    },
    "modifications": "Unmodified, as Basis Universal carries it (zstd/zstddeclib.c).",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "fsr1",
+   "name": "FidelityFX Super Resolution 1.0 (the Upscaling setting)",
+   "kind": "code",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved."
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/fsr/LICENSE.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: ffx_a.h and ffx_fsr1.h of https://github.com/GPUOpen-Effects/FidelityFX-FSR at a21ffb8f6c13233ba336352bdff293894c706575 (v1.0.2), in shell/ps5/fsr, compiled as GLSL by shell/ps5/ps5_fsr.cpp.",
    "files": [
     "eboot.bin"
    ]

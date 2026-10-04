@@ -54,6 +54,7 @@
 #include "imgui_internal.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -2061,6 +2062,20 @@ struct GameOption
 	// A game patch (ps5_patches.cpp): its kind. Offered for the games that
 	// have one, and never in the Settings: it is a game's or nobody's.
 	const char *patch = nullptr;
+	// A choice made of several of the emulator's options (transparency sorting
+	// is the renderer, how it sorts and its layers): those options, and for
+	// each choice the value of each, or Any where the choice leaves it alone.
+	// The values of such an option are the choices' indices.
+	struct Part
+	{
+		const char *key;
+		bool isBool;
+		std::function<int()> get;
+		std::function<void(int)> set;
+	};
+	static constexpr int Any = INT_MIN;
+	std::vector<Part> parts;
+	std::vector<std::vector<int>> combos;
 };
 
 std::shared_ptr<GamepadDevice> pad1();
@@ -2139,6 +2154,53 @@ GameOption ownChoice(const char *label, const char *desc, const char *key, std::
 	return o;
 }
 
+template<typename T>
+GameOption::Part part(const char *key, T& opt)
+{
+	using V = std::decay_t<decltype(opt.get())>;
+	return { key, std::is_same_v<V, bool>, [&opt] { return (int)opt.get(); }, [&opt](int v) { opt.set((V)v); } };
+}
+
+// Which choice the parts' values make: the first whose values they all have.
+int comboOf(const GameOption& option, const std::vector<int>& values)
+{
+	for (size_t c = 0; c < option.combos.size(); c++)
+	{
+		bool same = true;
+		for (size_t i = 0; i < values.size() && same; i++)
+			same = option.combos[c][i] == GameOption::Any || option.combos[c][i] == values[i];
+		if (same)
+			return (int)c;
+	}
+	return -1;
+}
+
+// One choice over several options (GameOption::parts).
+GameOption combined(const char *label, const char *desc, std::vector<const char *> names,
+		std::vector<GameOption::Part> parts, std::vector<std::vector<int>> combos, GameOption::Category category)
+{
+	GameOption o{ label, desc, parts[0].key, false, std::move(names), {}, category, false };
+	for (size_t c = 0; c < combos.size(); c++)
+		o.values.push_back((int)c);
+	o.parts = std::move(parts);
+	o.combos = std::move(combos);
+	const GameOption copy = o;
+	o.get = [copy] {
+		std::vector<int> values;
+		for (const GameOption::Part& p : copy.parts)
+			values.push_back(p.get());
+		return comboOf(copy, values);
+	};
+	o.set = [copy](int choice) {
+		if (choice < 0 || choice >= (int)copy.combos.size())
+			return;
+		for (size_t i = 0; i < copy.parts.size(); i++)
+			if (copy.combos[choice][i] != GameOption::Any)
+				copy.parts[i].set(copy.combos[choice][i]);
+	};
+	return o;
+}
+
 const std::vector<GameOption>& gameOptions()
 {
 	using G = GameOption;
@@ -2152,12 +2214,16 @@ const std::vector<GameOption>& gameOptions()
 				"For Sonic Adventure and Sonic Adventure 2: rings, enemies and boxes appear from further away. Experimental: too far can slow the game or break it",
 				"ps5.drawdist", { "Off", "1.5x", "2x", "3x", "5x" }, { 100, 150, 200, 300, 500 }),
 
-		pick("Transparency sorting",
-				"Orders see-through surfaces. Per-triangle is fast; per-pixel is the most accurate, and the heaviest",
-				"config.pvr.rend", { "Per-triangle", "Per-pixel" },
-				{ (int)RenderType::Vulkan, (int)RenderType::Vulkan_OIT }, config::RendererType, G::Video),
-		onOff("Sort by strip", "With per-triangle sorting: orders whole strips instead. Faster, and wrong in more games",
-				"config.rend.PerStripSorting", config::PerStripSorting, G::Video),
+		combined("Transparency sorting",
+				"Per-triangle suits most games. Per-pixel is the most accurate, and heavier with more layers",
+				{ "Per-triangle", "Per-strip", "Per-pixel (32 layers)", "Per-pixel (64 layers)", "Per-pixel (96 layers)",
+						"Per-pixel (128 layers)" },
+				{ part("config.pvr.rend", config::RendererType), part("config.rend.PerStripSorting", config::PerStripSorting),
+						part("config.rend.PerPixelLayers", config::PerPixelLayers) },
+				{ { (int)RenderType::Vulkan, 0, G::Any }, { (int)RenderType::Vulkan, 1, G::Any },
+						{ (int)RenderType::Vulkan_OIT, G::Any, 32 }, { (int)RenderType::Vulkan_OIT, G::Any, 64 },
+						{ (int)RenderType::Vulkan_OIT, G::Any, 96 }, { (int)RenderType::Vulkan_OIT, G::Any, 128 } },
+				G::Video),
 		pick("Internal resolution", "The Dreamcast renders 640 x 480; higher looks sharper on a 4K TV",
 				"config.rend.Resolution",
 				{ "Native (480p)", "2x (960p)", "3x (1440p)", "4x (1920p)", "5x (2400p)", "6x (2880p)", "7x (3360p)",
@@ -2198,7 +2264,15 @@ const std::vector<GameOption>& gameOptions()
 				config::IntegerScale, G::Video),
 		onOff("Smooth scaling", "Bilinear filtering of the final picture", "config.rend.LinearInterpolation",
 				config::LinearInterpolation, G::Video),
-		onOff("VSync", "Paces frames to the TV", "config.rend.vsync", config::VSync, G::Video),
+		pick("Upscaling", "FSR 1 sharpens a picture rendered below the screen's resolution: try it with 3x or 4x",
+				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)" },
+				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp }, ps5::Upscaling,
+				G::Video),
+		combined("Frame pacing",
+				"Sync to display is the smoothest: the sound follows the TV. VSync: the sound keeps its exact rate",
+				{ "Sync to display", "VSync", "Off" },
+				{ part("config.rend.vsync", config::VSync), part("ps5.SyncToDisplay", ps5::SyncToDisplay) },
+				{ { 1, 1 }, { 1, 0 }, { 0, G::Any } }, G::Video),
 
 		range("Volume", "Master volume", "config.aica.Volume", 0, 100, 5, "%", G::Audio,
 				[] { return (int)config::AudioVolume.get(); },
@@ -2277,12 +2351,19 @@ std::vector<GameOption> optionsFor(const std::string& fileName, bool saved)
 	return rows;
 }
 
-// The option's section and name in emu.cfg, from its key.
-std::pair<std::string, std::string> optionEntry(const GameOption& option)
+// An option's section and name in emu.cfg, from its key.
+std::pair<std::string, std::string> optionEntry(const std::string& key)
 {
-	const std::string key = option.key;
 	const size_t dot = key.find('.');
 	return { key.substr(0, dot), key.substr(dot + 1) };
+}
+
+// The value the Settings have for one of the options of a combined choice.
+int partSettingsValue(const GameOption::Part& part)
+{
+	const int now = part.get();
+	const auto [section, name] = optionEntry(part.key);
+	return part.isBool ? (config::loadBool(section, name, now != 0) ? 1 : 0) : config::loadInt(section, name, now);
 }
 
 // The value the Settings have for an option (the one in effect may be the
@@ -2291,10 +2372,17 @@ int settingsValue(const GameOption& option)
 {
 	if (option.category == GameOption::Patch)
 		return option.values[0];	// the Settings have none of these: one that is on is the game's own
+	if (!option.parts.empty())
+	{
+		std::vector<int> values;
+		for (const GameOption::Part& part : option.parts)
+			values.push_back(partSettingsValue(part));
+		return comboOf(option, values);
+	}
 	const int now = option.get();
 	if (option.key == nullptr)
 		return now;
-	const auto [section, name] = optionEntry(option);
+	const auto [section, name] = optionEntry(option.key);
 	return option.isBool ? (config::loadBool(section, name, now != 0) ? 1 : 0) : config::loadInt(section, name, now);
 }
 
@@ -2319,13 +2407,56 @@ int choiceOf(const GameOption& option, int value)
 int gameOptionChoice(const std::string& id, const GameOption& option)
 {
 	const std::vector<std::string> entries = config::getEntries(id);
+	if (!option.parts.empty())
+	{
+		// Its own where the game has any of the options; the Settings' for the rest.
+		bool own = false;
+		std::vector<int> values;
+		for (const GameOption::Part& part : option.parts)
+		{
+			if (std::find(entries.begin(), entries.end(), part.key) == entries.end())
+				values.push_back(partSettingsValue(part));
+			else
+			{
+				own = true;
+				values.push_back(part.isBool ? (config::loadBool(id, part.key, false) ? 1 : 0) : config::loadInt(id, part.key, 0));
+			}
+		}
+		return own ? comboOf(option, values) : -1;
+	}
 	if (std::find(entries.begin(), entries.end(), option.key) == entries.end())
 		return -1;
 	return choiceOf(option, option.isBool ? (config::loadBool(id, option.key, false) ? 1 : 0) : config::loadInt(id, option.key, 0));
 }
 
+// A game's own value for an option, gone: it follows the Settings again.
+void clearGameOption(const std::string& id, const GameOption& option)
+{
+	for (const GameOption::Part& part : option.parts)
+		config::deleteEntry(id, part.key);
+	if (option.parts.empty())
+		config::deleteEntry(id, option.key);
+}
+
 void setGameOptionChoice(const std::string& id, const GameOption& option, int choice)
 {
+	if (!option.parts.empty())
+	{
+		clearGameOption(id, option);
+		if (choice < 0 || choice >= (int)option.combos.size())
+			return;
+		for (size_t i = 0; i < option.parts.size(); i++)
+		{
+			const int value = option.combos[choice][i];
+			if (value == GameOption::Any)
+				continue;
+			if (option.parts[i].isBool)
+				config::saveBool(id, option.parts[i].key, value != 0);
+			else
+				config::saveInt(id, option.parts[i].key, value);
+		}
+		return;
+	}
 	if (choice < 0)
 		config::deleteEntry(id, option.key);
 	else if (option.isBool)
@@ -2500,7 +2631,7 @@ void detailsInput(Game& g, bool selectDisk)
 		else if (hasId && in.accept)
 		{
 			for (const GameOption& option : options)
-				config::deleteEntry(det.gameId, option.key);
+				clearGameOption(det.gameId, option);
 		}
 		break;
 	}
@@ -3813,6 +3944,7 @@ std::vector<Category> buildCategories()
 			{ "Title start-up and SDK", "ps5-payload-sdk, by John Tornblom, and Mihawk-99's fork of it" },
 			{ "USB drive access", "ps5-native-app-boilerplate, by BlackBearReloaded" },
 			{ "Network shares", "libsmb2, by Ronnie Sahlberg" },
+			{ "Upscaling", "FidelityFX Super Resolution 1.0, by AMD" },
 			{ "Cheats", "libretro-database (CC BY-SA 4.0)" },
 			{ "Game patches", "Flycast widescreen and 60 FPS chart, by nexus382 and contributors" },
 			{ "Covers", "libretro-thumbnails" },

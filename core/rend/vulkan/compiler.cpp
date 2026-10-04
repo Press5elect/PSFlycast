@@ -113,3 +113,14 @@ vk::UniqueShaderModule ShaderCompiler::Compile(vk::ShaderStageFlagBits shaderSta
 	return VulkanContext::Instance()->GetDevice().createShaderModuleUnique
 			(vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), shaderSPV));
 }
+
+#ifdef USE_PS5
+vk::UniqueShaderModule ShaderCompiler::TryCompile(vk::ShaderStageFlagBits shaderStage, std::string const& shaderText)
+{
+	std::vector<unsigned int> shaderSPV;
+	if (!GLSLtoSPV(shaderStage, shaderText, shaderSPV))
+		return {};
+	return VulkanContext::Instance()->GetDevice().createShaderModuleUnique
+			(vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(), shaderSPV));
+}
+#endif

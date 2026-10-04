@@ -16,9 +16,12 @@
 	micro-stutter. The resampling ratio is therefore nudged, by at most
 	0.5 %, inaudibly, to keep the ring half full (dynamic rate control, as
 	RetroArch does); push() blocks only if the ring is full regardless.
+	That is the "Sync to display" frame pacing; with "VSync" the ratio is the
+	exact one.
 */
 #include "audio/audiostream.h"
 #include "cfg/option.h"
+#include "ps5_frontend.h"
 #include "log/Log.h"
 
 #include <algorithm>
@@ -35,6 +38,11 @@ int sceAudioOutInit(void);
 int sceAudioOutOpen(int32_t userId, int32_t type, int32_t index, uint32_t len, uint32_t freq, uint32_t param);
 int sceAudioOutOutput(int32_t handle, const void *p);
 int sceAudioOutClose(int32_t handle);
+}
+
+namespace ps5
+{
+config::Option<bool> SyncToDisplay("SyncToDisplay", true, "ps5");
 }
 
 namespace
@@ -102,6 +110,8 @@ public:
 		const float target = capacity() / 2.f;
 		float deviation = ((float)fill() - target) / target;
 		deviation = std::clamp(deviation, -1.f, 1.f);
+		if (!ps5::SyncToDisplay)
+			deviation = 0.f;		// "VSync": the sound at its own rate
 		const float step = (float)InRate / OutRate * (1.f + MaxRateDelta * deviation);
 		for (u32 i = 0; i < frames; i++)
 		{

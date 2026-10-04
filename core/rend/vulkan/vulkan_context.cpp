@@ -146,6 +146,7 @@ static void CheckImGuiResult(VkResult err)
 #if defined(__PROSPERO__)
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
+#include "ps5_fsr.h"
 #include <cerrno>
 #define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
 
@@ -819,6 +820,9 @@ void VulkanContext::CreateSwapChain()
 	try
 	{
 		device->waitIdle();
+#ifdef USE_PS5
+		ps5::fsr::reset();
+#endif
 
 		if (!drawFences.empty())
 		{
@@ -1321,6 +1325,14 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	int dx = 0;
 	int dy = 0;
 	getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
+#ifdef USE_PS5
+	// The picture upscaled by FSR, where there is one of this frame (ps5_fsr.cpp).
+	if (ps5::fsr::present(commandBuffer, imageView, *renderPass,
+			vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)),
+			(int)std::lround(shiftX * (width - dx * 2) / (float)extent.width),
+			(int)std::lround(shiftY * (height - dy * 2) / (float)extent.height)))
+		return;
+#endif
 	
 	vk::Viewport viewport(dx, dy, width - dx * 2, height - dy * 2);
 	commandBuffer.setViewport(0, viewport);
@@ -1384,6 +1396,16 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 						barrier
 				);
 			}
+#ifdef USE_PS5
+			if (lastFrameView)
+			{
+				// FSR upscales the picture in a render pass of its own, before this one.
+				int dx = 0, dy = 0;
+				getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
+				ps5::fsr::upscale(GetCurrentCommandBuffer(), (bool)image, imageView, extent,
+						vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
+			}
+#endif
 			BeginRenderPass();
 
 			if (lastFrameView) // Might have been nullified if swap chain recreated
@@ -1439,6 +1461,9 @@ void VulkanContext::term()
 		}
 	}
 	overlay.reset();
+#ifdef USE_PS5
+	ps5::fsr::reset();
+#endif
 	ShaderCompiler::Term();
 	swapChain.reset();
 	imageViews.clear();

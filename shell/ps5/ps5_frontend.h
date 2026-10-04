@@ -5,6 +5,8 @@
 	SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
+#include "cfg/option.h"
+
 #include <string>
 #include <vector>
 
@@ -12,6 +14,18 @@ namespace ps5
 {
 extern std::string rootDir;		// with a trailing '/'
 extern bool elevated;			// the sandbox was left (USB drives, /data)
+// Frame pacing, "Sync to display": the display's refresh paces the game, and
+// the sound follows it by resampling a little faster or slower (ps5_audio.cpp).
+// Off, the sound keeps its exact rate, and now and then a frame is shown twice
+// or the game waits for the sound. A setting, and a game can have its own.
+extern config::Option<bool> SyncToDisplay;
+
+// "Upscaling": how the game's picture is stretched to the screen when it is
+// rendered smaller: the emulator's own filter, or FSR 1 at one of three
+// sharpnesses (ps5_fsr.cpp). A setting, and a game can have its own.
+enum { UpscalingOff, UpscalingFsr, UpscalingFsrSharp, UpscalingFsrSoft };
+extern config::Option<int> Upscaling;
+
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
 
 // <root>/frontend.cfg: what the library looks like and what it may do.

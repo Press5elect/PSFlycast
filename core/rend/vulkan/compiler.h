@@ -27,6 +27,11 @@ public:
 	static void Init();
 	static void Term();
 	static vk::UniqueShaderModule Compile(vk::ShaderStageFlagBits shaderStage, std::string const& shaderText);
+#ifdef USE_PS5
+	// As Compile, but a shader that does not compile is an empty module (and
+	// the compiler's message in the log), not the end of the program.
+	static vk::UniqueShaderModule TryCompile(vk::ShaderStageFlagBits shaderStage, std::string const& shaderText);
+#endif
 private:
 	static int initCount;
 };

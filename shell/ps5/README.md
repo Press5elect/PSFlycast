@@ -391,10 +391,10 @@ once.
 
 ## Settings
 
-Interface (above), Video (per-triangle, per-strip or per-pixel transparency, internal resolution up to 10x,
+Interface (above), Video (per-triangle, per-strip or per-pixel transparency with 32 to 128 layers, internal resolution up to 10x,
 widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
-frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
-VSync, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
+FSR 1 upscaling, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
+frame pacing, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
 second slot, default layout), System (region, language, TV standard, cable, built-in BIOS,
 auto save/load states, fast loading, CPU recompiler), Library and About. The
 defaults: Vulkan, 3x resolution (1440p), 4x anisotropic filtering.
@@ -501,6 +501,7 @@ What is in this build, and whose it is:
 | The title's start-up, link layout and `libc.prx`; the platform layer (heap, guest memory, the libc functions a title lacks) | Mihawk-99's fork of the payload SDK; [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) by John Törnblom and contributors | GPL-3.0-or-later |
 | USB drive access (`sandbox-elevator.elf` and its client) | The sandbox-elevation example of ps5-native-app-boilerplate, by BlackBearReloaded | GPL-3.0 |
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
+| Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |
 | The cheat files | [libretro-database](https://github.com/libretro/libretro-database), `cht/Sega - Dreamcast` | CC BY-SA 4.0 |
 | Covers, downloaded when PSFlyCast runs | [libretro-thumbnails](https://github.com/libretro-thumbnails/Sega_-_Dreamcast) | |
 | Descriptions and release dates, downloaded when PSFlyCast runs | [TheGamesDB](https://thegamesdb.net), with Flycast's own scraper and its key | |
