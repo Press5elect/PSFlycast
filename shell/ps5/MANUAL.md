@@ -295,6 +295,10 @@ what you see, most useful first:
   the smoothest. VSync: the sound keeps its exact speed, and when the game
   and the TV drift apart a frame is shown twice or the sound has a tiny gap.
   Off: frames are shown as soon as they are ready.
+  On a TV in its 120 Hz mode each frame is shown for two refreshes. Some TVs
+  take a 60th of a second for each anyway, which halves the frame rate:
+  PSFlyCast notices within a few seconds of a game starting and shows each
+  frame once from then on.
 - **Anisotropic filtering** at 16x keeps floors and walls sharp into the
   distance.
 - **Texture upscaling** redraws the game's small textures 2 to 6 times

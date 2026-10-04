@@ -247,6 +247,78 @@ static vk::UniqueSurfaceKHR createPs5DisplaySurface(vk::Instance instance)
 			vk::SurfaceTransformFlagBitsKHR::eIdentity, 1.0f, vk::DisplayPlaneAlphaFlagBitsKHR::eOpaque, extent);
 	return instance.createDisplayPlaneSurfaceKHRUnique(info);
 }
+
+// What the display really shows. Its mode says 119.88 Hz, and each frame of a
+// 60 Hz machine is then presented twice. On some displays a present still
+// takes a 60th of a second in that mode (a tester's: every game ran at 30),
+// so the presents are counted while a game runs: when the frames wait for
+// the display most of the time, and far fewer of them reach it in a second
+// than its mode has refreshes, a frame is presented once from then on.
+namespace ps5display
+{
+double waited;		// seconds spent waiting for a swapchain image, in this window
+int flips;			// presents, in this window
+std::chrono::steady_clock::time_point began;
+bool counting;
+int slow;			// windows in a row that found the display slower than its mode
+bool once;			// one present a frame, whatever the mode says
+bool said;
+
+int perFrame(int swapInterval)
+{
+	return once ? 1 : swapInterval;
+}
+
+void reset()
+{
+	counting = false;
+	slow = 0;
+	once = false;
+}
+
+// After a frame's presents, flipsNow of them.
+void frame(int flipsNow, bool measure, float refreshRate)
+{
+	using namespace std::chrono;
+	if (!measure)
+	{
+		counting = false;
+		return;
+	}
+	const steady_clock::time_point now = steady_clock::now();
+	if (!counting)
+	{
+		counting = true;
+		began = now;
+		waited = 0;
+		flips = 0;
+		return;
+	}
+	flips += flipsNow;
+	const double span = duration<double>(now - began).count();
+	if (span < 1.0)
+		return;
+	const double rate = flips / span, share = waited / span;
+	if (!said)
+	{
+		said = true;
+		PS5_MARK("display: in a game, %.1f presents a second on the %.2f Hz output, waiting for it %.0f%% of the time",
+				rate, refreshRate, share * 100.0);
+	}
+	slow = share > 0.5 && rate < refreshRate * 0.75f ? slow + 1 : 0;
+	if (slow >= 2)
+	{
+		once = true;
+		counting = false;
+		PS5_MARK("display: %.1f presents a second reach the screen in its %.2f Hz mode: one present a frame from now on",
+				rate, refreshRate);
+		return;
+	}
+	began = now;
+	waited = 0;
+	flips = 0;
+}
+}
 #else
 #define PS5_MARK(...) do {} while (0)
 #endif
@@ -822,6 +894,7 @@ void VulkanContext::CreateSwapChain()
 		device->waitIdle();
 #ifdef USE_PS5
 		ps5::fsr::reset();
+		ps5display::reset();
 #endif
 
 		if (!drawFences.empty())
@@ -1148,6 +1221,9 @@ void VulkanContext::NewFrame()
 	recreateSwapChainIfNeeded();
 	if (!IsValid())
 		throw InvalidVulkanContext();
+#if defined(__PROSPERO__)
+	const std::chrono::steady_clock::time_point waitBegan = std::chrono::steady_clock::now();
+#endif
 	vk::Result res = device->acquireNextImageKHR(*swapChain, UINT64_MAX, *imageAcquiredSemaphores[currentSemaphore], nullptr, &currentImage);
 	if (res != vk::Result::eSuccess)
 		throw InvalidVulkanContext();
@@ -1159,6 +1235,9 @@ void VulkanContext::NewFrame()
 		WARN_LOG(RENDERER, "vk:SystemError: %s", e.what());
 		throw FlycastException("Vulkan system error");
 	}
+#if defined(__PROSPERO__)
+	ps5display::waited += std::chrono::duration<double>(std::chrono::steady_clock::now() - waitBegan).count();
+#endif
 	device->resetCommandPool(*commandPools[currentImage], vk::CommandPoolResetFlagBits::eReleaseResources);
 	inFlightObjects[currentImage].clear();
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
@@ -1250,8 +1329,10 @@ void VulkanContext::Present() noexcept
 #if defined(USE_PS5)
 			// The display's own factor always (see the swap interval), the
 			// game's (a 30 fps game) only with "Duplicate frames" on, as before.
-			const bool duplicate = swapInterval > 1 || config::DupeFrames;
-			const int presents = config::DupeFrames ? swapInterval * gameSwapInterval : swapInterval;
+			const int perFrame = ps5display::perFrame(swapInterval);
+			const bool duplicate = perFrame > 1 || config::DupeFrames;
+			const int presents = config::DupeFrames ? perFrame * gameSwapInterval : perFrame;
+			int flipsNow = 1;
 #else
 			const bool duplicate = config::DupeFrames;
 			const int presents = swapInterval * gameSwapInterval;
@@ -1265,6 +1346,9 @@ void VulkanContext::Present() noexcept
 					PresentFrame(vk::Image(), lastFrameView, lastFrameExtent, lastFrameAR);
 					res = presentQueue.presentKHR(vk::PresentInfoKHR(1, &(*renderCompleteSemaphores[currentSemaphore]), 1, &(*swapChain), &currentImage));
 					currentSemaphore = (currentSemaphore + 1) % renderCompleteSemaphores.size();
+#if defined(USE_PS5)
+					flipsNow++;
+#endif
 					if (res == vk::Result::eSuboptimalKHR)
 					{
 						// Stop queuing additional dupe presents into a swap
@@ -1275,6 +1359,10 @@ void VulkanContext::Present() noexcept
 					}
 				}
 			}
+#if defined(USE_PS5)
+			ps5display::frame(flipsNow, !gui_is_open() && swapOnVSync && swapInterval > 1 && !ps5display::once,
+					settings.display.refreshRate);
+#endif
 #endif
 		} catch (const vk::SystemError& e) {
 			// Happens when resizing the window

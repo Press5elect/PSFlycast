@@ -9,4 +9,4 @@
 	handed out.
 */
 #pragma once
-#define PS5_BUILD_NUMBER 37
+#define PS5_BUILD_NUMBER 38
