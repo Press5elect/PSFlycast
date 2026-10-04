@@ -22,23 +22,27 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.0.1** (build 34). I ran build 33, which has the same
-code, on my PS5 before releasing it.
+Latest release: **v1.0.1** (build 39). I ran build 38, which has the same
+code, on my PS5 before releasing it. It is built on Flycast's `dev` branch,
+the one Flycast's nightly builds are made from.
 
 Played on a PS5 over the builds that led to it: Dreamcast games from the
-internal folder and from a network share, with a real BIOS; cover downloads;
-the quick menu and the per-game options; games on several discs, grouped and
-swapped from the quick menu; the start-up animation and the library;
-119.88 Hz output on a display that takes it; internal resolution above 6x and
-the texture options; object draw distance, with which objects appeared from
-further away. No frame rates or audio were measured.
+internal folder and from a network share, with a real BIOS; save states made
+by v1.0.0; cover downloads; the quick menu and the per-game options; games on
+several discs, grouped and swapped from the quick menu; the start-up
+animation and the library; 119.88 Hz output on a display that takes it, and
+60 frames a second on one that shows fewer than its mode says; the three
+frame pacing choices; internal resolution above 6x and the texture options;
+FSR 1 upscaling; per-pixel transparency with 32 to 128 layers, with its HUD
+and menus at 3x and 4x; object draw distance, with which objects appeared
+from further away. No frame rates or audio were measured.
 
 In the build but not confirmed on a console: the left stick as the joystick
-in arcade games (its setting is there), USB drives, the skins and
-transitions, the letter jump, the Controls page, Restart game and the CPU
-clock. NAOMI and Atomiswave games have not been tried. Per-pixel transparency
-at 6x resolution drew no frames in one test; use per-triangle, or a lower
-resolution, if a game stays black.
+in arcade games (its setting is there), per-pixel transparency above 4x, USB
+drives, the skins and transitions, the letter jump, the Controls page,
+Restart game and the CPU clock. NAOMI and Atomiswave games have not been
+tried. With per-triangle sorting a game can show surfaces flickering in and
+out; per-pixel draws them right.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped
@@ -430,7 +434,11 @@ On a console: see Status, at the top.
   `VK_KHR_display` surface on VideoOut, as PS5_Vulkan's RADV test title drives
   it; the 4K mode with the highest refresh rate the driver offers (119.88 Hz
   where `param.json` asks for it and the display follows, else 59.94 Hz), and
-  two presents a frame at 119.88 Hz.
+  two presents a frame at 119.88 Hz, or one where the presents are counted
+  and the display shows fewer than its mode says.
+- `shell/ps5/ps5_fsr.cpp`, `ps5_fsr_constants.h`, `shell/ps5/fsr/` - FSR 1
+  upscaling of the picture: AMD's two headers, compiled as GLSL, in two draws
+  between the game's picture and the swapchain.
 - `core/linux/posix_vmem.cpp` - guest memory and JIT code in direct memory
   through the PS5 payload SDK fork's platform layer (`ps5platform/shm.h`,
   `ps5platform/exec.h`), with fastmem.

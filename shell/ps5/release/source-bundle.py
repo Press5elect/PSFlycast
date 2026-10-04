@@ -39,6 +39,14 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent.parent
 
 
+# A submodule of which the build compiles a small part: that part, with its
+# licences, is what the archive holds (the whole of Basis Universal is 300 MB
+# of encoders, tools and test images that no file of the title comes from).
+SUBSET = {
+    "core/deps/basis_universal": ("transcoder", "zstd", "LICENSE", "LICENSES", "NOTICE", "README.md"),
+}
+
+
 class BundleError(Exception):
     pass
 
@@ -162,11 +170,14 @@ def main():
         sources = [archive_members(ROOT, revision, prefix)]
         used = submodules(ROOT)
         for sub, commit in used:
-            sources.append(archive_members(ROOT / sub, commit, prefix + sub + "/"))
+            sources.append(archive_members(ROOT / sub, commit, prefix + sub + "/", SUBSET.get(sub, ())))
         add(f"PSFlyCast-{arguments.tag}-source.tar.xz",
             f"PSFlyCast at {revision}: the port (shell/ps5/), Flycast at {parts['flycast']['source']['revision']} merged into it, "
             f"and the submodules the build uses, each at the commit the repository records: "
-            + ", ".join(f"{sub} {commit[:12]}" for sub, commit in used) + ". The libraries Flycast compiles in and its fonts are in it.",
+            + ", ".join(f"{sub} {commit[:12]}" for sub, commit in used) + ". The libraries Flycast compiles in and its fonts are in it. "
+            + "".join(f"Of {sub}, what the build compiles and its licences are here ({', '.join(paths)}); the rest of it, "
+                      f"encoders, tools and test images, is at the same commit of its own repository. "
+                      for sub, paths in SUBSET.items() if any(sub == used_sub for used_sub, _ in used)),
             sources)
 
         mesa = parts["radv"]["source"]
