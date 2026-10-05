@@ -28,6 +28,9 @@
 #include "imgui_driver.h"
 #include "profiler/fc_profiler.h"
 #include "oslib/i18n.h"
+#ifdef USE_PS5
+#include "ps5_pad.h"
+#endif
 
 #include <chrono>
 #include <thread>
@@ -42,6 +45,10 @@ bool mainui_rend_frame()
 
 	os_DoEvents();
 	os_UpdateInputState();
+#ifdef USE_PS5
+	// Users who signed in or out since the last frame: their pads (ps5_pad.cpp).
+	ps5::pad::hotplug();
+#endif
 
 	if (gui_is_open())
 	{

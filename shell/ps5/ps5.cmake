@@ -20,6 +20,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_fsr.cpp
+	shell/ps5/ps5_update.cpp
 	shell/ps5/ps5_fsr.h
 	shell/ps5/ps5_frontend.h
 	shell/ps5/elevation/elevation.cpp

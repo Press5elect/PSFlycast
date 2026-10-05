@@ -30,6 +30,16 @@
 	                   in6addr_any no module exports. Flycast's logger calls
 	                   isatty at start-up; libc++'s std::filesystem the rest.
 	                   Also bound with --defsym (ps5-link.sh).
+	  getaddrinfo, freeaddrinfo
+	                   the one a title is given (the payload SDK's, in libc.prx)
+	                   first asks which network interfaces are up, which a
+	                   title may not ask, and so fails every request ("A
+	                   non-recoverable error occurred during database lookup"
+	                   from Flycast's network code, for DCNet and the modem's
+	                   name server). This one answers for an address written as
+	                   numbers without asking anyone, and looks a name up with
+	                   the console's own resolver (libSceNet's sceNetResolver,
+	                   as the SDK's does). IPv4 only. Bound with --defsym.
 	  localeconv       the console's gives an empty decimal point, and code that
 	                   builds a number for strtod from it (nlohmann::json, which
 	                   reads Flycast's JSON) then loses every fraction: 0.62 is
@@ -47,11 +57,145 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
+
+#include "ps5_diag.h"
+
+extern "C"
+{
+int sceNetInit(void);
+int sceNetPoolCreate(const char *name, int size, int flags);
+int sceNetPoolDestroy(int pool);
+int sceNetResolverCreate(const char *name, int pool, int flags);
+int sceNetResolverDestroy(int resolver);
+int sceNetResolverStartNtoa(int resolver, const char *hostname, in_addr_t *address, int timeout, int retry, int flags);
+}
+
+namespace
+{
+
+// A name's IPv4 address, from the console's resolver (the name servers of
+// its network settings). The call waits for the answer; Flycast asks from
+// its network threads. 0, or what the resolver said.
+int lookUpName(const char *name, in_addr_t *address)
+{
+	sceNetInit();	// an error only means it was up already
+	const int pool = sceNetPoolCreate("psflycast-names", 16 * 1024, 0);
+	if (pool < 0)
+	{
+		ps5::diag::mark("names: no memory pool for the resolver (%#x)", (unsigned)pool);
+		return pool;
+	}
+	const int resolver = sceNetResolverCreate("psflycast-names", pool, 0);
+	int result = resolver;
+	if (resolver >= 0)
+	{
+		result = sceNetResolverStartNtoa(resolver, name, address, 0, 0, 0);
+		sceNetResolverDestroy(resolver);
+	}
+	sceNetPoolDestroy(pool);
+	if (result < 0)
+		ps5::diag::mark("names: %s was not found (%#x)", name, (unsigned)result);
+	else
+	{
+		char numbers[INET_ADDRSTRLEN] = "";
+		inet_ntop(AF_INET, address, numbers, sizeof(numbers));
+		ps5::diag::mark("names: %s is %s", name, numbers);
+	}
+	return result < 0 ? result : 0;
+}
+
+// One block holds an answer and its address, so that freeing the answer
+// frees both.
+struct AddressBlock
+{
+	struct addrinfo info;
+	struct sockaddr_in address;
+};
+
+}
+
+extern "C"
+{
+
+int ps5_flycast_getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result)
+{
+	if (result == nullptr)
+		return EAI_FAIL;
+	*result = nullptr;
+	if (node == nullptr && service == nullptr)
+		return EAI_NONAME;
+	if (hints != nullptr && hints->ai_family != AF_UNSPEC && hints->ai_family != AF_INET)
+		return EAI_FAMILY;
+	const int flags = hints != nullptr ? hints->ai_flags : 0;
+
+	long port = 0;
+	if (service != nullptr && service[0] != '\0')
+	{
+		char *end = nullptr;
+		port = strtol(service, &end, 10);
+		if (end == service || *end != '\0')
+		{
+			// The few names Flycast's code could give.
+			if (strcmp(service, "http") == 0)
+				port = 80;
+			else if (strcmp(service, "https") == 0)
+				port = 443;
+			else if (strcmp(service, "domain") == 0)
+				port = 53;
+			else
+				return EAI_SERVICE;
+		}
+		if (port < 0 || port > 65535)
+			return EAI_SERVICE;
+	}
+
+	struct in_addr address{};
+	if (node == nullptr)
+		address.s_addr = htonl((flags & AI_PASSIVE) != 0 ? INADDR_ANY : INADDR_LOOPBACK);
+	else if (inet_pton(AF_INET, node, &address) != 1)
+	{
+		if ((flags & AI_NUMERICHOST) != 0)
+			return EAI_NONAME;
+		if (strcmp(node, "localhost") == 0)
+			address.s_addr = htonl(INADDR_LOOPBACK);
+		else if (lookUpName(node, &address.s_addr) != 0)
+			return EAI_NONAME;
+	}
+
+	AddressBlock *block = (AddressBlock *)calloc(1, sizeof(AddressBlock));
+	if (block == nullptr)
+		return EAI_MEMORY;
+	block->address.sin_family = AF_INET;
+	block->address.sin_port = htons((unsigned short)port);
+	block->address.sin_addr = address;
+	block->address.sin_len = sizeof(block->address);
+	block->info.ai_flags = flags;
+	block->info.ai_family = AF_INET;
+	// A datagram socket when that, or UDP, was asked for; a stream otherwise.
+	const bool datagram = hints != nullptr && (hints->ai_socktype == SOCK_DGRAM
+			|| (hints->ai_socktype == 0 && hints->ai_protocol == IPPROTO_UDP));
+	block->info.ai_socktype = datagram ? SOCK_DGRAM : SOCK_STREAM;
+	block->info.ai_protocol = datagram ? IPPROTO_UDP : IPPROTO_TCP;
+	block->info.ai_addrlen = sizeof(block->address);
+	block->info.ai_addr = (struct sockaddr *)&block->address;
+	*result = &block->info;
+	return 0;
+}
+
+void ps5_flycast_freeaddrinfo(struct addrinfo *info)
+{
+	// A list of one: the block ps5_flycast_getaddrinfo made.
+	free(info);
+}
+
+}
 
 extern "C"
 {
@@ -226,9 +370,21 @@ int ps5_flycast_mkstemp(char *pattern)
 	return -1;
 }
 
-const char *ps5_flycast_gai_strerror(int)
+const char *ps5_flycast_gai_strerror(int code)
 {
-	return "name resolution is not available";
+	switch (code)
+	{
+	case EAI_NONAME:
+		return "the name was not found";
+	case EAI_SERVICE:
+		return "the port is not a number";
+	case EAI_FAMILY:
+		return "only IPv4 addresses are looked up";
+	case EAI_MEMORY:
+		return "out of memory";
+	default:
+		return "the name could not be looked up";
+	}
 }
 
 struct hostent *ps5_flycast_gethostbyname(const char *)

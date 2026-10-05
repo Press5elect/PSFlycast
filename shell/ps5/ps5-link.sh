@@ -91,7 +91,7 @@ title_defsyms=()
 {
     printf '{\n    local:\n'
     for name in fork link symlink readlink pathconf isatty getcwd realpath mkstemp \
-            gai_strerror gethostbyname getnameinfo in6addr_any localeconv; do
+            gai_strerror gethostbyname getnameinfo getaddrinfo freeaddrinfo in6addr_any localeconv; do
         title_defsyms+=("--defsym=$name=ps5_flycast_$name")
         printf '        %s;\n' "$name"
     done

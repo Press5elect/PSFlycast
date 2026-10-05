@@ -29,6 +29,11 @@ void settings();				// GuiState::Settings
 // network game what its share is doing) and how far it is, 0..1. True when the
 // user asks to cancel; `cancelling` is true from then until the loader stops.
 bool loading(const char *label, float progress, bool cancelling);
+// GuiState::NetworkStart: the loaded game waits for the other player (netplay)
+// or the other cabinets. `status` is the network code's last message. Returns
+// 1 when the user cancels, 2 when they ask to start with who is there
+// (canStartNow), else 0.
+int networkStart(const std::string& status, bool canStartNow);
 // The load was cancelled by the user; it ended (the game runs, or it failed,
 // or the cancel is done); it failed: the message to show for `why`.
 void loadCancelled();

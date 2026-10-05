@@ -192,7 +192,7 @@ enum class Probe
 	Closed,		// refused, unreachable, or no answer in the time given
 	Unknown,	// could not tell (no socket, an error that says nothing): libsmb2 finds out
 	Cancelled,
-	NoName,		// the server is given by name, which the console cannot look up
+	NoName,		// the server is given by a name the console's resolver does not know
 };
 
 // A connection tried on a thread of its own. Non-blocking sockets did not
@@ -265,11 +265,23 @@ std::shared_ptr<ConnectAttempt> startConnect(const sockaddr_in& address)
 	return attempt;
 }
 
+// The server's address: written as numbers, or a name the console's resolver
+// knows (the title's own getaddrinfo, ps5_libc.cpp; what it found is in the
+// boot log).
 bool numericAddress(const std::string& server, int port, sockaddr_in& address)
 {
 	address = sockaddr_in{};
 	if (inet_pton(AF_INET, server.c_str(), &address.sin_addr) != 1)
-		return false;
+	{
+		addrinfo hints{};
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
+		addrinfo *found = nullptr;
+		if (getaddrinfo(server.c_str(), nullptr, &hints, &found) != 0 || found == nullptr)
+			return false;
+		address.sin_addr = ((const sockaddr_in *)found->ai_addr)->sin_addr;
+		freeaddrinfo(found);
+	}
 	address.sin_family = AF_INET;
 	address.sin_port = htons((unsigned short)port);
 #if defined(__PROSPERO__) || defined(__FreeBSD__)
@@ -357,7 +369,7 @@ struct Share
 		}
 		if (answer == Probe::NoName)
 		{
-			fail("\"" + server + "\" is a name: give the server's IP address in network.cfg (192.168.x.x)");
+			fail("\"" + server + "\" was not found by name: give the server's IP address in network.cfg (192.168.x.x)");
 			failedAt = nowMs();
 			return false;
 		}

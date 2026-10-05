@@ -60,7 +60,7 @@
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
    },
-   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
     "eboot.bin"
    ]
@@ -1007,7 +1007,7 @@
   },
   {
    "id": "title-art",
-   "name": "The title's icon and the picture shown while it loads (sce_sys)",
+   "name": "The title's icon, the pictures the console shows for it (sce_sys), and the start-up sound",
    "kind": "asset",
    "licence": "GPL-3.0-or-later",
    "copyright": [
@@ -1017,13 +1017,14 @@
    "source": {
     "kind": "git",
     "path": ".",
-    "where": "shell/ps5/sce_sys/ in this title's repository"
+    "where": "shell/ps5/sce_sys/ and shell/ps5/sounds/ in this title's repository"
    },
-   "modifications": "Drawn for this project: icon0.png is the app's mark, drawn by a script; pic0.dds and pic1.dds are the first frame of the start-up animation, rendered from the interface's own code (shell/ps5/bigpicture.cpp) and encoded with PS5_Vulkan's tools/prepare-assets.sh.",
+   "modifications": "Made for this project. icon0.png is the app's mark and name, drawn by shell/ps5/sce_sys/make-icon.py. pic0.dds (the home screen) is the mark and the name as the start-up animation has them, and pic1.dds (while the title loads) the animation's first frame; both are rendered from the interface's own code (shell/ps5/bigpicture.cpp) and encoded with PS5_Vulkan's tools/prepare-assets.sh. sounds/startup.wav is the output of shell/ps5/sounds/make-startup-sound.html, which makes every sound in it from oscillators and noise: nothing in it is sampled or recorded.",
    "files": [
     "sce_sys/icon0.png",
     "sce_sys/pic0.dds",
-    "sce_sys/pic1.dds"
+    "sce_sys/pic1.dds",
+    "sounds/startup.wav"
    ]
   }
  ]

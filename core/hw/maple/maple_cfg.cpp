@@ -10,6 +10,9 @@
 #include "serialize.h"
 #include "input/maplelink.h"
 #include "input/mouse.h"
+#ifdef USE_PS5
+#include "../../../shell/ps5/ps5_pad.h"
+#endif
 
 MapleInputState mapleInputState[4];
 extern bool maple_ddt_pending_reset;
@@ -465,6 +468,10 @@ static void vmuDigest()
 
 void mcfg_CreateDevices()
 {
+#ifdef USE_PS5
+	// A controller for each port a second, third or fourth pad is on (ps5_pad.cpp).
+	ps5::pad::plugPorts();
+#endif
 	settings.input.lightgunGame = false;
 	settings.input.keyboardGame = false;
 	settings.input.mouseGame = false;

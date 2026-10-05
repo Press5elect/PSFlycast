@@ -61,11 +61,11 @@ rm -rf -- "$app"
 mkdir -p "$app/sce_sys" "$app/sce_module"
 cp -- "$build/flycast" "$app/eboot.bin"
 cp -- "$src/shell/ps5/sce_sys/param.json" "$src/shell/ps5/sce_sys/icon0.png" "$app/sce_sys/"
-# The picture the console shows behind the title on the home screen (pic0)
-# and while it loads (pic1): the first frame of the start-up animation, so
-# the animation begins from what is already on the screen. One file is both.
-cp -- "$src/shell/ps5/sce_sys/pic0.dds" "$app/sce_sys/pic0.dds"
-cp -- "$src/shell/ps5/sce_sys/pic0.dds" "$app/sce_sys/pic1.dds"
+# The picture the console shows behind the title on the home screen (pic0:
+# the mark and the name) and while it loads (pic1: the first frame of the
+# start-up animation, which is the backdrop alone, so the animation begins
+# from what is already on the screen).
+cp -- "$src/shell/ps5/sce_sys/pic0.dds" "$src/shell/ps5/sce_sys/pic1.dds" "$app/sce_sys/"
 cp -- "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The folders Flycast keeps its files in (see README).
 for dir in games bios covers cheats patches; do
@@ -94,6 +94,9 @@ if [[ -d $cheats ]]; then
 else
     echo "No cheat files staged: $cheats is not there" >&2
 fi
+# The start-up sound (shell/ps5/sounds: the file and the page that makes it).
+mkdir -p "$app/sounds"
+cp -- "$src/shell/ps5/sounds/startup.wav" "$app/sounds/startup.wav"
 cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$app/"
 {
     echo "PSFlyCast${RELEASE_TAG:+ $RELEASE_TAG}, build $(sed -n 's/^#define PS5_BUILD_NUMBER //p' "$src/shell/ps5/ps5_build.h"), built $(date -u +%Y-%m-%d)"

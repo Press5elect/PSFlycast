@@ -42,8 +42,11 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <cerrno>
 #include <cstring>
+#include <ctime>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <string>
@@ -72,6 +75,7 @@ int sceHttp2SetTimeOut(int id, uint32_t usec);
 int sceHttp2SetAutoRedirect(int id, int enable);
 int sceNetCtlInit(void);
 int sceNetCtlGetState(int *state);
+int sceNetCtlGetInfo(int code, void *info);
 }
 
 namespace ps5::covers
@@ -189,6 +193,85 @@ struct Http
 					status = -1;
 					break;
 				}
+			}
+		}
+		sceHttp2DeleteRequest(request);
+		return status;
+	}
+
+	// The same for something large: the answer goes to a file as it arrives.
+	// progress is told how much has arrived, and stops the download by
+	// returning false. The HTTP status, -1 as above (also when the file could
+	// not be written), or -2 when progress stopped it.
+	int download(const std::string& url, const std::string& file, const std::function<bool(uint64_t)>& progress)
+	{
+		lastError = 0;
+		if (!init())
+			return -1;
+		const int request = sceHttp2CreateRequestWithURL(templateId, "GET", url.c_str(), 0);
+		if (request < 0)
+		{
+			lastError = request;
+			return -1;
+		}
+		// Each step has half a minute; the whole of it half an hour.
+		sceHttp2SetResolveTimeOut(request, 30 * 1000 * 1000);
+		sceHttp2SetConnectTimeOut(request, 30 * 1000 * 1000);
+		sceHttp2SetSendTimeOut(request, 30 * 1000 * 1000);
+		sceHttp2SetRecvTimeOut(request, 30 * 1000 * 1000);
+		sceHttp2SetTimeOut(request, 1800u * 1000 * 1000);
+		sceHttp2SetAutoRedirect(request, 1);
+		int status = -1;
+		const int sent = sceHttp2SendRequest(request, nullptr, 0);
+		const int got = sent == 0 ? sceHttp2GetStatusCode(request, &status) : -1;
+		if (sent != 0 || got != 0)
+		{
+			lastError = sent != 0 ? sent : got;
+			diag::mark("download: request failed: send %#x, status %#x (%s)", (unsigned)sent, (unsigned)got,
+					url.substr(0, 80).c_str());
+			status = -1;
+		}
+		else if (status >= 200 && status < 300)
+		{
+			FILE *out = fopen(file.c_str(), "wb");
+			if (out == nullptr)
+			{
+				diag::mark("download: %s cannot be written: %s", file.c_str(), strerror(errno));
+				status = -1;
+			}
+			else
+			{
+				std::vector<uint8_t> chunk(256 * 1024);
+				uint64_t done = 0;
+				for (;;)
+				{
+					const int n = sceHttp2ReadData(request, chunk.data(), chunk.size());
+					if (n < 0)
+					{
+						lastError = n;
+						diag::mark("download: reading failed after %llu bytes: %#x", (unsigned long long)done, (unsigned)n);
+						status = -1;
+						break;
+					}
+					if (n == 0)
+						break;
+					if (fwrite(chunk.data(), 1, (size_t)n, out) != (size_t)n)
+					{
+						diag::mark("download: writing %s failed: %s", file.c_str(), strerror(errno));
+						status = -1;
+						break;
+					}
+					done += (uint64_t)n;
+					if (progress && !progress(done))
+					{
+						status = -2;
+						break;
+					}
+				}
+				if (fclose(out) != 0 && status >= 0)
+					status = -1;
+				if (status < 0)
+					unlink(file.c_str());
 			}
 		}
 		sceHttp2DeleteRequest(request);
@@ -447,6 +530,51 @@ std::string status()
 }
 
 } // namespace ps5::covers
+
+// The same client for the rest of the title (ps5_frontend.h).
+namespace ps5::net
+{
+
+int get(const std::string& url, std::vector<uint8_t>& out, unsigned seconds)
+{
+	return covers::get(url, out, seconds);
+}
+
+int download(const std::string& url, const std::string& file, const std::function<bool(uint64_t)>& progress)
+{
+	std::lock_guard<std::mutex> lock(covers::httpMutex);
+	return covers::client.download(url, file, progress);
+}
+
+int lastError()
+{
+	return covers::client.lastError;
+}
+
+std::string localAddress()
+{
+	// Asked at most every few seconds: a settings row shows it every frame.
+	static std::mutex mutex;
+	static std::string address;
+	static time_t askedAt;
+	std::lock_guard<std::mutex> lock(mutex);
+	const time_t now = time(nullptr);
+	if (askedAt != 0 && now - askedAt < 5)
+		return address;
+	askedAt = now;
+	address.clear();
+	sceNetCtlInit();
+	// The answer is a union of everything that can be asked: the address is
+	// text at its start (code 14, as on the PS4).
+	alignas(8) char info[512] = {};
+	const int rc = sceNetCtlGetInfo(14, info);
+	info[15] = '\0';
+	if (rc == 0 && info[0] >= '0' && info[0] <= '9')
+		address = info;
+	return address;
+}
+
+}
 
 // Flycast's HTTP client, for its scraper (core/ui/boxart/gamesdb.cpp).
 namespace http

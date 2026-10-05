@@ -17,7 +17,8 @@
  *     "Invalid address:192.168.1.10 Can not resolve into IPv4/v6"). libsmb2
  *     asks it for the server's address even when that is written as numbers.
  *     This one answers for an IPv4 address written as numbers, which needs no
- *     look-up; a name is refused (network.cfg takes the server's IP address).
+ *     look-up, and hands a name to the title's own getaddrinfo
+ *     (shell/ps5/ps5_libc.cpp), which asks the console's resolver.
  *
  * fcntl, connect, readv, writev: a socket that stays blocking
  *     libsmb2 makes its socket non-blocking with fcntl and reads from it
@@ -161,17 +162,21 @@ struct ps5_smb_address
 	struct sockaddr_in address;
 };
 
+/* shell/ps5/ps5_libc.cpp: its answers are also one block, freed by free. */
+int ps5_flycast_getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result);
+
 int ps5_smb_getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **result)
 {
 	struct in_addr numbers;
 	struct ps5_smb_address *block;
 	long port = 445;
-	(void)hints;
 	if (result == NULL)
 		return EAI_FAIL;
 	*result = NULL;
-	if (node == NULL || inet_pton(AF_INET, node, &numbers) != 1)
+	if (node == NULL)
 		return EAI_NONAME;
+	if (inet_pton(AF_INET, node, &numbers) != 1)
+		return ps5_flycast_getaddrinfo(node, service != NULL && service[0] != '\0' ? service : "445", hints, result);
 	if (service != NULL && service[0] != '\0')
 	{
 		char *end = NULL;

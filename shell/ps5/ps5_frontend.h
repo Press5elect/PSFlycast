@@ -7,6 +7,8 @@
 #pragma once
 #include "cfg/option.h"
 
+#include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -39,6 +41,8 @@ struct Options
 	bool hz120 = true;		// take the display's 119.88 Hz mode where it has one
 	bool groupDiscs = true;	// the discs of one game are one entry in the library
 	bool splash = true;		// the start-up animation, before the library
+	bool splashSound = true;	// and its sound
+	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts
 	// The console's pop-up notices (USB drives without elfldr, a crash). Off:
 	// they are lines of flycast-boot.log only. No setting; frontend.cfg has it.
 	bool notifications = false;
@@ -51,7 +55,8 @@ struct Options
 	int motion = 0;
 	// Which of the port's own defaults were already written over the settings
 	// an earlier build saved: 1 native depth interpolation on (build 18), 2 a
-	// rumble pack in the controller's second slot (build 19).
+	// rumble pack in the controller's second slot (build 19), 3 UPnP off
+	// (build 40).
 	int defaults = 0;
 };
 Options& options();
@@ -106,6 +111,74 @@ void clearError();
 // Whether a TCP port at an IPv4 address takes a connection within waitMs: 0
 // yes, -1 no answer in that time, else the errno of the attempt.
 int tcpAnswers(const std::string& ip, int port, int waitMs);
+}
+
+namespace net
+{
+// The console's HTTP client (ps5_covers.cpp), one request at a time. A GET
+// into memory (up to 8 MB): the HTTP status, or -1 when the request could
+// not be made (lastError() then has the system's code, 0 for "not connected").
+int get(const std::string& url, std::vector<uint8_t>& out, unsigned seconds = 20);
+// A GET into a file, for something large. progress hears how much has
+// arrived and stops the download by returning false. The HTTP status, -1 as
+// above, or -2 when progress stopped it; the file is there only on success.
+int download(const std::string& url, const std::string& file, const std::function<bool(uint64_t)>& progress);
+int lastError();
+// This console's address on its network ("192.168.1.23"), or empty.
+std::string localAddress();
+}
+
+namespace update
+{
+// Updating the title from the project's releases on GitHub (ps5_update.cpp).
+enum class Phase
+{
+	Idle,			// nothing asked yet
+	Checking,		// asking GitHub
+	UpToDate,		// the newest release is not newer than this build
+	Available,		// it is
+	Downloading, Verifying, Unpacking, Swapping,	// install(), in this order
+	Installed,		// in place: it starts the next time the title is opened
+	Failed,			// error says why
+};
+struct Status
+{
+	Phase phase = Phase::Idle;
+	std::string latest;					// the newest release's tag, "v1.0.2"
+	std::vector<std::string> notes;		// what it changed, from its notes: a few short lines
+	uint64_t size = 0, done = 0;		// its ZIP: the size, and how much has arrived
+	std::string error;
+	bool restored = true;				// Failed: the title's files are as they were
+};
+Status status();
+// Reads which build this is, deletes what the last update left once the new
+// version has started, and, in a release's build with the option on, asks
+// GitHub in the background. Called once, at the start.
+void init();
+// "v1.0.1, build 39", or "Test build 40, after v1.0.1"; whether it is a
+// release's build; and the release it is compared with, "v1.0.1".
+std::string thisBuild();
+bool isRelease();
+std::string thisVersion();
+// Each returns at once and works in the background; status() follows it.
+void check();
+void install();		// the newest release, whether or not it is newer
+void cancel();		// a download or an unpacking; not the last step
+// The newest release is not offered at start-up again.
+void skip();
+// True once, when the check at start-up found a newer release that was not skipped.
+bool offerAtStart();
+}
+
+namespace sound
+{
+// The start-up sound, <root>/sounds/startup.wav (16-bit PCM), through a port
+// of its own that is closed when the sound ends: from a moment of it, at a
+// loudness (1 as recorded). Returns at once; nothing happens without the file.
+void playStartup(float fromSeconds, float gain);
+// Ends it within a few hundredths of a second. With wait, returns once its
+// port is closed (the emulator's own sound opens one next).
+void stop(bool wait = false);
 }
 
 namespace covers

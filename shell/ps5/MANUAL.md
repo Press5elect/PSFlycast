@@ -20,12 +20,15 @@ is built and what it is made of, see [README.md](README.md).
 9. [Options for one game](#9-options-for-one-game)
 10. [Cheats and patches](#10-cheats-and-patches)
 11. [Changing the controls](#11-changing-the-controls)
-12. [Settings](#12-settings)
-13. [Games on a network share](#13-games-on-a-network-share)
-14. [Games on a USB drive](#14-games-on-a-usb-drive)
-15. [The look](#15-the-look)
-16. [Where your files are](#16-where-your-files-are)
-17. [When something goes wrong](#17-when-something-goes-wrong)
+12. [More players](#12-more-players)
+13. [Settings](#13-settings)
+14. [Games on a network share](#14-games-on-a-network-share)
+15. [Games on a USB drive](#15-games-on-a-usb-drive)
+16. [Playing online](#16-playing-online)
+17. [Updating from inside PSFlyCast](#17-updating-from-inside-psflycast)
+18. [The look](#18-the-look)
+19. [Where your files are](#19-where-your-files-are)
+20. [When something goes wrong](#20-when-something-goes-wrong)
 
 ## 1. What you need
 
@@ -46,7 +49,9 @@ is built and what it is made of, see [README.md](README.md).
 
 **To update**, copy the new `PPSA99247` folder **over** the old one and let
 it replace the files. Do not delete the old folder first: your games, saves,
-settings and covers are inside it.
+settings and covers are inside it. PSFlyCast can also fetch and install a
+new version itself: see
+[Updating from inside PSFlyCast](#17-updating-from-inside-psflycast).
 
 ## 3. Add your games
 
@@ -67,8 +72,8 @@ in the library to scan. Folders inside `games/` are scanned too.
   About > Dreamcast BIOS says which one is in use.
 - Arcade games need their BIOS sets (`naomi.zip`, `awbios.zip` and so on).
 
-Games can also be played from a [network share](#13-games-on-a-network-share)
-or a [USB drive](#14-games-on-a-usb-drive).
+Games can also be played from a [network share](#14-games-on-a-network-share)
+or a [USB drive](#15-games-on-a-usb-drive).
 
 ## 4. The library
 
@@ -250,7 +255,26 @@ that shared one.
 default. Settings > Controls > Controller slot 2 swaps it for a second memory
 card. Vibration strength and the stick's dead zone are there too.
 
-## 12. Settings
+## 12. More players
+
+Each DualSense belongs to a signed-in user. To join, a player presses the
+**PS button** on their own controller and chooses a user, before PSFlyCast
+starts or while it runs. "Player 2 joined" shows, and the top bar counts the
+controllers.
+
+- The first player is controller port A, the next B, then C and D.
+- In a Dreamcast game the new port gets a controller with **its own memory
+  card and rumble pack**. A player who joins in the middle of a game is
+  plugged in at once; the game stops for a moment while that happens.
+- Arcade games read all four ports all the time: player 2's coin is their L3.
+- Every controller has the same button layout, the one
+  [Changing the controls](#11-changing-the-controls) sets.
+- The menus follow the first controller that is connected.
+
+When a player signs out, their port is free again. Settings > Controls >
+**Controllers** shows which ports have a controller.
+
+## 13. Settings
 
 Press **OPTIONS** in the library. D-pad moves, left and right change a value,
 Circle goes back.
@@ -259,11 +283,12 @@ Circle goes back.
 |---|---|
 | **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, upscaling (FSR 1), frame pacing, the FPS counter, 120 Hz output |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
-| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, restore the default layout |
+| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, restore the default layout, which ports have a controller |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state |
-| **Interface** | Skin, accent colour, background, motion, the start-up animation |
+| **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, how a game's own online mode connects |
+| **Interface** | Skin, accent colour, background, motion, the start-up animation and its sound |
 | **Library** | Scan for games, library view, cover downloads, USB drives, disc grouping, network game loading |
-| **About** | The build number, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
+| **About** | The version and build, check for updates, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
 Each setting has a line under it saying what it does.
 
@@ -314,7 +339,7 @@ makes the menus smoother and a late frame less visible. Settings > About >
 Display shows the mode in use. Settings > Video > 120 Hz output turns it off,
 from the next start.
 
-## 13. Games on a network share
+## 14. Games on a network share
 
 PSFlyCast can read games from a shared folder on a PC or a NAS (SMB, the
 Windows kind of sharing).
@@ -328,8 +353,9 @@ Windows kind of sharing).
    password =
    ```
 
-   `path` is server/share/folder. Give the server by its IP address; a name
-   is not looked up. Add a `path` line for each folder. For an open share
+   `path` is server/share/folder. The server's IP address always works; a
+   name works when your router's name server knows it. Add a `path` line for
+   each folder. For an open share
    leave `user = guest` and the password empty; otherwise give the account.
 3. Start PSFlyCast again and open the **Network** tab.
 
@@ -345,7 +371,7 @@ and is read as it runs.
 A NAS that is waking up gets a minute to answer; the screen shows how long it
 has waited, and Circle cancels.
 
-## 14. Games on a USB drive
+## 15. Games on a USB drive
 
 1. Put your games in a folder named `flycast` or `dreamcast` at the top of
    the drive. `dc`, `naomi`, `atomiswave` and `arcade` are read too.
@@ -356,7 +382,62 @@ This needs the payload loader **elfldr** running on the console (port 9021).
 If the tab says it has no access, start elfldr and then PSFlyCast again.
 Cover downloads may stop working while USB drives are on.
 
-## 15. The look
+## 16. Playing online
+
+**A game's own online mode** (for the games whose servers were brought back)
+connects through Flycast's DCNet service, with nothing to set up: start the
+game and use its online menu. Settings > Online > **Dreamcast online**
+chooses between the modem and the broadband adapter, for a game that wants
+one of them, and between DCNet and a direct connection.
+
+**Netplay** puts two players in one game, each on their own PS5 or on a PC
+running Flycast.
+
+1. Both players open Settings > Online and set **Netplay**: one to
+   **Host: player 1**, the other to **Join: player 2**.
+2. Both enter the other's address under **Other player** (D-pad changes the
+   numbers, Cross saves). **This console** on the same page shows your own.
+3. Both start the same game. Each sees a waiting screen until the other is
+   there; Circle cancels.
+
+What both need:
+
+- **The same game file and the same BIOS.**
+- **The same starting point.** An arcade game has it when neither of you has
+  changed its settings. For a Dreamcast game, save a state in the first
+  slot on one console (quick menu > Save state). It is in
+  `data/savestates/`, named like the game with `.state` at the end. Copy it
+  to `data/savestates/` on both consoles with `.net` added:
+  `Game (USA).state` becomes `Game (USA).state.net`. The game then starts
+  from that state on both.
+- **Over the internet:** the address is the other player's router's, and
+  their router must pass UDP port 19713 on to the console. **Open the
+  router's port (UPnP)** asks the router to do that by itself.
+
+**Input delay** makes a slow connection feel smoother: 0 to 2 frames at home,
+more between far-away players. Both players' button layouts are their own.
+
+Remember to set Netplay back to **Off**: while it is on, every game waits for
+another player when it starts.
+
+## 17. Updating from inside PSFlyCast
+
+Settings > About > **Check for updates**.
+
+- When there is a newer version, the dialog names it and what changed.
+  **Update now** downloads it, checks the download, and replaces PSFlyCast's
+  own files. Your games, saves, settings and covers are not touched.
+- The new version starts **the next time you open PSFlyCast**. The dialog
+  offers to close it for you.
+- If anything fails, the dialog says what, and PSFlyCast is left as it was.
+  You can always update by copying the ZIP, as in
+  [Install and update](#2-install-and-update).
+
+A released version also looks for a newer one when it starts, and offers it
+once: **Update now**, **Later**, or **Skip this version**. Settings > About >
+**Look for updates at start-up** turns that off.
+
+## 18. The look
 
 Settings > Interface. A change shows at once.
 
@@ -365,12 +446,16 @@ Settings > Interface. A change shows at once.
 - **Background:** the skin's own, or Still, Aurora, Waves, Sparks, Horizon,
   Dot matrix, Cover colours.
 - **Motion:** All, Less (short fades, still background) or None.
-- **Start-up animation:** on or off. Any button skips it.
+- **Start-up animation:** one line draws the disc, and the name's letters
+  fly to the top bar as birds. On or off; any button skips it.
+- **Start-up sound:** on or off. To use your own, save a 16-bit WAV file as
+  `sounds/startup.wav` in PSFlyCast's folder.
 
 **Your own logo.** A square picture with a transparent background, saved as
-`logo.png` in PSFlyCast's folder, replaces the turning disc.
+`logo.png` in PSFlyCast's folder, replaces the turning disc in the top bar
+and on the loading screen. Take it away to see PSFlyCast's own.
 
-## 16. Where your files are
+## 19. Where your files are
 
 Everything is in `/data/homebrew/PPSA99247/`:
 
@@ -383,11 +468,12 @@ Everything is in `/data/homebrew/PPSA99247/`:
 | `patches/` | Your own `patches.txt`, if you made one |
 | `data/` | Memory cards, save states, each game's own options |
 | `network.cfg` | The network shares |
+| `sounds/` | The start-up sound |
 | `flycast-boot.log` | What happened at start-up, and a crash report if there was one |
 
 **To back up your saves, copy `data/`.**
 
-## 17. When something goes wrong
+## 20. When something goes wrong
 
 **A game shows a black screen, or draws wrong.**
 
@@ -409,6 +495,16 @@ BIOS save it; it is kept with the BIOS's settings in `data/`.
 
 **No rumble.** Check Settings > Controls: Controller slot 2 must be the
 rumble pack, and Vibration above zero.
+
+**A second controller does nothing.** Its player has to be signed in: press
+the PS button on that controller and choose a user. Settings > Controls >
+Controllers then shows two ports.
+
+**Every game waits for "player 2".** Netplay is on: Settings > Online >
+Netplay > Off.
+
+**A game's online mode does not connect.** `flycast-boot.log` has a line for
+each name it looked up ("names: ..."). Send it with your report.
 
 **No covers.** Check that downloading is on and that the game's file is named
 in the usual dump style. Turning USB drives off can bring downloads back.

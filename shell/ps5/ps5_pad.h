@@ -4,13 +4,23 @@
 	Copyright 2026 the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
-	Up to four pads, one per logged-in user. The first is player 1 and drives
+	Up to four pads, one per signed-in user. The first is player 1 and drives
 	the menus. Each pad is also a Flycast GamepadDevice, so the emulated
 	controller, remapping and rumble go through Flycast's own input code.
+
+	A pad is a controller port: player 1 is port A, and each other signed-in
+	user whose controller is on gets the next free one, also while the title
+	runs (the PS button on another DualSense signs its user in). A user who
+	is signed in with the controller off takes no port. The Dreamcast's ports
+	B to D are empty in Flycast's settings; while a pad is theirs, a
+	controller with a memory card and a rumble pack is plugged into them, for
+	that game and not into the settings.
 */
 #pragma once
 #include "types.h"
 #include "cfg/option.h"
+
+#include <string>
 
 namespace ps5::pad
 {
@@ -70,5 +80,16 @@ void poll();
 const State& player1();
 // Number of connected pads.
 int connectedCount();
+// Looks, about once a second, for users who signed in or out and for
+// controllers that were switched on, and gives each a port; a pad that joins
+// while a Dreamcast game runs is plugged into it. Called once per frame from
+// the interface's thread.
+void hotplug();
+// Before the emulated controllers are made: a controller, a memory card and
+// a rumble pack for each of the ports B to D that a pad is on and the
+// settings leave empty.
+void plugPorts();
+// Which ports have a pad, for the Settings: "2: ports A and B".
+std::string portsText();
 
 }

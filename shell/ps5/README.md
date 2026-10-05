@@ -19,6 +19,7 @@ everything in it.
 |---|---|
 | ![Game details](screenshots/02-details.png) | ![The quick menu](screenshots/45-quick-menu-restart.png) |
 | ![The start-up animation](screenshots/47-splash.png) | ![The Ember skin](screenshots/31-skin-ember.png) |
+| ![The letters fly to the top bar as birds](screenshots/48-splash-leaving.png) | ![Settings > Online](screenshots/50-settings-online.png) |
 
 ## Status
 
@@ -43,6 +44,13 @@ drives, the skins and transitions, the letter jump, the Controls page,
 Restart game and the CPU clock. NAOMI and Atomiswave games have not been
 tried. With per-triangle sorting a game can show surfaces flickering in and
 out; per-pixel draws them right.
+
+The source is ahead of that release (build 40, test builds only). New in it,
+and none of it confirmed on a console yet: the mark made of one spiral line
+and the start-up animation and sound that go with it; a second, third and
+fourth player joining while the title runs; names looked up for the games'
+own online modes and for network shares; Settings > Online, with Flycast's
+netplay; and PSFlyCast updating itself from its releases.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped
@@ -99,6 +107,8 @@ Everything is in the title's own folder, `/data/homebrew/PPSA99247/`
 | `cheats/` | Cheat files (`.cht`); the libretro database's Dreamcast set is included |
 | `patches/` | Game patches (60 FPS, widescreen): your own `patches.txt`; none is included |
 | `data/` | Saves, VMUs, save states, which cheats are on, each game's shader list |
+| `sounds/` | `startup.wav`, the start-up sound; a WAV file of your own there plays in its place |
+| `update/` | Only while an update is on its way: the download, and the version before it until the new one has started |
 | `radv-shader-cache/` | The graphics driver's compiled shaders |
 | `flycast-boot.log` | Each start-up step, and a crash report if the app stops |
 | `logs/flycast.log` | The emulator's own log |
@@ -363,6 +373,17 @@ own default is two memory cards, with which nothing rumbles).
 Settings > Controls > Controller slot 2 puts a second memory card back; the
 saves on it are kept in `data/` either way.
 
+**More players:** each DualSense is a signed-in user's. A second, third or
+fourth player presses the PS button on their controller and signs in, before
+PSFlyCast starts or while it runs, and gets the next controller port: B, C,
+D. (A user who is signed in with the controller off takes no port.) In a Dreamcast game that port then holds a controller with a memory card
+and a rumble pack of its own, for as long as the game is loaded (Flycast's
+settings leave ports B to D empty, and are not changed); a pad that joins in
+the middle of a game is plugged in there and then, with a pause of a moment.
+Arcade games read every port as it is. The top bar counts the pads, and
+Settings > Controls > Controllers names their ports. The menus follow the
+first pad that is connected.
+
 ## Skins, backgrounds and motion
 
 Settings > Interface changes how PSFlyCast looks and moves; a change shows at
@@ -383,15 +404,27 @@ once.
   art breathes and a band of light crosses the focused cover now and then.
   Less keeps short fades and a still background. None shows everything at
   once.
-- **Start-up animation:** when PSFlyCast starts, its mark and name are in
-  the middle of the screen for two seconds, alive: the mark spins up, rings
-  of light leave it, sparks go round it and the letters hop one after
-  another. Then both fly to their places in the top bar while the library
-  comes in under them. Any button ends it early; the games are looked for
-  meanwhile, so it costs no time. With Motion on Less it is a still picture
-  that fades; with None, or with this option off, the library is there at
-  once. The console shows the animation's first frame while the title
-  loads (`sce_sys/pic1.dds`), so the animation starts from that picture.
+- **Start-up animation:** when PSFlyCast starts, one line winds in to the
+  middle of the screen and out again and is a disc, the app's mark, with
+  its name under it. The letters lift off as birds, one after another, and
+  fly to the top left; the line lets its turns out until it is straight,
+  leaves the screen, coils up again in the top bar and starts turning; the
+  birds land beside it and are the name, and the library comes in under
+  them. A little over seven seconds; any button ends it; the games are
+  looked for meanwhile. With Motion on Less it is the mark and the name,
+  still, for a second; with None, or with this option off, the library is
+  there at once. While the title loads the console shows the animation's
+  first frame (`sce_sys/pic1.dds`), so it starts from that picture.
+- **Start-up sound:** the sound made for the animation, which follows it:
+  a tone down and up with the line, a chord for the disc, a chirp and
+  wings for each bird, a note for each landing. It is `sounds/startup.wav`
+  in the title's folder; a 16-bit WAV file of your own with that name plays
+  in its place. With Motion on Less only its last chord plays, quieter.
+
+The mark and the sound are PSFlyCast's own. The disc is one line that starts
+at its left edge, winds in to the centre and out again to the right edge;
+`sounds/make-startup-sound.html` in the source makes the sound from
+oscillators and noise, with nothing sampled or recorded.
 
 ## Settings
 
@@ -399,9 +432,69 @@ Interface (above), Video (per-triangle, per-strip or per-pixel transparency with
 widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
 FSR 1 upscaling, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
 frame pacing, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
-second slot, default layout), System (region, language, TV standard, cable, built-in BIOS,
-auto save/load states, fast loading, CPU recompiler), Library and About. The
+second slot, default layout, which ports have a pad), System (region, language, TV standard, cable, built-in BIOS,
+auto save/load states, fast loading, CPU recompiler), Online (below), Library and About (the
+build, checking for updates, credits). The
 defaults: Vulkan, 3x resolution (1440p), 4x anisotropic filtering.
+
+## Online
+
+Not confirmed on a console yet.
+
+**A game's own online mode.** Flycast emulates the Dreamcast's modem and its
+broadband adapter, and by default connects them through DCNet, its service
+for the games whose servers were brought back. Up to build 39 no name could
+be looked up from the title ("A non-recoverable error occurred during
+database lookup"), so none of it connected. Names are now looked up by the
+console's own resolver. Settings > Online > **Dreamcast online** chooses the
+modem or the broadband adapter, through DCNet or directly.
+
+**Netplay** is Flycast's own (GGPO): two players in one game, each on a
+console or a PC running Flycast, over the home network or the internet.
+
+1. Both: Settings > Online > **Netplay**. One is **Host: player 1**, the
+   other **Join: player 2**.
+2. Both: **Other player**, the other's address. Settings > Online > This
+   console shows yours. Over the internet it is the router's public address,
+   and UDP port 19713 has to reach the console (forward it in the router, or
+   try **Open the router's port (UPnP)**).
+3. Both start the same game. Each waits on a screen of its own until the
+   other is there. **Input delay** hides a slow connection.
+
+Both need the same game file and the same BIOS, and the game must start from
+the same state on both. An arcade game does when both have never changed its
+settings. A Dreamcast game needs one save state, copied to both with `.net`
+added to its name (`data/savestates/<game>.state.net`): Flycast compares everything
+else the game would start from (the console's settings and clock, the memory
+cards), and those differ between two consoles. In netplay port B is the
+other player's, with a controller in it.
+
+While Netplay is not Off, **every** game waits for another player when it
+starts. Turn it off to play alone.
+
+## Updates
+
+Not confirmed on a console yet; it is made so that a failure leaves the title
+as it was.
+
+Settings > About > **Check for updates** asks the project's GitHub page for
+its releases. When one is newer than what is running, PSFlyCast can install
+it: it downloads the release's ZIP, checks it against the SHA-256 the release
+names, unpacks it, and moves each file of the title that the ZIP has to
+`update/old/` and the new one into its place. If the console refuses any of
+those moves, every file already moved is moved back. The new version starts
+the next time PSFlyCast is opened, and that start deletes `update/`. What is
+yours is never touched: games, BIOS files, covers, `data/`, the settings.
+
+A release's build also asks once as it starts and offers a newer release
+(**Update now**, **Later**, **Skip this version**); About > **Look for
+updates at start-up** turns that off. A test build asks only when told to,
+and can install the newest release in its own place.
+
+The step nobody has seen work on a console is replacing `eboot.bin` while it
+runs. If it is refused, the dialog says so and names the reason,
+`flycast-boot.log` has every step ("update: ..."), and updating by copying
+the ZIP works as before.
 
 ## What has been verified
 
@@ -418,6 +511,16 @@ On the build machine, without a console:
   memory, cancel half way, a server paused for six seconds in the middle of a
   load (the wait is shown, the load completes), a dead address (fails in five
   seconds) and a wrong share name.
+- The updater's own steps (`shell/ps5/ps5_update.cpp`), with the project's
+  real releases: the list GitHub gives is read and its highest version
+  taken; v1.0.1's ZIP gives the SHA-256 its release names; unpacked, every
+  file is the ZIP's, byte for byte; put over a copy of v1.0.0 with a user's
+  files in it, the new files are in place, the old ones in `update/old/`
+  and the user's untouched; with a move refused half way, at `eboot.bin` or
+  earlier, the folder ends byte for byte as it was; a ZIP with settings,
+  games or paths outside the folder in it has them left out; a cut-off or
+  damaged ZIP is refused. What needs a console is not covered: the download
+  itself, and the moves in the title's real folder.
 
 On a console: see Status, at the top.
 
@@ -511,6 +614,7 @@ What is in this build, and whose it is:
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
 | Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |
 | The cheat files | [libretro-database](https://github.com/libretro/libretro-database), `cht/Sega - Dreamcast` | CC BY-SA 4.0 |
+| The mark, the icon, the start-up animation and its sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/make-startup-sound.html` | GPL-3.0-or-later |
 | Covers, downloaded when PSFlyCast runs | [libretro-thumbnails](https://github.com/libretro-thumbnails/Sega_-_Dreamcast) | |
 | Descriptions and release dates, downloaded when PSFlyCast runs | [TheGamesDB](https://thegamesdb.net), with Flycast's own scraper and its key | |
 

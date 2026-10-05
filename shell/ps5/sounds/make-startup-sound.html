@@ -1,0 +1,215 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>PSFlyCast start-up sound</title>
+<!--
+	PSFlyCast - the start-up sound, as the program that makes it.
+
+	Copyright 2026 the PSFlyCast contributors
+	SPDX-License-Identifier: GPL-3.0-or-later
+
+	startup.wav is this page's output: open it in a browser and press the
+	button. Every sound is made here, from oscillators and filtered noise
+	(the Web Audio API); nothing is sampled or recorded. The times are those
+	of the start-up animation (drawSplash in bigpicture.cpp): the line, the
+	disc, a tick for each letter, a chirp and wings for each bird, the line
+	leaving, the mark coiling up, a note for each landing, and the last chord
+	with the line's tone under it once more.
+	The room's echo is made from random noise, so two runs differ in their
+	last decimals.
+-->
+<body style="font: 16px sans-serif; background: #0d1218; color: #eef2f6; padding: 32px">
+<h1 style="font-size: 20px">PSFlyCast start-up sound</h1>
+<p><button id="make" style="font: inherit; padding: 8px 16px">Make startup.wav</button> <a id="save" download="startup.wav"></a></p>
+<script>
+(function () {
+  "use strict";
+  var NAME = "PSFlyCast";
+  var LIFT = 3.6, GAP = 0.09, FLIGHT = 1.9;     // the birds, as in the animation
+  var SECONDS = 9, RATE = 48000, LEAD = 0.05;   // the file; each cue is that much after its moment
+  var audio = { ctx: null, on: false, master: null, wet: null, bus: null, noise: null, fired: 0, errors: 0 };
+  var SCALE = [587.33, 659.25, 739.99, 880.0, 987.77, 1174.66, 1318.51, 1479.98, 1760.0];   // a major pentatonic, one note a letter
+
+  function audioStart() {
+    if (audio.ctx) { if (audio.ctx.state === "suspended") audio.ctx.resume(); return true; }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    var ac = new AC();
+    audio.ctx = ac;
+    audio.master = ac.createGain();
+    audio.master.gain.value = 0.85;
+    var comp = ac.createDynamicsCompressor();
+    audio.master.connect(comp);
+    comp.connect(ac.destination);
+    // A room: noise that dies away, as the impulse of a reverb.
+    var seconds = 2.2, n = Math.floor(ac.sampleRate * seconds), impulse = ac.createBuffer(2, n, ac.sampleRate), c, i;
+    for (c = 0; c < 2; c++) {
+      var data = impulse.getChannelData(c);
+      for (i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2.6);
+    }
+    var room = ac.createConvolver();
+    room.buffer = impulse;
+    audio.wet = ac.createGain();
+    audio.wet.gain.value = 0.32;
+    audio.wet.connect(room);
+    room.connect(audio.master);
+    var nn = ac.sampleRate * 2, nb = ac.createBuffer(1, nn, ac.sampleRate), nd = nb.getChannelData(0);
+    for (i = 0; i < nn; i++) nd[i] = Math.random() * 2 - 1;
+    audio.noise = nb;
+    newBus();
+    return true;
+  }
+  function newBus() {
+    audio.bus = audio.ctx.createGain();
+    audio.bus.connect(audio.master);
+    audio.bus.connect(audio.wet);
+  }
+  function hush() {
+    if (!audio.ctx || !audio.bus) return;
+    var old = audio.bus;
+    old.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.03);
+    setTimeout(function () { try { old.disconnect(); } catch (e) {} }, 400);
+    newBus();
+  }
+  function out(node, at, dur, pan, panTo) {
+    var ac = audio.ctx;
+    if (ac.createStereoPanner) {
+      var p = ac.createStereoPanner();
+      p.pan.setValueAtTime(pan || 0, at);
+      if (panTo != null) p.pan.linearRampToValueAtTime(panTo, at + dur);
+      node.connect(p);
+      p.connect(audio.bus);
+    } else node.connect(audio.bus);
+  }
+  // One note: o.f its pitch (o.to where it glides), o.gain its loudness.
+  function tone(o) {
+    var ac = audio.ctx, osc = ac.createOscillator(), g = ac.createGain();
+    osc.type = o.type || "sine";
+    osc.frequency.setValueAtTime(o.f, o.at);
+    if (o.to) osc.frequency.exponentialRampToValueAtTime(o.to, o.at + (o.glide || o.dur));
+    g.gain.setValueAtTime(0.0001, o.at);
+    g.gain.linearRampToValueAtTime(o.gain, o.at + (o.attack || 0.012));
+    g.gain.exponentialRampToValueAtTime(0.0001, o.at + o.dur);
+    osc.connect(g);
+    out(g, o.at, o.dur, o.pan, o.panTo);
+    osc.start(o.at);
+    osc.stop(o.at + o.dur + 0.05);
+  }
+  // Air: noise through a filter that moves from o.f to o.to.
+  function rush(o) {
+    var ac = audio.ctx, src = ac.createBufferSource(), flt = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = audio.noise;
+    src.loop = true;
+    flt.type = o.type || "bandpass";
+    flt.Q.value = o.q || 1.2;
+    flt.frequency.setValueAtTime(o.f, o.at);
+    flt.frequency.exponentialRampToValueAtTime(o.to || o.f, o.at + o.dur);
+    g.gain.setValueAtTime(0.0001, o.at);
+    g.gain.linearRampToValueAtTime(o.gain, o.at + (o.attack || o.dur * 0.4));
+    g.gain.exponentialRampToValueAtTime(0.0001, o.at + o.dur);
+    src.connect(flt);
+    flt.connect(g);
+    out(g, o.at, o.dur, o.pan, o.panTo);
+    src.start(o.at);
+    src.stop(o.at + o.dur + 0.05);
+  }
+
+  // The cues: [time in the animation, what plays]. k stretches lengths at slower speeds.
+  var CUES = [];
+  function lineTone(at, k) {
+    // The line: a tone that falls as it winds in and rises as it winds out.
+    var ac = audio.ctx, osc = ac.createOscillator(), g = ac.createGain(), dur = 2.0 * k;
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(880, at);
+    osc.frequency.exponentialRampToValueAtTime(220, at + dur * 0.5);
+    osc.frequency.exponentialRampToValueAtTime(1174.66, at + dur);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.linearRampToValueAtTime(0.07, at + 0.25 * k);
+    g.gain.setValueAtTime(0.07, at + dur - 0.3 * k);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur + 0.2 * k);
+    osc.connect(g);
+    out(g, at, dur, -0.25, 0.25);
+    osc.start(at);
+    osc.stop(at + dur + 0.3 * k);
+    rush({ at: at, dur: dur, f: 2400, to: 3600, q: 4, gain: 0.012, attack: 0.3 * k });
+  }
+  CUES.push([0.3, lineTone]);
+  // And once more under the last chord, as the library comes in.
+  CUES.push([6.13, lineTone]);
+  CUES.push([2.05, function (at, k) {
+    // The disc: a chord opens, and a small bell on top of it.
+    [293.66, 440.0, 659.25, 739.99].forEach(function (f, i) {
+      tone({ at: at + i * 0.04 * k, f: f, dur: 2.2 * k, gain: 0.05, attack: 0.35 * k, type: i < 2 ? "sine" : "triangle", pan: (i - 1.5) * 0.2 });
+    });
+    tone({ at: at + 0.28 * k, f: 1174.66, dur: 1.5 * k, gain: 0.05 });
+    tone({ at: at + 0.28 * k, f: 1174.66 * 2.76, dur: 0.7 * k, gain: 0.012 });
+  }]);
+  NAME.split("").forEach(function (ch, i) {
+    // A tick as each letter appears.
+    CUES.push([2.3 + i * 0.05, function (at) { tone({ at: at, f: 2000 + i * 90, dur: 0.05, gain: 0.02, pan: (i - 4) * 0.08 }); }]);
+    // A chirp and a flutter of wings as it lifts off.
+    CUES.push([LIFT + i * GAP, function (at, k) {
+      var f = SCALE[i];
+      tone({ at: at, f: f, to: f * 1.45, dur: 0.13 * k, glide: 0.07 * k, gain: 0.05, pan: (i - 4) * 0.1 });
+      tone({ at: at + 0.11 * k, f: f * 1.3, to: f * 0.95, dur: 0.12 * k, gain: 0.035, pan: (i - 4) * 0.1 });
+      for (var b = 0; b < 4; b++)
+        rush({ at: at + (0.05 + b * 0.085) * k, dur: 0.07 * k, f: 900, to: 2200, q: 0.8, gain: 0.03, attack: 0.02 * k, pan: (i - 4) * 0.1, panTo: -0.5 });
+    }]);
+    // A plucked note as it lands in the bar.
+    CUES.push([LIFT + i * GAP + FLIGHT + 0.05, function (at, k) {
+      tone({ at: at, f: SCALE[i], dur: 0.6 * k, gain: 0.06, type: "triangle", pan: -0.75 + i * 0.05 });
+    }]);
+  });
+  CUES.push([3.45, function (at, k) {
+    // The spiral lets go: a falling tone and a rush of air.
+    tone({ at: at, f: 660, to: 110, dur: 0.85 * k, gain: 0.05, type: "sine" });
+    rush({ at: at, dur: 0.85 * k, f: 2200, to: 320, gain: 0.09 });
+  }]);
+  CUES.push([4.15, function (at, k) {
+    // The line leaves to the left.
+    rush({ at: at, dur: 0.65 * k, f: 500, to: 3200, type: "highpass", q: 0.7, gain: 0.07, attack: 0.45 * k, pan: 0, panTo: -1 });
+  }]);
+  CUES.push([4.75, function (at, k) {
+    // It coils up in the corner: a whir that rises, and a soft lock.
+    tone({ at: at, f: 110, to: 440, dur: 0.85 * k, gain: 0.035, type: "sawtooth", attack: 0.3 * k, pan: -0.8 });
+    rush({ at: at, dur: 0.85 * k, f: 400, to: 2600, q: 3, gain: 0.03, pan: -0.8 });
+    tone({ at: at + 0.85 * k, f: 90, to: 55, dur: 0.25 * k, gain: 0.12, pan: -0.8 });
+  }]);
+  CUES.push([6.45, function (at, k) {
+    // The library: the chord settles.
+    [146.83, 293.66, 369.99, 440.0, 587.33].forEach(function (f, i) {
+      tone({ at: at + i * 0.03 * k, f: f, dur: 2.0 * k, gain: i === 0 ? 0.07 : 0.045, attack: 0.3 * k, type: i > 2 ? "triangle" : "sine", pan: (i - 2) * 0.18 });
+    });
+    tone({ at: at + 0.35 * k, f: 1174.66, dur: 1.6 * k, gain: 0.04 });
+  }]);
+
+
+  // The cues, rendered to 16-bit stereo and brought to 0.89 of full scale.
+  document.getElementById("make").addEventListener("click", function () {
+    var oc = new OfflineAudioContext(2, Math.floor(RATE * SECONDS), RATE);
+    window.AudioContext = function () { return oc; };
+    audio.ctx = null;
+    audioStart();
+    audio.master.gain.setValueAtTime(0.85, SECONDS - 0.6);
+    audio.master.gain.linearRampToValueAtTime(0, SECONDS - 0.02);
+    for (var i = 0; i < CUES.length; i++) CUES[i][1](CUES[i][0] + LEAD, 1);
+    oc.startRendering().then(function (buf) {
+      var n = buf.length, L = buf.getChannelData(0), R = buf.getChannelData(1), peak = 0, j;
+      for (j = 0; j < n; j++) peak = Math.max(peak, Math.abs(L[j]), Math.abs(R[j]));
+      var gain = peak > 0 ? Math.min(4, 0.89 / peak) : 1;
+      var bytes = new Uint8Array(44 + n * 4), v = new DataView(bytes.buffer);
+      function str(o, t) { for (var q = 0; q < t.length; q++) bytes[o + q] = t.charCodeAt(q); }
+      str(0, "RIFF"); v.setUint32(4, 36 + n * 4, true); str(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+      v.setUint16(22, 2, true); v.setUint32(24, RATE, true); v.setUint32(28, RATE * 4, true); v.setUint16(32, 4, true); v.setUint16(34, 16, true);
+      str(36, "data"); v.setUint32(40, n * 4, true);
+      for (j = 0; j < n; j++) {
+        v.setInt16(44 + j * 4, Math.max(-1, Math.min(1, L[j] * gain)) * 32767, true);
+        v.setInt16(46 + j * 4, Math.max(-1, Math.min(1, R[j] * gain)) * 32767, true);
+      }
+      var link = document.getElementById("save");
+      link.href = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+      link.textContent = "Save startup.wav";
+      window.__wav = bytes;
+    });
+  });
+})();
+</script>

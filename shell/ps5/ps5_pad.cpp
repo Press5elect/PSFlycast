@@ -11,10 +11,18 @@
 	(PS5SX2, whose testers found a PS5 title's pad starts in haptics mode).
 */
 #include "ps5_pad.h"
+#include "ps5_diag.h"
+#include "emulator.h"
 #include "input/gamepad_device.h"
 #include "input/mapping.h"
 #include "cfg/option.h"
+#include "hw/maple/maple_cfg.h"
+#include "hw/maple/maple_if.h"
 #include "hw/naomi/naomi_cart.h"
+#include "network/ggpo.h"
+#include "oslib/oslib.h"
+#include "ui/gui.h"
+#include "ui/settings.h"
 #include "log/Log.h"
 
 #include <algorithm>
@@ -25,6 +33,7 @@
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <string>
 
 extern "C"
 {
@@ -337,19 +346,102 @@ float deadZone(float v)
 	return (v - std::copysign(dz, v)) / (1.f - dz);
 }
 
-int32_t openPad(int32_t userId)
+int32_t openPad(int32_t userId, int attempts)
 {
 	int32_t handle = -1;
 	// The pad service can publish the device after the title starts.
-	for (int attempt = 0; attempt < 10 && handle < 0; attempt++)
+	for (int attempt = 0; attempt < attempts && handle < 0; attempt++)
 	{
 		handle = scePadOpen(userId, 0, 0, nullptr);
 		if (handle < 0)
 			handle = scePadGetHandle(userId, 0, 0);
-		if (handle < 0)
+		if (handle < 0 && attempt + 1 < attempts)
 			sceKernelUsleep(100000);
 	}
 	return handle;
+}
+
+// Which ports a pad is on, bit by bit: the emulator's thread reads it when it
+// makes the emulated controllers (plugPorts).
+std::atomic<u32> portsPresent;
+
+const char *const portLetters[MaxPads] = { "A", "B", "C", "D" };
+
+// A signed-in user: their pad's handle, and the port it has once the
+// controller is on. A console often has users signed in whose controllers
+// are off; they take no port.
+struct Seat
+{
+	int32_t userId = -1;
+	int32_t handle = -1;
+	int port = -1;
+};
+std::array<Seat, MaxPads> seats;
+
+// The pad of a user is a port's from now on.
+void addPad(Seat& seat, int port)
+{
+	const int mode = scePadSetVibrationMode(seat.handle, 2);	// rumble, not haptics
+	ps5::diag::mark("pads: player %d (port %s): user %d, handle %d, vibration mode %x", port + 1, portLetters[port],
+			seat.userId, seat.handle, mode);
+	seat.port = port;
+	pads[port] = std::make_shared<DualSenseGamepad>(port, seat.userId, seat.handle);
+	GamepadDevice::Register(pads[port]);
+	portsPresent |= 1u << port;
+}
+
+// A user signed out: nothing of theirs stays held, and the port is free.
+void removeSeat(Seat& seat)
+{
+	if (seat.port >= 0)
+	{
+		auto& pad = pads[seat.port];
+		ps5::diag::mark("pads: player %d (port %s) left: user %d signed out", seat.port + 1, portLetters[seat.port],
+				seat.userId);
+		pad->releaseAll();
+		pad->stopRumble();
+		GamepadDevice::Unregister(pad);
+		pad.reset();
+		states[seat.port] = State();
+		portsPresent &= ~(1u << seat.port);
+	}
+	if (seat.handle >= 0)
+		scePadClose(seat.handle);
+	seat = Seat();
+}
+
+bool controllerIsOn(int32_t handle)
+{
+	PadData raw{};
+	return scePadReadState(handle, &raw) >= 0 && raw.connected != 0;
+}
+
+// A pad joined on a port the running Dreamcast game has no controller in:
+// the game's controllers are made again, as when they are changed in the
+// settings, which the emulator has to stand still for. An arcade game reads
+// every port as it is.
+void plugIntoRunningGame(int port)
+{
+	if (!game_started || !::settings.platform.isConsole() || MapleDevices[port][5] != nullptr)
+		return;
+	if (ggpo::active())
+	{
+		ps5::diag::mark("pads: port %s stays as it is during netplay", portLetters[port]);
+		return;
+	}
+	try {
+		if (emu.running())
+		{
+			emu.stop();
+			maple_ReconnectDevices();
+			emu.start();
+		}
+		else
+			maple_ReconnectDevices();
+		ps5::diag::mark("pads: a controller was plugged into port %s of the running game", portLetters[port]);
+	} catch (const std::exception& e) {
+		ps5::diag::mark("pads: plugging into the running game failed: %s", e.what());
+	}
 }
 
 } // namespace
@@ -364,45 +456,157 @@ void init()
 	rc = scePadInit();
 	INFO_LOG(INPUT, "PS5: scePadInit -> %x", rc);
 
-	int32_t users[4] = { -1, -1, -1, -1 };
+	// Player 1 is the user who started the title: port A, whether or not the
+	// controller answers yet, since the menus are theirs. The pad is waited
+	// for. Everyone else is found by hotplug(), from the first frame on.
 	int32_t initialUser = -1;
 	sceUserServiceGetInitialUser(&initialUser);
-	if (sceUserServiceGetLoginUserIdList(users) < 0)
-		users[0] = initialUser;
-	// Player 1 is the user who started the title.
-	for (int i = 1; i < 4; i++)
-		if (users[i] == initialUser)
-			std::swap(users[0], users[i]);
-	if (users[0] == -1)
-		users[0] = initialUser;
-
-	for (int i = 0; i < MaxPads; i++)
+	if (initialUser == -1)
 	{
-		if (users[i] == -1)
-			continue;
-		const int32_t handle = openPad(users[i]);
-		INFO_LOG(INPUT, "PS5: pad %d: user %d handle %d", i + 1, users[i], handle);
-		if (handle < 0)
-			continue;
-		const int mode = scePadSetVibrationMode(handle, 2);	// rumble, not haptics
-		INFO_LOG(INPUT, "PS5: pad %d vibration mode -> %x", i + 1, mode);
-		pads[i] = std::make_shared<DualSenseGamepad>(i, users[i], handle);
-		GamepadDevice::Register(pads[i]);
+		int32_t users[4] = { -1, -1, -1, -1 };
+		if (sceUserServiceGetLoginUserIdList(users) >= 0)
+			initialUser = users[0];
 	}
+	if (initialUser == -1)
+	{
+		ps5::diag::mark("pads: no signed-in user was found");
+		return;
+	}
+	const int32_t handle = openPad(initialUser, 10);
+	if (handle < 0)
+	{
+		ps5::diag::mark("pads: no pad yet for user %d (%x)", initialUser, handle);
+		return;
+	}
+	seats[0].userId = initialUser;
+	seats[0].handle = handle;
+	addPad(seats[0], 0);
 }
 
 void term()
 {
-	for (auto& pad : pads)
+	for (Seat& seat : seats)
 	{
-		if (!pad)
-			continue;
-		pad->stopRumble();
-		GamepadDevice::Unregister(pad);
-		scePadClose(pad->handle);
-		pad.reset();
+		if (seat.port >= 0)
+		{
+			pads[seat.port]->stopRumble();
+			GamepadDevice::Unregister(pads[seat.port]);
+			pads[seat.port].reset();
+		}
+		if (seat.handle >= 0)
+			scePadClose(seat.handle);
+		seat = Seat();
 	}
+	portsPresent = 0;
 	initialized = false;
+}
+
+void hotplug()
+{
+	// Not during netplay, whose own thread reads the pads: who plays is
+	// settled when it starts.
+	if (!initialized || ggpo::active())
+		return;
+	using clock = std::chrono::steady_clock;
+	static clock::time_point next;
+	const clock::time_point now = clock::now();
+	if (now < next)
+		return;
+	next = now + std::chrono::seconds(1);
+
+	int32_t users[4] = { -1, -1, -1, -1 };
+	if (sceUserServiceGetLoginUserIdList(users) < 0)
+		return;
+	// Who signed out.
+	for (Seat& seat : seats)
+		if (seat.userId != -1 && std::find(std::begin(users), std::end(users), seat.userId) == std::end(users))
+		{
+			const int port = seat.port;
+			removeSeat(seat);
+			if (port >= 0)
+				os_notify(("Player " + std::to_string(port + 1) + " left").c_str(), 3000, nullptr);
+		}
+	// Who signed in: a seat, and their pad's handle (asked for again each
+	// second until the pad service gives it).
+	for (const int32_t user : users)
+	{
+		if (user == -1)
+			continue;
+		Seat *seat = nullptr, *free = nullptr;
+		for (Seat& candidate : seats)
+		{
+			if (candidate.userId == user)
+				seat = &candidate;
+			else if (candidate.userId == -1 && free == nullptr)
+				free = &candidate;
+		}
+		if (seat == nullptr)
+		{
+			if (free == nullptr)
+				continue;
+			seat = free;
+			seat->userId = user;
+			ps5::diag::mark("pads: user %d is signed in", user);
+		}
+		if (seat->handle < 0)
+			seat->handle = openPad(user, 1);
+	}
+	// Whose controller is on, and has no port yet: the lowest free one.
+	for (Seat& seat : seats)
+	{
+		if (seat.handle < 0 || seat.port >= 0 || !controllerIsOn(seat.handle))
+			continue;
+		int port = -1;
+		for (int candidate = MaxPads - 1; candidate >= 0; candidate--)
+			if (!pads[candidate])
+				port = candidate;
+		if (port < 0)
+			continue;
+		addPad(seat, port);
+		os_notify(("Player " + std::to_string(port + 1) + " joined").c_str(), 3000,
+				(std::string("Controller port ") + portLetters[port]).c_str());
+		if (port > 0)
+			plugIntoRunningGame(port);
+	}
+}
+
+void plugPorts()
+{
+	u32 present = portsPresent;
+	// Netplay's second player is port B's, on both consoles alike.
+	if (config::GGPOEnable)
+		present |= 1u << 1;
+	for (int port = 1; port < MaxPads; port++)
+	{
+		if ((present & (1u << port)) == 0 || config::MapleMainDevices[port] != MDT_None)
+			continue;
+		// Not written to the settings: for as long as this game is loaded.
+		config::MapleMainDevices[port].override(MDT_SegaController);
+		if (config::MapleExpansionDevices[port][0] == MDT_None)
+			config::MapleExpansionDevices[port][0].override(MDT_SegaVMU);
+		if (config::MapleExpansionDevices[port][1] == MDT_None)
+			config::MapleExpansionDevices[port][1].override(MDT_PurupuruPack);
+		ps5::diag::mark("pads: port %s gets a controller, a memory card and a rumble pack for player %d",
+				portLetters[port], port + 1);
+	}
+}
+
+std::string portsText()
+{
+	std::string ports;
+	int count = 0;
+	for (int port = 0; port < MaxPads; port++)
+		if (pads[port] && states[port].connected)
+		{
+			ports += (count == 0 ? "" : ", ") + std::string(portLetters[port]);
+			count++;
+		}
+	if (count == 0)
+		return "None";
+	const size_t last = ports.rfind(", ");
+	if (last != std::string::npos)
+		ports.replace(last, 2, " and ");
+	return std::to_string(count) + (count == 1 ? ": port " : ": ports ") + ports;
 }
 
 void poll()

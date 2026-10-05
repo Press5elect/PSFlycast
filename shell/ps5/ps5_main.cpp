@@ -103,6 +103,10 @@ void loadOptions(const std::string& dir)
 			currentOptions.groupDiscs = value != 0;
 		else if (!strcmp(key, "splash"))
 			currentOptions.splash = value != 0;
+		else if (!strcmp(key, "splash_sound"))
+			currentOptions.splashSound = value != 0;
+		else if (!strcmp(key, "update_check"))
+			currentOptions.updateCheck = value != 0;
 		else if (!strcmp(key, "notifications"))
 			currentOptions.notifications = value != 0;
 		else if (!strcmp(key, "skin"))
@@ -125,11 +129,13 @@ void saveOptions()
 	if (f == nullptr)
 		return;
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
-			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nnotifications = %d\n",
+			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
+			"update_check = %d\nnotifications = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
-			(int)currentOptions.splash, (int)currentOptions.notifications);
+			(int)currentOptions.splash, (int)currentOptions.splashSound, (int)currentOptions.updateCheck,
+			(int)currentOptions.notifications);
 	fclose(f);
 }
 
@@ -473,6 +479,17 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 2;
 		ps5::saveOptions();
 	}
+	if (ps5::options().defaults < 3)
+	{
+		// Flycast asks the router for a port (UPnP) before netplay by default.
+		// Whether that works from a title is not known: off until it is asked for.
+		config::EnableUPnP.set(false);
+		SaveSettings();
+		ps5::options().defaults = 3;
+		ps5::saveOptions();
+		ps5::diag::mark("settings: UPnP turned off (Settings > Online has it)");
+	}
+	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();
 	ps5::games::init();
@@ -487,6 +504,7 @@ int main(int argc, char *argv[])
 		ps5::diag::mark("main loop: unknown exception");
 	}
 	ps5::diag::mark("main loop ended");
+	ps5::sound::stop(true);
 	flycast_term();
 	os_UninstallFaultHandler();
 	fflush(nullptr);

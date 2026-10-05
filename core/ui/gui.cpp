@@ -1170,6 +1170,40 @@ static void drawBoxartBackground()
 
 static std::future<bool> networkStatus;
 
+#ifdef FLYCAST_BIGPICTURE
+// The same steps as the desktop's dialog below, drawn by
+// bigpicture::networkStart.
+static void gui_network_start()
+{
+	if (networkStatus.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+	{
+		bigpicture::networkStart(T("Starting..."), false);
+		try {
+			if (networkStatus.get())
+				gui_resume_game();
+			else
+				gui_stop_game();
+		} catch (const FlycastException& e) {
+			gui_stop_game(e.what());
+		}
+		return;
+	}
+	const bool canStart = NetworkHandshake::instance != nullptr && NetworkHandshake::instance->canStartNow();
+	const int asked = bigpicture::networkStart(get_notification(), canStart);
+	if (asked == 1 && NetworkHandshake::instance != nullptr)
+	{
+		NetworkHandshake::instance->stop();
+		try {
+			networkStatus.get();
+		}
+		catch (const FlycastException&) {
+		}
+		gui_stop_game();
+	}
+	else if (asked == 2 && NetworkHandshake::instance != nullptr)
+		NetworkHandshake::instance->startNow();
+}
+#else
 static void gui_network_start()
 {
 	drawBoxartBackground();
@@ -1234,6 +1268,7 @@ static void gui_network_start()
 	if ((kcode[0] & DC_BTN_START) == 0 && NetworkHandshake::instance != nullptr)
 		NetworkHandshake::instance->startNow();
 }
+#endif
 
 #ifdef TARGET_UWP
 #include "oslib/http_client.h"

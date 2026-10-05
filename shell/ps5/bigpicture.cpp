@@ -22,8 +22,10 @@
 	Triangle opens a game's details: its description (Flycast's scraper, from
 	TheGamesDB), and what can be done before it starts - play, start from a
 	saved state, options of its own (Flycast's per-game settings), cheats.
-	The mark in the top bar is a disc seen at a slant that turns clockwise; a
-	picture of the user's own, <root>/logo.png, is shown in its place.
+	The mark in the top bar is a disc made of one spiral line, turning
+	clockwise; a picture of the user's own, <root>/logo.png, is shown in its
+	place. The start-up animation (drawSplash) draws that line and ends with
+	the mark and the name where the top bar has them.
 	The quick menu slides in from the right over the paused game; its Cheats
 	page lists the game's cheats (shell/ps5/ps5_cheats.cpp).
 */
@@ -283,15 +285,18 @@ float easeInOut(float t)
 }
 
 // The start-up animation (drawSplash, shown by the library the first time it
-// is on): not begun, showing, leaving, over. While it leaves, its mark and
-// name fly to the top bar: flight is how far they are, 0 in the middle of the
-// screen and 1 in their places, and the top bar leaves its own out until then.
+// is on): not begun, showing, leaving, over. It ends with its mark and name
+// where the top bar has them, and the top bar leaves its own out until then:
+// flight is under 1 while the animation still draws them.
 struct SplashState
 {
 	enum { NotBegun, Showing, Leaving, Over } state = NotBegun;
 	double began = 0, leaving = 0;
 	int frames = 0;
+	bool sounded = false;	// its sound was started, with its clock
 	bool skip = false;		// a button was pressed this frame: it ends early
+	bool cut = false;		// it ended early (or there is less motion): it fades where it is
+	float cutAt = 0;		// the moment of the animation it was cut at
 	float flight = 1.f;
 } splash;
 
@@ -540,21 +545,217 @@ void endEntrance(const Layer& layer, float e)
 	endLayer(layer, e, (1 - e) * 56 * entrance.side, entrance.side == 0 ? (1 - e) * 18 : 0);
 }
 
-// The app's mark: a disc, its hub, and an accent arc on the rim.
-void discMark(ImDrawList *dl, float cx, float cy, float radius, ImU32 ring, ImU32 arc, float thickness)
+// ------------------------------------------------------------- the mark
+//
+// The app's mark is a disc made of one line: it starts at the disc's left
+// edge, winds in to the centre in two and a half turns, and winds out again
+// to the right edge, so that its loops are the disc's grooves. The start-up
+// animation draws that line, lets its turns out until it is straight, and
+// coils it up again in the top bar (drawSplash). The design is PSFlyCast's
+// own.
+
+struct SpiralLine
 {
-	dl->AddCircle(V(cx, cy), radius * S, ring, 64, thickness * S);
-	dl->AddCircle(V(cx, cy), radius * 0.62f * S, alpha(ring, 0.45f), 48, thickness * 0.5f * S);
-	dl->AddCircleFilled(V(cx, cy), radius * 0.22f * S, ring, 32);
-	dl->PathClear();
-	dl->PathArcTo(V(cx, cy), radius * S, -IM_PI * 0.95f, -IM_PI * 0.35f, 24);
-	dl->PathStroke(arc, 0, thickness * 1.6f * S);
+	enum { Half = 220, Count = 2 * Half + 1 };
+	ImVec2 at[Count];			// its points, on a disc of radius 1
+	float piece[Count - 1];		// the length of each piece between two points,
+	float heading[Count - 1];	// its direction (never jumping by a whole turn),
+	float along[Count];			// and the length of the line up to each point
+	float length;
+	float straight;				// the direction the line has at the centre
+};
+
+const SpiralLine& spiralLine()
+{
+	static SpiralLine line;
+	static bool made;
+	if (made)
+		return line;
+	made = true;
+	const float turns = 2.5f * 2 * IM_PI;
+	for (int k = 0; k < SpiralLine::Count; k++)
+	{
+		const float u = (float)k / SpiralLine::Half - 1;
+		const float angle = turns * std::fabs(u), r = std::fabs(u), side = u < 0 ? 1.f : -1.f;
+		line.at[k] = ImVec2(side * r * std::cos(angle), side * r * std::sin(angle));
+	}
+	line.along[0] = 0;
+	float before = 0;
+	for (int k = 0; k < SpiralLine::Count - 1; k++)
+	{
+		const float dx = line.at[k + 1].x - line.at[k].x, dy = line.at[k + 1].y - line.at[k].y;
+		float heading = std::atan2(dy, dx);
+		if (k > 0)
+		{
+			while (heading - before > IM_PI)
+				heading -= 2 * IM_PI;
+			while (heading - before < -IM_PI)
+				heading += 2 * IM_PI;
+		}
+		before = heading;
+		line.heading[k] = heading;
+		line.piece[k] = std::sqrt(dx * dx + dy * dy);
+		line.along[k + 1] = line.along[k] + line.piece[k];
+	}
+	line.length = line.along[SpiralLine::Count - 1];
+	// It crosses the centre almost level: let out, it is level.
+	line.straight = std::round((line.heading[SpiralLine::Half - 1] + line.heading[SpiralLine::Half]) / 2 / IM_PI) * IM_PI;
+	return line;
 }
 
-// The mark, alive: the same disc seen at a slant, with a rim that gives it
-// thickness, turning clockwise (the arc and a glint go round). A picture of
-// the user's own, <root>/logo.png, takes its place when there is one, turning
-// the same way.
+// The same line with its turns let out by e (0 the spiral, 1 a straight
+// line), its middle staying where it is and every piece keeping its length.
+void uncoil(float e, ImVec2 *out)
+{
+	const SpiralLine& line = spiralLine();
+	const int mid = SpiralLine::Half;
+	const float keep = 1 - std::clamp(e, 0.f, 1.f);
+	out[mid] = ImVec2(0, 0);
+	for (int k = mid; k < SpiralLine::Count - 1; k++)
+	{
+		const float a = line.straight + (line.heading[k] - line.straight) * keep;
+		out[k + 1] = ImVec2(out[k].x + line.piece[k] * std::cos(a), out[k].y + line.piece[k] * std::sin(a));
+	}
+	for (int k = mid - 1; k >= 0; k--)
+	{
+		const float a = line.straight + (line.heading[k] - line.straight) * keep;
+		out[k] = ImVec2(out[k + 1].x - line.piece[k] * std::cos(a), out[k + 1].y - line.piece[k] * std::sin(a));
+	}
+}
+
+// Draws the line's points (the spiral's own, or uncoiled ones): on a disc
+// `radius` large at (cx, cy), turned by `angle`, from the line's start up to
+// `share` of its length, `width` wide with round ends.
+void strokeSpiral(ImDrawList *dl, const ImVec2 *points, float cx, float cy, float radius, float angle, float share,
+		ImU32 colour, float width, bool roundEnds = true)
+{
+	if (share <= 0 || (colour & IM_COL32_A_MASK) == 0)
+		return;
+	const SpiralLine& line = spiralLine();
+	// A small one needs fewer of its points.
+	const float pixels = radius * S;
+	const int stride = pixels > 160 ? 1 : pixels > 60 ? 2 : 4;
+	const float c = std::cos(angle), s = std::sin(angle);
+	auto place = [&](const ImVec2& p) {
+		return V(cx + (p.x * c - p.y * s) * radius, cy + (p.x * s + p.y * c) * radius);
+	};
+	const float until = line.length * std::min(share, 1.f);
+	// The points on the screen. One that lies on the straight way between
+	// its neighbours is left out, so a line let out straight is one piece.
+	static ImVec2 path[SpiralLine::Count + 1];
+	int count = 0;
+	auto add = [&](const ImVec2& p) {
+		if (count >= 2)
+		{
+			const ImVec2& a = path[count - 2], & b = path[count - 1];
+			const float dx = p.x - a.x, dy = p.y - a.y, length = std::sqrt(dx * dx + dy * dy);
+			if (length > 0 && std::fabs((b.x - a.x) * dy - (b.y - a.y) * dx) / length < 0.06f)
+				count--;
+		}
+		path[count++] = p;
+	};
+	add(place(points[0]));
+	int k = stride;
+	for (; k < SpiralLine::Count && line.along[k] <= until; k += stride)
+		add(place(points[k]));
+	if (k < SpiralLine::Count)
+	{
+		// The line ends within this piece.
+		const float from = line.along[k - stride];
+		const float over = (until - from) / (line.along[k] - from);
+		if (over > 0.01f)
+		{
+			const ImVec2& a = points[k - stride], & b = points[k];
+			add(place(ImVec2(a.x + (b.x - a.x) * over, a.y + (b.y - a.y) * over)));
+		}
+	}
+	const ImVec2 first = path[0], last = path[count - 1];
+	dl->PathClear();
+	for (int i = 0; i < count; i++)
+		dl->PathLineTo(path[i]);
+	dl->PathStroke(colour, 0, width * S);
+	if (roundEnds)
+	{
+		dl->AddCircleFilled(first, width * S / 2, colour, 12);
+		dl->AddCircleFilled(last, width * S / 2, colour, 12);
+	}
+}
+
+// How wide the line is on a mark of a size: a small mark's is bolder for its
+// size, so that it still reads in the top bar.
+float markWidth(float radius)
+{
+	return radius * 0.0225f + 1.9f;
+}
+
+// The disc under the line: its body, lighter toward the hub, its rim and
+// the hub.
+void discBody(ImDrawList *dl, float cx, float cy, float radius, ImU32 line, ImU32 fill, float a)
+{
+	if (a <= 0)
+		return;
+	const float outer = radius * 1.14f;
+	const int segments = radius * S > 120 ? 96 : 48;
+	const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+	const ImU32 centre = alpha(fill, 0.30f * a), edge = alpha(fill, 0.10f * a);
+	dl->PrimReserve(segments * 3, segments + 1);
+	const ImDrawIdx base = (ImDrawIdx)dl->_VtxCurrentIdx;
+	dl->PrimWriteVtx(V(cx, cy), uv, centre);
+	for (int i = 0; i < segments; i++)
+	{
+		const float angle = 2 * IM_PI * i / segments;
+		dl->PrimWriteVtx(V(cx + std::cos(angle) * outer, cy + std::sin(angle) * outer), uv, edge);
+	}
+	for (int i = 0; i < segments; i++)
+	{
+		dl->PrimWriteIdx(base);
+		dl->PrimWriteIdx((ImDrawIdx)(base + 1 + i));
+		dl->PrimWriteIdx((ImDrawIdx)(base + 1 + (i + 1) % segments));
+	}
+	const float rim = std::max(1.2f, radius * 0.013f) * S;
+	dl->AddCircle(V(cx, cy), outer * S, alpha(line, 0.55f * a), segments, rim);
+	dl->AddCircleFilled(V(cx, cy), radius * 0.085f * S, alpha(col::bgTop, a), 24);
+	dl->AddCircle(V(cx, cy), radius * 0.085f * S, alpha(line, 0.55f * a), 24, rim);
+}
+
+// The mark, still and in one colour: on a game's card that has no art.
+void discMark(ImDrawList *dl, float cx, float cy, float radius, ImU32 colour)
+{
+	discBody(dl, cx, cy, radius, colour, colour, 1.f);
+	strokeSpiral(dl, spiralLine().at, cx, cy, radius, 0, 1, colour, markWidth(radius), false);
+}
+
+// The mark turns clockwise, one turn every five seconds. markEpoch is the
+// moment its angle was 0. The start-up animation, which leaves the mark in
+// the top bar already turning, sets both: the mark starts from standing
+// still at markSpunAt, turns faster for a moment, and settles into its turn.
+constexpr float MarkRate = 2 * IM_PI / 5;
+constexpr float SpinRise = 0.25f, SpinFall = 0.9f, SpinExtra = 3.4f;
+constexpr float SpinBoth = SpinRise * SpinFall / (SpinRise + SpinFall);
+double markEpoch = 0, markSpunAt = -1e9;
+
+// From a moment t on, the mark spins up: a turn that is 0 at t.
+void spinMarkUpAt(double t)
+{
+	const float settled = -MarkRate * SpinRise + SpinExtra * SpinFall - SpinExtra * SpinBoth;
+	markSpunAt = t;
+	markEpoch = t - settled / MarkRate;
+}
+
+float markAngle()
+{
+	double angle = (timeNow - markEpoch) * MarkRate;
+	const float x = (float)(timeNow - markSpunAt);
+	if (x < 0)
+		return 0;
+	if (x < 30)
+		angle += MarkRate * SpinRise * std::exp(-x / SpinRise) - SpinExtra * SpinFall * std::exp(-x / SpinFall)
+				+ SpinExtra * SpinBoth * std::exp(-x / SpinBoth);
+	return (float)std::fmod(angle, 2.0 * IM_PI);
+}
+
+// A picture of the user's own, <root>/logo.png, takes the mark's place when
+// there is one, turning the same way.
 ImTextureID customLogo()
 {
 	static double checkedAt = -100;
@@ -573,78 +774,30 @@ ImTextureID customLogo()
 	return picture.getId();
 }
 
-void spinMark(ImDrawList *dl, float cx, float cy, float radius, ImU32 ring, ImU32 arc, float thickness, float a = 1.f,
-		float lead = 0.f)
+// The mark, alive: the disc and its line, turning.
+void spinMark(ImDrawList *dl, float cx, float cy, float radius, float a = 1.f)
 {
-	// One turn every five seconds, clockwise on the screen (y points down);
-	// lead is how far from that it is, for the start-up animation.
-	const float turn = (float)std::fmod(timeNow / 5.0, 1.0) * 2 * IM_PI + lead;
-	const float slant = 0.82f;		// how flat the disc looks: 1 is face on
+	if (a <= 0)
+		return;
+	const float turn = markAngle();
 	const ImTextureID logo = customLogo();
 	if (logo != ImTextureID())
 	{
-		// The picture, turned and laid at the same slant, over its shadow.
+		// The picture, turned, over its shadow.
 		const float r = radius * 1.25f;
-		dl->AddCircleFilled(V(cx + r * 0.06f, cy + r * 0.16f), r * 0.92f * S, col::rgba(0, 0, 0, (int)(70 * a)), 48);
+		dl->AddCircleFilled(V(cx + r * 0.06f, cy + r * 0.12f), r * 0.92f * S, col::rgba(0, 0, 0, (int)(70 * a)), 48);
 		ImVec2 corner[4];
 		for (int i = 0; i < 4; i++)
 		{
 			const float angle = turn + IM_PI * (0.25f + 0.5f * i) + IM_PI;	// top left first
-			corner[i] = V(cx + std::cos(angle) * r * 1.414f, cy + std::sin(angle) * r * 1.414f * slant);
+			corner[i] = V(cx + std::cos(angle) * r * 1.414f, cy + std::sin(angle) * r * 1.414f);
 		}
 		dl->AddImageQuad(logo, corner[0], corner[1], corner[2], corner[3], ImVec2(0, 0), ImVec2(1, 0), ImVec2(1, 1),
 				ImVec2(0, 1), alpha(col::text, a));
 		return;
 	}
-	auto ellipse = [&](float r, float dy, int points, float from = 0, float to = 2 * IM_PI) {
-		dl->PathClear();
-		// A whole ellipse is closed by its stroke: its first point is not repeated.
-		const int last = to - from >= 2 * IM_PI - 0.001f ? points - 1 : points;
-		for (int i = 0; i <= last; i++)
-		{
-			const float angle = from + (to - from) * i / points;
-			dl->PathLineTo(V(cx + std::cos(angle) * r, cy + dy + std::sin(angle) * r * slant));
-		}
-	};
-	const float depth = radius * 0.16f;		// the rim, seen from above
-	// The rim's near half, with its shadow under it, then the top face. The
-	// rim is the disc's side: what is between the top face's outer edge and
-	// the same edge lower down, so it narrows to nothing at the left and right.
-	auto side = [&](float drop, ImU32 colour) {
-		// A band between two copies of the edge, as quads (no polygon to cut
-		// into triangles each frame), and a line along its lower edge, which
-		// is the one that shows, to smooth it.
-		const float outer = radius + thickness / 2;
-		ImVec2 before;
-		dl->PathClear();
-		for (int i = 0; i <= 32; i++)
-		{
-			const float angle = IM_PI * i / 32;
-			const ImVec2 upper = V(cx + std::cos(angle) * outer, cy + std::sin(angle) * outer * slant - 0.5f);
-			const ImVec2 lower(upper.x, upper.y + (drop + 0.5f) * S);
-			if (i > 0)
-			{
-				const ImVec2 beforeLower(before.x, before.y + (drop + 0.5f) * S);
-				quad(dl, before, upper, lower, beforeLower, colour, colour, colour, colour);
-			}
-			before = upper;
-			dl->PathLineTo(lower);
-		}
-		dl->PathStroke(colour, 0, 1.f);
-	};
-	side(depth + thickness * 0.3f, alpha(col::rgba(0, 0, 0), 0.45f * a));
-	side(depth, alpha(mix(ring, col::rgba(0, 0, 0), 0.45f), a));
-	ellipse(radius, 0, 64);
-	dl->PathStroke(alpha(ring, a), ImDrawFlags_Closed, thickness * S);
-	ellipse(radius * 0.62f, 0, 48);
-	dl->PathStroke(alpha(ring, 0.45f * a), ImDrawFlags_Closed, thickness * 0.5f * S);
-	ellipse(radius * 0.22f, 0, radius > 60 ? 48 : 24);
-	dl->PathFillConvex(alpha(ring, a));
-	// What turns: the accent arc on the rim, and a glint opposite it.
-	ellipse(radius, 0, 24, turn - IM_PI * 0.95f, turn - IM_PI * 0.35f);
-	dl->PathStroke(alpha(arc, a), 0, thickness * 1.6f * S);
-	ellipse(radius * 0.62f, 0, 12, turn + IM_PI * 0.15f, turn + IM_PI * 0.45f);
-	dl->PathStroke(alpha(col::text, 0.9f * a), 0, thickness * 0.7f * S);
+	discBody(dl, cx, cy, radius, col::text, col::accent, a);
+	strokeSpiral(dl, spiralLine().at, cx, cy, radius, turn, 1, alpha(col::text, a), markWidth(radius));
 }
 
 // ------------------------------------------------------------ button glyphs
@@ -898,7 +1051,7 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 	// The app: its mark and its name.
 	if (splash.flight >= 1.f)
 	{
-		spinMark(dl, 76, 48, 22, col::text, col::warm, 4.f);
+		spinMark(dl, 76, 48, 22);
 		text(dl, bold(), 34, 112, 28, col::text, "PSFlyCast");
 	}
 
@@ -1575,7 +1728,7 @@ void placeholder(ImDrawList *dl, const Game& g, float x, float y, float w, float
 	const ImU32 top = ImGui::ColorConvertFloat4ToU32(ImVec4(cr, cg, cb, 1.f));
 	rect(dl, x, y, w, h, col::card, r);
 	dl->AddRectFilledMultiColor(V(x, y), V(x + w, y + h * 0.75f), alpha(top, 0.9f), alpha(top, 0.6f), alpha(top, 0.f), alpha(top, 0.f));
-	discMark(dl, x + w * 0.5f, y + h * 0.36f, w * 0.17f, col::rgba(255, 255, 255, 60), col::rgba(255, 255, 255, 90), w * 0.02f);
+	discMark(dl, x + w * 0.5f, y + h * 0.36f, w * 0.17f, col::rgba(255, 255, 255, 84));
 	const float size = std::max(18.f, w * 0.085f);
 	dl->PushClipRect(V(x + 12, y), V(x + w - 12, y + h), true);
 	const ImVec2 ts = textSize(bold(), size, g.title.c_str(), w - 32);
@@ -2001,7 +2154,7 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 	const float w = 1100, h = 460;
 	const float x = (W - w) / 2, y = 250;
 	rect(dl, x, y, w, h, col::panel, 24);
-	spinMark(dl, x + 120, y + 130, 56, col::text, col::warm, 7);
+	spinMark(dl, x + 120, y + 130, 52);
 	if (busy)
 	{
 		// An arc going round the mark while the share is asked.
@@ -3147,77 +3300,522 @@ bool discSwapScreen()
 	return true;
 }
 
-// ------------------------------------------------------------- the splash
+// ---------------------------------------------------------------- dialogs
+//
+// A panel over a screen, which is dimmed and hears nothing meanwhile: the
+// screen hands the dialog the pad's input and keeps none of it. They are
+// drawn on the foreground list, over everything the screen draws.
 
-// The start-up animation: the app's mark and name in the middle of the
-// screen, alive (the mark spins up, rings of light leave it, sparks go round
-// it, the letters hop one after another), then both fly to their places in
-// the top bar. t is the time since it began; flight how far the mark and the
-// name are on their way, 0 to 1; rest how much of everything else is left,
-// 1 to 0. Not lively ("Less" motion): the mark and the name, still.
-void drawSplash(ImDrawList *dl, float t, float flight, float rest, bool lively)
+// The panel; returns its top left.
+ImVec2 dialogPanel(ImDrawList *dl, float w, float h)
 {
-	const float k = easeInOut(flight);
-	const float cx = W / 2, cy = 430;
-	if (rest > 0)
-	{
-		// Light behind the mark, breathing.
-		softDisc(dl, cx, cy, 420 + (lively ? 24 * std::sin(t * 2.2f) : 0), alpha(col::accent, 0.13f * rest), 48);
-		softDisc(dl, cx, cy, 210, alpha(col::warm, 0.08f * rest), 40);
-	}
-	if (rest > 0 && lively)
-	{
-		// Rings of light leaving the mark, one after another.
-		for (int i = 0; i < 3; i++)
-		{
-			const float u = (t - 0.10f - 0.45f * i) / 1.3f;
-			if (u > 0 && u < 1)
-				dl->AddCircle(V(cx, cy), (124 + 430 * easeOut(u)) * S,
-						alpha(col::accent, 0.34f * (1 - u) * (1 - u) * rest), 96, (5 - 3.5f * u) * S);
-		}
-		// Sparks going round it, each at its own distance and pace.
-		const float lit = std::clamp(t / 0.6f, 0.f, 1.f);
-		for (int i = 0; i < 16; i++)
-		{
-			const float radius = 168 + 27 * (i % 5) + 9 * std::sin(t * 1.3f + i);
-			const float angle = i * 2.399963f + t * (0.45f + 0.13f * (i % 4));
-			const float twinkle = 0.5f + 0.4f * std::sin(t * 3.1f + i * 1.7f);
-			const ImU32 colour = i % 3 == 0 ? col::warm : i % 3 == 1 ? col::accent : col::text;
-			const float x = cx + std::cos(angle) * radius, y = cy + std::sin(angle) * radius * 0.82f;
-			softDisc(dl, x, y, 10 + 3 * (i % 3), alpha(colour, 0.45f * twinkle * lit * rest), 12);
-			dl->AddCircleFilled(V(x, y), (1.8f + 0.5f * (i % 3)) * S, alpha(colour, twinkle * lit * rest), 8);
-		}
-	}
-	// The mark: one fast turn that slows into the turn it has in the top bar.
-	const float lead = lively ? -2 * IM_PI * (1 - easeOut(t / 1.5f)) : 0;
-	const float radius = 120 + (22 - 120) * k;
-	spinMark(dl, cx + (76 - cx) * k, cy + (48 - cy) * k, radius, col::text, col::warm, radius * 4 / 22, 1.f, lead);
+	rect(dl, 0, 0, W, H, col::rgba(4, 6, 10, 176));
+	const float x = (W - w) / 2, y = (H - h) / 2 - 16;
+	glow(dl, x, y, w, h, 28, col::rgba(0, 0, 0, 150), 36);
+	rect(dl, x, y, w, h, col::panel, 28);
+	outline(dl, x, y, w, h, col::line, 28, 1.5f);
+	return ImVec2(x, y);
+}
 
-	// The name: its letters hop one after another, each in the accent's
-	// colour while it is up.
+// A dialog's button: the pad's button and what it does. Returns its width.
+float dialogButton(ImDrawList *dl, float x, float y, Glyph g, const char *label, bool primary)
+{
+	const float h = 60;
+	const float gw = glyph(dl, g, 0, -1000);	// measure
+	const float w = 20 + gw + 14 + textSize(bold(), 24, label).x + 30;
+	if (primary)
+		glow(dl, x, y, w, h, h / 2, alpha(col::accent, 0.5f), 12);
+	rect(dl, x, y, w, h, primary ? col::accent : col::panelHi, h / 2);
+	glyph(dl, g, x + 20, y + h / 2);
+	const ImVec2 ls = textSize(bold(), 24, label);
+	text(dl, bold(), 24, x + 20 + gw + 14, y + h / 2 - ls.y / 2, col::text, label);
+	return w;
+}
+
+// ---- updating (ps5_update.cpp)
+
+struct UpdateUi
+{
+	bool open = false;
+} updateUi;
+
+// Opens the dialog; asked for by hand, it also asks GitHub again unless an
+// update is on its way.
+void openUpdate(bool ask)
+{
+	using ps5::update::Phase;
+	updateUi.open = true;
+	const Phase phase = ps5::update::status().phase;
+	if (ask && (phase == Phase::Idle || phase == Phase::UpToDate || phase == Phase::Available || phase == Phase::Failed))
+		ps5::update::check();
+}
+
+std::string megabytes(uint64_t bytes)
+{
+	char amount[32];
+	snprintf(amount, sizeof(amount), "%.1f MB", bytes / 1048576.0);
+	return amount;
+}
+
+void updateDialog(ImDrawList *dl, const Input& given)
+{
+	using ps5::update::Phase;
+	const ps5::update::Status now = ps5::update::status();
+	enum Tone { Dim, Plain, Good };
+	struct Line { std::string words; Tone tone; };
+	struct Button { Glyph glyph; std::string label; bool primary; };
+	std::string title, sub;
+	std::vector<Line> lines;
+	std::vector<Button> buttons;
+	float bar = -1;		// none; -2 a light going along it; else the part done
+	const std::string mine = ps5::update::thisBuild();
+
+	switch (now.phase)
+	{
+	case Phase::Idle:
+	case Phase::Checking:
+		title = "Looking for a new version";
+		sub = "Asking the project's GitHub page";
+		bar = -2;
+		buttons = { { Glyph::Circle, "Close", false } };
+		if (given.back)
+			updateUi.open = false;
+		break;
+
+	case Phase::UpToDate:
+		title = "PSFlyCast is up to date";
+		if (ps5::update::isRelease())
+			sub = "You have " + mine + ", the newest release";
+		else
+		{
+			sub = "The newest release is " + now.latest + ". This is " + mine + ", which is newer";
+			lines.push_back({ "Installing " + now.latest + " would put the release in this test build's place", Dim });
+		}
+		buttons = { { Glyph::Circle, "Close", true }, { Glyph::Square, "Install " + now.latest + " anyway", false } };
+		if (given.back)
+			updateUi.open = false;
+		else if (given.square)
+			ps5::update::install();
+		break;
+
+	case Phase::Available:
+		title = "PSFlyCast " + now.latest + " is out";
+		sub = "You have " + mine + (now.size != 0 ? "   \xc2\xb7   " + megabytes(now.size) + " to download from the project's GitHub page"
+				: "");
+		for (const std::string& note : now.notes)
+			lines.push_back({ note, Plain });
+		lines.push_back({ "Your games, saves, settings and covers are kept", Dim });
+		lines.push_back({ "The new version starts the next time you open PSFlyCast", Dim });
+		buttons = { { Glyph::Cross, "Update now", true }, { Glyph::Circle, "Later", false },
+				{ Glyph::Square, "Skip this version", false } };
+		if (given.accept)
+			ps5::update::install();
+		else if (given.back)
+			updateUi.open = false;
+		else if (given.square)
+		{
+			ps5::update::skip();
+			updateUi.open = false;
+		}
+		break;
+
+	case Phase::Downloading:
+	case Phase::Verifying:
+	case Phase::Unpacking:
+	case Phase::Swapping:
+	{
+		title = "Updating to " + now.latest;
+		const int step = now.phase == Phase::Downloading ? 1 : now.phase == Phase::Verifying ? 2
+				: now.phase == Phase::Unpacking ? 2 : 3;
+		if (now.phase == Phase::Downloading)
+		{
+			sub = "Downloading   \xc2\xb7   " + megabytes(now.done) + (now.size != 0 ? " of " + megabytes(now.size) : "");
+			bar = now.size != 0 ? std::clamp((float)((double)now.done / (double)now.size), 0.f, 1.f) : -2;
+		}
+		else
+		{
+			sub = now.phase == Phase::Verifying ? "Checking the download" : now.phase == Phase::Unpacking ? "Unpacking"
+					: "Putting the files in place";
+			bar = -2;
+		}
+		const char *steps[] = { "Found the release and its checksum", "Downloading the ZIP",
+				"Check it against the checksum, then unpack it",
+				"Swap the files in; this version is kept until the new one has started once" };
+		for (int i = 0; i < 4; i++)
+			lines.push_back({ steps[i], i < step ? Good : i == step ? Plain : Dim });
+		if (now.phase == Phase::Downloading || now.phase == Phase::Unpacking)
+		{
+			buttons = { { Glyph::Circle, "Cancel", false } };
+			if (given.back)
+				ps5::update::cancel();
+		}
+		break;
+	}
+
+	case Phase::Installed:
+		title = "PSFlyCast " + now.latest + " is installed";
+		sub = "It starts the next time you open PSFlyCast";
+		lines.push_back({ "This version's files are kept in the update folder until the new one has started once", Dim });
+		buttons = { { Glyph::Cross, "Close PSFlyCast now", true }, { Glyph::Circle, "Later", false } };
+		if (given.accept)
+			dc_exit();
+		else if (given.back)
+			updateUi.open = false;
+		break;
+
+	case Phase::Failed:
+		title = "The update did not go through";
+		sub = now.error;
+		lines.push_back({ now.restored ? "Nothing of the title was changed" : "Copy the release's ZIP over the title's folder to repair it",
+				now.restored ? Dim : Plain });
+		lines.push_back({ "Every step is in flycast-boot.log, in the title's folder", Dim });
+		buttons = { { Glyph::Circle, "Close", true }, { Glyph::Square, "Try again", false } };
+		if (given.back)
+			updateUi.open = false;
+		else if (given.square)
+			ps5::update::check();
+		break;
+	}
+
+	const float w = 940, pad = 52, inner = w - 2 * pad;
+	const float subH = sub.empty() ? 0 : textSize(regular(), 23, sub.c_str(), inner).y + 14;
+	const float h = pad + 50 + subH + (bar != -1 ? 46 : 0) + (lines.empty() ? 0 : 18 + lines.size() * 42)
+			+ (buttons.empty() ? 0 : 30 + 60) + pad - 8;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	float y = at.y + pad;
+	text(dl, bold(), 38, at.x + pad, y - 6, col::text, fit(bold(), 38, title, inner).c_str());
+	y += 50;
+	if (!sub.empty())
+	{
+		text(dl, regular(), 23, at.x + pad, y, col::dim, sub.c_str(), inner);
+		y += subH;
+	}
+	if (bar != -1)
+	{
+		y += 14;
+		rect(dl, at.x + pad, y, inner, 12, col::rgba(255, 255, 255, 30), 6);
+		if (bar >= 0)
+			rect(dl, at.x + pad, y, std::max(12.f, inner * bar), 12, col::accent, 6);
+		else
+		{
+			const float span = inner * 0.22f;
+			const float lightAt = (float)std::fmod(timeNow * 0.7, 1.0) * (inner + span) - span;
+			const float from = std::max(0.f, lightAt), to = std::min(inner, lightAt + span);
+			if (to > from)
+				rect(dl, at.x + pad + from, y, to - from, 12, alpha(col::accent, 0.85f), 6);
+		}
+		y += 32;
+	}
+	if (!lines.empty())
+	{
+		y += 18;
+		for (const Line& line : lines)
+		{
+			const ImU32 colour = line.tone == Good ? col::good : line.tone == Plain ? col::text : col::dim;
+			dl->AddCircleFilled(V(at.x + pad + 8, y + 15), 5 * S, line.tone == Dim ? col::faint : col::accent);
+			text(dl, regular(), 23, at.x + pad + 30, y, colour, fit(regular(), 23, line.words, inner - 30).c_str());
+			y += 42;
+		}
+	}
+	if (!buttons.empty())
+	{
+		y += 30;
+		float x = at.x + pad;
+		for (const Button& button : buttons)
+			x += dialogButton(dl, x, y, button.glyph, button.label.c_str(), button.primary) + 20;
+	}
+}
+
+// ---- the other player's address, for netplay
+
+struct AddressUi
+{
+	bool open = false;
+	int field = 3;
+	int part[5] = { 192, 168, 1, 2, 19713 };	// the address's four numbers, and the port
+} addressUi;
+
+constexpr int NetplayPort = 19713;		// Flycast's (core/network/ggpo.cpp)
+
+void openAddress()
+{
+	addressUi = AddressUi{};
+	addressUi.open = true;
+	unsigned a, b, c, d, port = NetplayPort;
+	if (sscanf(config::NetworkServer.get().c_str(), "%u.%u.%u.%u:%u", &a, &b, &c, &d, &port) >= 4)
+	{
+		const unsigned given[5] = { a, b, c, d, port };
+		for (int i = 0; i < 5; i++)
+			addressUi.part[i] = (int)std::min(given[i], i < 4 ? 255u : 65535u);
+	}
+	else if (sscanf(ps5::net::localAddress().c_str(), "%u.%u.%u.%u", &a, &b, &c, &d) == 4)
+	{
+		// Most likely on this console's own network: its numbers to start from.
+		addressUi.part[0] = (int)a;
+		addressUi.part[1] = (int)b;
+		addressUi.part[2] = (int)c;
+		addressUi.part[3] = 1;
+	}
+}
+
+// What the setting holds, as the Settings show it.
+std::string otherPlayerText()
+{
+	return config::NetworkServer.get().empty() ? "Not set" : config::NetworkServer.get();
+}
+
+void addressDialog(ImDrawList *dl, const Input& given)
+{
+	AddressUi& ui = addressUi;
+	if (given.left && ui.field > 0)
+		ui.field--;
+	if (given.right && ui.field < 4)
+		ui.field++;
+	const int step = given.up ? 1 : given.down ? -1 : given.r2 ? 10 : given.l2 ? -10 : given.r1 ? 100 : given.l1 ? -100 : 0;
+	if (step != 0)
+	{
+		int& value = ui.part[ui.field];
+		if (ui.field < 4)
+			value = ((value + step) % 256 + 256) % 256;		// round and round
+		else
+			value = std::clamp(value + step, 1, 65535);
+	}
+	if (given.accept)
+	{
+		char address[48];
+		snprintf(address, sizeof(address), "%d.%d.%d.%d", ui.part[0], ui.part[1], ui.part[2], ui.part[3]);
+		std::string whole = address;
+		if (ui.part[4] != NetplayPort)
+			whole += ":" + std::to_string(ui.part[4]);
+		config::NetworkServer.set(whole);
+		SaveSettings();
+		ui.open = false;
+	}
+	else if (given.triangle)
+	{
+		config::NetworkServer.set("");
+		SaveSettings();
+		ui.open = false;
+	}
+	else if (given.back)
+		ui.open = false;
+
+	const float w = 1080, h = 470, pad = 52;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "The other player's address");
+	const std::string own = ps5::net::localAddress();
+	const std::string sub = "Their console or PC on the network. They enter this console's"
+			+ (own.empty() ? std::string("") : ": " + own);
+	text(dl, regular(), 23, at.x + pad, at.y + pad + 50, col::dim, sub.c_str());
+
+	// Four numbers and the port, the one being changed lit.
+	const float boxW = 150, portW = 210, boxH = 108, gap = 34;
+	const float total = 4 * boxW + 3 * gap + 56 + portW;
+	float x = at.x + (w - total) / 2;
+	const float by = at.y + 178;
+	for (int i = 0; i < 5; i++)
+	{
+		const float bw = i < 4 ? boxW : portW;
+		const bool on = i == ui.field;
+		rect(dl, x, by, bw, boxH, on ? alpha(col::accent, 0.22f) : col::panelHi, 16);
+		if (on)
+		{
+			outline(dl, x, by, bw, boxH, col::accent, 16, 3);
+			dl->AddTriangleFilled(V(x + bw / 2, by - 26), V(x + bw / 2 - 13, by - 10), V(x + bw / 2 + 13, by - 10), col::accent);
+			dl->AddTriangleFilled(V(x + bw / 2, by + boxH + 26), V(x + bw / 2 - 13, by + boxH + 10),
+					V(x + bw / 2 + 13, by + boxH + 10), col::accent);
+		}
+		const std::string value = std::to_string(ui.part[i]);
+		const ImVec2 vs = textSize(bold(), 54, value.c_str());
+		text(dl, bold(), 54, x + (bw - vs.x) / 2, by + (boxH - vs.y) / 2, on ? col::text : col::dim, value.c_str());
+		x += bw;
+		if (i < 4)
+		{
+			const char *between = i < 3 ? "." : ":";
+			const float space = i < 3 ? gap : 56;
+			const ImVec2 bs = textSize(bold(), 54, between);
+			text(dl, bold(), 54, x + (space - bs.x) / 2, by + (boxH - bs.y) / 2, col::faint, between);
+			x += space;
+		}
+	}
+	const char *field = ui.field < 4 ? "Up and down change the number; L2 and R2 by 10, L1 and R1 by 100"
+			: "The port: 19713 unless the other player says otherwise";
+	const ImVec2 fs = textSize(regular(), 22, field);
+	text(dl, regular(), 22, at.x + (w - fs.x) / 2, by + boxH + 44, col::faint, field);
+	float bx = at.x + pad;
+	const float buttonsY = at.y + h - pad - 60 + 8;
+	bx += dialogButton(dl, bx, buttonsY, Glyph::Cross, "Save", true) + 20;
+	bx += dialogButton(dl, bx, buttonsY, Glyph::Circle, "Cancel", false) + 20;
+	dialogButton(dl, bx, buttonsY, Glyph::Triangle, "No address", false);
+}
+
+// ------------------------------------------------------------- the splash
+//
+// The start-up animation, a little over seven seconds:
+//   0.3 s  one line winds in to the middle of the screen and out again;
+//   2.0 s  its loops are a disc's grooves, and the app's name comes in under it;
+//   3.45 s the line lets its turns out until it is straight, and leaves to the left;
+//   3.6 s  the letters lift off as birds, one after another, for the top left;
+//   4.75 s the line comes in again in the top bar, coils up there as the mark
+//          and starts turning;
+//   5.5 s  the birds land in a row and are the name in the top bar;
+//   6.3 s  the library comes in under them.
+// A sound goes with it (ps5::sound, ps5_audio.cpp), made to these times. Any
+// button ends it. With "Less" motion it is the mark and the name, still, for
+// a second.
+
+namespace splashAt
+{
+constexpr float Lift = 3.6f, Gap = 0.09f, Flight = 1.9f;	// the birds: the first leaves, the next ones, how long they fly
+constexpr float Spin = 5.2f;								// the mark in the top bar starts turning
+constexpr float Library = 6.3f, Over = 7.4f;				// the library comes in
+constexpr float Still = 1.2f;								// with less motion
+constexpr float DiscX = 0, DiscY = 410, DiscRadius = 232;	// the disc: on the screen's middle line
+constexpr float NameSize = 126, NameTop = 692;				// the name under it
+constexpr float MarkX = 76, MarkY = 48, MarkRadius = 22;	// the top bar's mark and name (topBar)
+constexpr float BarSize = 34, BarX = 112, BarTop = 28;
+}
+
+// How far t is between two moments, 0 to 1.
+float between(float t, float from, float to)
+{
+	return std::clamp((t - from) / (to - from), 0.f, 1.f);
+}
+
+float easeIn(float t)
+{
+	t = std::clamp(t, 0.f, 1.f);
+	return t * t * t;
+}
+
+// Slow, fast, slow: more so than easeInOut.
+float swell(float t)
+{
+	t = std::clamp(t, 0.f, 1.f);
+	return t < 0.5f ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3.f) / 2;
+}
+
+// A bird as a child draws one: two wings from where they meet. flap is how
+// far up the wings are, 0 to 1.
+void bird(ImDrawList *dl, float x, float y, float size, float flap, float tilt, ImU32 colour)
+{
+	if ((colour & IM_COL32_A_MASK) == 0)
+		return;
+	const float tip = -size * (0.10f + 0.50f * flap), bend = -size * (0.55f + 0.25f * flap);
+	const float c = std::cos(tilt), s = std::sin(tilt);
+	auto at = [&](float px, float py) { return V(x + px * c - py * s, y + px * s + py * c); };
+	dl->PathClear();
+	dl->PathLineTo(at(-size, tip));
+	dl->PathBezierQuadraticCurveTo(at(-size * 0.45f, bend), at(0, 0), 10);
+	dl->PathBezierQuadraticCurveTo(at(size * 0.45f, bend), at(size, tip), 10);
+	dl->PathStroke(colour, 0, std::max(1.6f, size * 0.17f) * S);
+}
+
+// The animation at the moment t, without what is behind it.
+void drawSplash(ImDrawList *dl, float t)
+{
+	using namespace splashAt;
+	const float cx = W / 2 + DiscX, cy = DiscY;
+	static ImVec2 points[SpiralLine::Count];
+
+	// Light where the disc is.
+	const float lit = between(t, 0.2f, 1.4f) * (1 - between(t, 3.6f, 4.6f));
+	if (lit > 0)
+		softDisc(dl, cx, cy, 760, alpha(col::accent, 0.17f * lit), 64);
+
+	// The line: drawn, then the disc's grooves, then let out straight, then
+	// gone to the left.
+	const float drawn = swell(between(t, 0.3f, 2.3f));
+	const float body = between(t, 2.0f, 2.7f) * (1 - between(t, 3.3f, 3.55f));
+	const float loose = swell(between(t, 3.45f, 4.25f));
+	const float gone = easeIn(between(t, 4.15f, 4.8f));
+	if (drawn > 0 && gone < 1)
+	{
+		const float x = cx - gone * 3900;
+		const float radius = DiscRadius * (1 + 0.03f * std::sin(between(t, 2.1f, 2.9f) * IM_PI));
+		discBody(dl, x, cy, radius, col::text, col::accent, body);
+		const ImVec2 *line = spiralLine().at;
+		if (loose > 0)
+		{
+			uncoil(loose, points);
+			line = points;
+		}
+		// Its own light under it, then the line.
+		strokeSpiral(dl, line, x, cy, radius, 0, drawn, alpha(col::accent, 0.10f), 19, false);
+		strokeSpiral(dl, line, x, cy, radius, 0, drawn, alpha(col::accent, 0.20f), 12, false);
+		strokeSpiral(dl, line, x, cy, radius, 0, drawn, col::text, 7);
+	}
+
+	// The mark in the top bar: the line comes in straight, coils up, and turns.
+	const float coil = swell(between(t, 4.75f, 5.6f));
+	if (coil > 0)
+	{
+		// A picture of the user's own takes the mark's place as the library comes in.
+		const float own = customLogo() != ImTextureID() ? between(t, Library, Library + 0.6f) : 0;
+		const float angle = markAngle();
+		discBody(dl, MarkX, MarkY, MarkRadius, col::text, col::accent, between(t, 5.4f, 5.8f) * (1 - own));
+		const ImVec2 *line = spiralLine().at;
+		if (coil < 1)
+		{
+			uncoil(1 - coil, points);
+			line = points;
+		}
+		strokeSpiral(dl, line, MarkX, MarkY, MarkRadius, angle, 1, alpha(col::text, between(t, 4.75f, 4.95f) * (1 - own)),
+				markWidth(MarkRadius));
+		if (own > 0)
+			spinMark(dl, MarkX, MarkY, MarkRadius, own);
+	}
+
+	// The name: letters, then birds, then letters again in the top bar.
 	static const char name[] = "PSFlyCast";
-	const float size = 104 + (34 - 104) * k;
-	const float left = cx - textSize(bold(), 104, name).x / 2;
-	const float x0 = left + (112 - left) * k, y0 = 600 + (28 - 600) * k;
+	const float ascent = 0.79f;		// of a line's height, to the letters' baseline
+	const float left = W / 2 - textSize(bold(), NameSize, name).x / 2;
 	for (int i = 0; name[i] != 0; i++)
 	{
 		const std::string before(name, i), letter(1, name[i]);
-		const float u = lively ? (t - 0.30f - 0.06f * i) / 0.45f : -1;
-		const float hop = u > 0 && u < 1 ? std::sin(u * IM_PI) * (1 - k) : 0;
-		text(dl, bold(), size, x0 + textSize(bold(), size, before.c_str()).x, y0 - 18 * hop,
-				mix(col::text, col::accent, 0.9f * hop), letter.c_str());
+		const float start = Lift + i * Gap;
+		const float shown = easeOut(between(t, 2.3f + i * 0.05f, 2.65f + i * 0.05f));
+		const float morph = between(t, start, start + 0.3f);
+		const float fly = swell(between(t, start + 0.12f, start + 0.12f + Flight));
+		const float land = between(t, start + Flight - 0.05f, start + Flight + 0.25f);
+		// The middle of the letter, large and in the top bar.
+		const float x0 = left + textSize(bold(), NameSize, before.c_str()).x + textSize(bold(), NameSize, letter.c_str()).x / 2;
+		const float barLeft = BarX + textSize(bold(), BarSize, before.c_str()).x;
+		const float x1 = barLeft + textSize(bold(), BarSize, letter.c_str()).x / 2;
+		if (shown > 0 && morph < 1)
+		{
+			// It comes up into place; as a bird takes over, it shrinks and rises.
+			const float size = std::round(NameSize * (1 - 0.5f * morph));
+			const float base = NameTop + NameSize * ascent + (1 - shown) * 26 - morph * 30;
+			text(dl, bold(), size, x0 - textSize(bold(), size, letter.c_str()).x / 2, base - size * ascent,
+					alpha(col::text, shown * (1 - morph)), letter.c_str());
+		}
+		if (morph > 0 && land < 1)
+		{
+			// From the letter, up and over, to its place in the bar.
+			const float y0 = NameTop + NameSize * 0.44f, y1 = BarTop + BarSize * 0.56f;
+			const float mx = x0 + 90 - i * 14, my = 210 + i * 16, q = 1 - fly;
+			const float bx = q * q * x0 + 2 * q * fly * mx + fly * fly * x1;
+			const float by = q * q * y0 + 2 * q * fly * my + fly * fly * y1;
+			const float vx = 2 * q * (mx - x0) + 2 * fly * (x1 - mx), vy = 2 * q * (my - y0) + 2 * fly * (y1 - my);
+			const float tilt = std::clamp(std::atan2(vy, std::fabs(vx) + 1) * 0.5f, -0.5f, 0.5f) * (vx < 0 ? -1.f : 1.f);
+			const float flap = 0.5f + 0.5f * std::sin(t * 15 + i * 1.7f);
+			bird(dl, bx, by + std::sin(t * 5 + i) * 7 * std::sin(fly * IM_PI), 34 + (11 - 34) * fly * fly, flap, tilt,
+					alpha(col::text, morph * (1 - land)));
+		}
+		if (land > 0)
+			text(dl, bold(), BarSize, barLeft, BarTop, alpha(col::text, land), letter.c_str());
 	}
-	if (rest > 0)
-	{
-		// A line that grows from its middle, and what the app plays.
-		const float line = lively ? easeOut((t - 0.55f) / 0.5f) : 1.f;
-		if (line > 0.01f)
-			rect(dl, cx - 150 * line, 744, 300 * line, 3, alpha(col::accent, rest), 1.5f);
-		const char *systems = "DREAMCAST   \xc2\xb7   NAOMI   \xc2\xb7   ATOMISWAVE";
-		const float shown = lively ? easeOut((t - 0.8f) / 0.5f) : 1.f;
-		const ImVec2 ss = textSize(regular(), 24, systems);
-		text(dl, regular(), 24, cx - ss.x / 2, 772 + 10 * (1 - shown), alpha(col::dim, shown * rest), systems);
-	}
+}
+
+// With less motion: the mark and the name, where the animation has them.
+void drawSplashStill(ImDrawList *dl)
+{
+	using namespace splashAt;
+	softDisc(dl, W / 2 + DiscX, DiscY, 760, alpha(col::accent, 0.17f), 64);
+	spinMark(dl, W / 2 + DiscX, DiscY, DiscRadius);
+	static const char name[] = "PSFlyCast";
+	text(dl, bold(), NameSize, W / 2 - textSize(bold(), NameSize, name).x / 2, NameTop, col::text, name);
 }
 
 void libraryScreen(bool selectDisk);
@@ -3242,43 +3840,73 @@ void library(bool selectDisk)
 	if (splash.state == SplashState::Showing)
 	{
 		ImDrawList *dl = beginScreen("##bp-splash", true);
-		// The first frames wait for the display and the fonts: its clock
-		// starts after them.
+		// The first frames wait for the display and the fonts: its clock,
+		// and its sound, start after them.
 		if (splash.frames++ < 3)
 			splash.began = timeNow;
+		else if (!splash.sounded)
+		{
+			splash.sounded = true;
+			if (lively)
+				spinMarkUpAt(splash.began + splashAt::Spin);
+			if (ps5::options().splashSound)
+			{
+				// All of it, or with less motion its last chord, quieter.
+				if (lively)
+					ps5::sound::playStartup(0.05f, 0.6f);
+				else
+					ps5::sound::playStartup(6.47f, 0.4f);
+			}
+		}
 		const float t = (float)(timeNow - splash.began);
 		// The games are looked for meanwhile.
 		chooseSource();
 		refreshGames(lib.source == Network);
-		drawSplash(dl, t, 0, 1, lively);
+		if (lively)
+			drawSplash(dl, t);
+		else
+			drawSplashStill(dl);
 		endScreen();
-		if (t > (lively ? 2.1f : 1.f) || (splash.skip && t > 0.25f))
+		const bool skipped = splash.skip && t > 0.25f;
+		if (t >= (lively ? splashAt::Library : splashAt::Still) || skipped)
 		{
 			splash.state = SplashState::Leaving;
 			splash.leaving = timeNow;
+			splash.cut = skipped || !lively;
+			splash.cutAt = t;
+			if (skipped)
+			{
+				// The sound ends with it, and the mark turns as it always does.
+				ps5::sound::stop();
+				markSpunAt = -1e9;
+			}
 		}
 		return;
 	}
 	// Leaving: the library comes in under the splash's own backdrop, which
-	// fades, while the mark and the name fly to the top bar (or, with less
-	// motion, fade where they are).
+	// fades. The animation goes on over it to its end, where its mark and
+	// name are the top bar's; cut short, or with less motion, it fades where
+	// it is instead.
 	const double now = ImGui::GetTime();
-	const float u = std::clamp((float)((now - splash.leaving) / (lively ? 0.7 : 0.3)), 0.f, 1.f);
-	splash.flight = lively ? u : 1.f;
+	const float u = splash.cut ? std::clamp((float)((now - splash.leaving) / 0.35), 0.f, 1.f)
+			: between((float)(now - splash.began), splashAt::Library, splashAt::Over);
+	splash.flight = splash.cut ? 1.f : std::min(u, 0.99f);
 	libraryScreen(selectDisk);
 	ImDrawList *fg = ImGui::GetForegroundDrawList();
 	const Layer cover = beginLayer(fg);
 	drawBackdrop(fg);
-	endLayer(cover, 1 - easeOut(lively ? u / 0.6f : u));
-	const float t = (float)(now - splash.began);
-	if (lively)
-		drawSplash(fg, t, u, 1 - std::clamp(u / 0.3f, 0.f, 1.f), true);
-	else
+	endLayer(cover, 1 - easeOut(u));
+	if (splash.cut)
 	{
-		const Layer logo = beginLayer(fg);
-		drawSplash(fg, t, 0, 1, false);
-		endLayer(logo, 1 - u);
+		const Layer rest = beginLayer(fg);
+		if (lively)
+			drawSplash(fg, splash.cutAt);
+		else
+			drawSplashStill(fg);
+		endLayer(rest, 1 - u);
 	}
+	else
+		drawSplash(fg, (float)(now - splash.began));
 	if (u >= 1)
 	{
 		splash.state = SplashState::Over;
@@ -3291,6 +3919,16 @@ void libraryScreen(bool selectDisk)
 	if (discSwapScreen())
 		return;
 	ImDrawList *dl = beginScreen("##bp-library", true);
+	// A newer release, found as the title started, is offered once; its
+	// dialog takes the pad while it is open.
+	if (!selectDisk && !game_started && ps5::update::offerAtStart())
+		openUpdate(false);
+	if (updateUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		updateDialog(ImGui::GetForegroundDrawList(), given);
+	}
 	chooseSource();
 	refreshGames(lib.source == Network);
 	// A disc is to be chosen for the running game: its own tab, and the disc
@@ -3566,7 +4204,7 @@ bool loading(const char *label, float progress, bool cancelling)
 	else
 	{
 		rect(dl, x, y, cover, cover, col::card, 18);
-		spinMark(dl, x + cover / 2, y + cover / 2, cover * 0.2f, col::text, col::warm, 8);
+		spinMark(dl, x + cover / 2, y + cover / 2, cover * 0.2f);
 	}
 	endLayer(coverLayer, e, 0, 0, 0.88f + 0.12f * e, x + cover / 2, y + cover / 2);
 	const Layer words = beginLayer(dl);
@@ -3613,6 +4251,90 @@ bool loading(const char *label, float progress, bool cancelling)
 	const bool cancel = !cancelling && in.back;
 	endScreen();
 	return cancel;
+}
+
+// GuiState::NetworkStart: the game is loaded and waits for the other player
+// (netplay) or the other cabinets (an arcade game's link). `status` is what
+// Flycast's network code last said. Returns what the user asked for.
+int networkStart(const std::string& status, bool canStartNow)
+{
+	ImDrawList *dl = beginScreen("##bp-network", true);
+	Game *game = nullptr;
+	for (Game& g : games)
+		if (!loadingPath.empty() && g.media.path == loadingPath)
+			game = &g;
+
+	const bool netplay = config::GGPOEnable;
+	const bool host = config::ActAsServer;
+	const std::string own = ps5::net::localAddress();
+	std::string kicker = "NETPLAY", first, second;
+	if (netplay && host)
+	{
+		first = "You are player 1. Waiting for player 2";
+		second = "This console: " + (own.empty() ? std::string("not connected") : own + ", UDP port " + std::to_string(NetplayPort));
+	}
+	else if (netplay)
+	{
+		first = "You are player 2. Looking for player 1";
+		second = "Player 1: " + otherPlayerText();
+	}
+	else
+	{
+		kicker = "ARCADE LINK";
+		first = host ? "Waiting for the other cabinets" : "Looking for the main cabinet";
+		second = own.empty() ? "" : "This console: " + own;
+	}
+	if (netplay && config::NetworkServer.get().empty())
+		second += "      The other player's address is not set (Settings > Online)";
+
+	const float cover = 420;
+	const float w = cover + 64 + 760, x = (W - w) / 2, y = 96 + (H - 72 - 96 - cover) / 2;
+	const float e = entered(310);
+	const Layer coverLayer = beginLayer(dl);
+	if (motion() != MotionOff)
+	{
+		const float breath = motion() == MotionFull ? 0.75f + 0.25f * std::sin((float)timeNow * 1.8f) : 1.f;
+		softDisc(dl, x + cover / 2, y + cover / 2, cover * 0.98f, alpha(col::accent, 0.20f * breath), 48);
+	}
+	if (game != nullptr)
+		drawCover(dl, *game, x, y, cover, cover, 18, 1);
+	else
+	{
+		rect(dl, x, y, cover, cover, col::card, 18);
+		spinMark(dl, x + cover / 2, y + cover / 2, cover * 0.2f);
+	}
+	endLayer(coverLayer, e, 0, 0, 0.88f + 0.12f * e, x + cover / 2, y + cover / 2);
+	const Layer words = beginLayer(dl);
+	const float tx = x + cover + 64, tw = w - cover - 64;
+	const std::string title = !loadingTitle.empty() ? loadingTitle : "PSFlyCast";
+	text(dl, bold(), 20, tx, y + 44, col::accent, kicker.c_str());
+	const float titleH = text(dl, bold(), 56, tx, y + 78, col::text, title.c_str(), tw).y;
+	float ly = y + 78 + std::min(titleH, 140.f) + 22;
+	text(dl, regular(), 26, tx, ly, col::text, fit(regular(), 26, first, tw).c_str());
+	ly += 42;
+	if (!second.empty())
+		text(dl, regular(), 22, tx, ly, col::faint, second.c_str(), tw);
+	// What the network code says, over a light going along the bar.
+	const float by = y + cover - 96;
+	text(dl, regular(), 26, tx, by - 46, col::dim, fit(regular(), 26, status.empty() ? "Starting the network..." : status, tw).c_str());
+	rect(dl, tx, by, tw, 12, col::rgba(255, 255, 255, 30), 6);
+	{
+		const float span = tw * 0.22f;
+		const float at = (float)std::fmod(timeNow * 0.7, 1.0) * (tw + span) - span;
+		const float from = std::max(0.f, at), to = std::min(tw, at + span);
+		if (to > from)
+			rect(dl, tx + from, by, to - from, 12, alpha(col::accent, 0.85f), 6);
+	}
+	endLayer(words, e, (1 - e) * 44, 0);
+
+	topBar(dl, game != nullptr ? (int)game->source : lib.source, false, Reach::None);
+	if (canStartNow)
+		hintBar(dl, { { Glyph::Options, "Start now" }, { Glyph::Circle, "Cancel" } });
+	else
+		hintBar(dl, { { Glyph::Circle, "Cancel" } });
+	const int asked = in.back ? 1 : canStartNow && in.options ? 2 : 0;
+	endScreen();
+	return asked;
 }
 
 void loadCancelled()
@@ -3752,6 +4474,12 @@ std::vector<Category> buildCategories()
 		};
 		controls.rows.push_back(r);
 	}
+	{
+		Row r{ Row::Info, "Controllers",
+				"Another player joins by signing in on a second DualSense (PS button): the next port, own memory card" };
+		r.info = [] { return ps5::pad::portsText(); };
+		controls.rows.push_back(r);
+	}
 	const char *layout[][2] = {
 		{ "Cross / Circle / Square / Triangle", "A / B / X / Y" },
 		{ "L2 / R2", "Analog triggers" },
@@ -3773,6 +4501,79 @@ std::vector<Category> buildCategories()
 	Category system{ ICON_FA_MICROCHIP, "System" };
 	addOptions(system, GameOption::System);
 	cats.push_back(system);
+
+	// Playing with someone else: Flycast's netplay (GGPO), and how a game's
+	// own online mode reaches the internet.
+	Category online{ ICON_FA_GLOBE, "Online" };
+	{
+		Row r{ Row::Choice, "Netplay",
+				"Two players in one game, each on a console or PC of their own. Every game then waits for the other",
+				{ "Off", "Host: player 1", "Join: player 2" }, { 0, 1, 2 } };
+		r.get = [] { return !config::GGPOEnable ? 0 : config::ActAsServer ? 1 : 2; };
+		r.set = [](int v) {
+			config::GGPOEnable.set(v != 0);
+			if (v != 0)
+			{
+				// One kind of link at a time.
+				config::ActAsServer.set(v == 1);
+				config::NetworkEnable.set(false);
+				config::BattleCableEnable.set(false);
+			}
+		};
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Other player", "Their address on the network. Each player enters the other's" };
+		r.info = [] { return otherPlayerText(); };
+		r.action = [] { openAddress(); };
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Slider, "Input delay", "Frames a press waits, to hide a slow connection: 0 to 2 at home" };
+		r.minValue = 0; r.maxValue = 20; r.step = 1; r.unit = " frames";
+		r.get = [] { return (int)config::GGPODelay.get(); };
+		r.set = [](int v) { config::GGPODelay.set(v); };
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Choice, "Left stick in netplay",
+				"Dreamcast games: how much of the left stick is sent to the other player. Both choose the same",
+				{ "Not sent", "Left and right", "Every direction" }, { 0, 1, 2 } };
+		r.get = [] { return (int)config::GGPOAnalogAxes.get(); };
+		r.set = [](int v) { config::GGPOAnalogAxes.set(v); };
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "This console", "What the other player enters. From outside your home: your router's address, UDP port 19713" };
+		r.info = [] {
+			const std::string own = ps5::net::localAddress();
+			return own.empty() ? std::string("Not connected") : own + ", UDP port " + std::to_string(NetplayPort);
+		};
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "Both players need",
+				"A Dreamcast game also needs one save state on both, as <game>.state.net in data/savestates" };
+		r.info = [] { return std::string("The same game file and BIOS"); };
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Open the router's port (UPnP)",
+				"Asks the router to let the other player in. Off: forward UDP port 19713 to this console yourself" };
+		r.get = [] { return config::EnableUPnP ? 1 : 0; };
+		r.set = [](int v) { config::EnableUPnP.set(v != 0); };
+		online.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Choice, "Dreamcast online",
+				"How a game's own online mode connects. DCNet is Flycast's service for games' revived servers",
+				{ "Modem, through DCNet", "Broadband adapter, through DCNet", "Modem, direct", "Broadband adapter, direct" },
+				{ 0, 1, 2, 3 } };
+		r.get = [] { return (config::UseDCNet ? 0 : 2) + (config::EmulateBBA ? 1 : 0); };
+		r.set = [](int v) { config::UseDCNet.set(v < 2); config::EmulateBBA.set((v & 1) != 0); };
+		online.rows.push_back(r);
+	}
+	cats.push_back(online);
 
 	Category look{ ICON_FA_PALETTE, "Interface" };
 	{
@@ -3801,10 +4602,15 @@ std::vector<Category> buildCategories()
 				"All: living background, screens that slide, cards that rise. Less: fades only. None: everything is at once",
 				{ "All", "Less", "None" }, ps5::options().motion));
 		Row r{ Row::Toggle, "Start-up animation",
-				"The mark and the name come alive when PSFlyCast starts, then fly to the top bar. Any button ends it early" };
+				"One line draws the disc, and the name's letters fly to the top bar as birds. Any button ends it early" };
 		r.get = [] { return ps5::options().splash ? 1 : 0; };
 		r.set = [](int v) { ps5::options().splash = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(r);
+		Row sound{ Row::Toggle, "Start-up sound",
+				"The sound that goes with it: sounds/startup.wav in the title's folder, or a WAV file of your own there" };
+		sound.get = [] { return ps5::options().splashSound ? 1 : 0; };
+		sound.set = [](int v) { ps5::options().splashSound = v != 0; ps5::saveOptions(); };
+		look.rows.push_back(sound);
 	}
 	cats.push_back(look);
 
@@ -3901,8 +4707,31 @@ std::vector<Category> buildCategories()
 
 	Category about{ ICON_FA_CIRCLE_INFO, "About" };
 	{
-		Row r{ Row::Info, "PSFlyCast", "" };
-		r.info = [] { return "Build " + std::to_string(PS5_BUILD_NUMBER); };
+		// Which build this is, and a newer release when one was found.
+		Row r{ Row::Action, "PSFlyCast", "" };
+		r.info = [] {
+			using ps5::update::Phase;
+			const ps5::update::Status update = ps5::update::status();
+			std::string build = ps5::update::thisBuild();
+			if (update.phase == Phase::Available)
+				build += "      " ICON_FA_CIRCLE_ARROW_UP "  Update: " + update.latest;
+			else if (update.phase == Phase::Installed)
+				build += "      " ICON_FA_CIRCLE_CHECK "  " + update.latest + " starts next time";
+			return build;
+		};
+		r.action = [] { openUpdate(ps5::update::status().phase == ps5::update::Phase::Idle); };
+		about.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Check for updates",
+				"Asks the project's GitHub page for a newer release, which PSFlyCast can then download and install" };
+		r.action = [] { openUpdate(true); };
+		about.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Look for updates at start-up", "A release asks GitHub once as it starts. Off: only when you ask, above" };
+		r.get = [] { return ps5::options().updateCheck ? 1 : 0; };
+		r.set = [](int v) { ps5::options().updateCheck = v != 0; ps5::saveOptions(); };
 		about.rows.push_back(r);
 	}
 	{
@@ -4045,6 +4874,19 @@ void settings()
 	if (st.cats.empty())
 		st.cats = buildCategories();
 	ImDrawList *dl = beginScreen("##bp-settings", true);
+
+	// A dialog over the Settings takes the pad.
+	const Input given = in;
+	const bool dialog = updateUi.open || addressUi.open;
+	if (dialog)
+		in = Input{};
+	if (updateUi.open)
+		updateDialog(ImGui::GetForegroundDrawList(), given);
+	else if (addressUi.open)
+	{
+		addressDialog(ImGui::GetForegroundDrawList(), given);
+		st.dirty = true;
+	}
 
 	Category& cat = st.cats[st.cat];
 	// ---- input
@@ -4203,6 +5045,13 @@ void settings()
 			const char *s = ICON_FA_CHEVRON_RIGHT;
 			const ImVec2 vs = textSize(regular(), 24, s);
 			text(dl, regular(), 24, right - vs.x, cy - vs.y / 2, on ? col::accent : col::faint, s);
+			if (r.info)
+			{
+				// What it is now, before the arrow.
+				const std::string v = fit(regular(), 24, r.info(), pw * 0.55f);
+				const ImVec2 is = textSize(regular(), 24, v.c_str());
+				text(dl, regular(), 24, right - vs.x - 22 - is.x, cy - is.y / 2, on ? col::text : col::dim, v.c_str());
+			}
 			break;
 		}
 		}
