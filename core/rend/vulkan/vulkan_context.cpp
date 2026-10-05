@@ -264,9 +264,22 @@ int slow;			// windows in a row that found the display slower than its mode
 bool once;			// one present a frame, whatever the mode says
 bool said;
 
+bool asked;			// whether the driver was asked how variable refresh went
+
 int perFrame(int swapInterval)
 {
-	return once ? 1 : swapInterval;
+	if (!asked)
+	{
+		// The driver's display code leaves "on" here once the output has left
+		// its fixed rate ("Variable refresh rate" in the Settings): a frame
+		// is then shown when it is ready, once, and the sound paces the game.
+		asked = true;
+		const char *const variable = getenv("PS5_VIDEOOUT_VRR");
+		ps5::variableRefresh = variable != nullptr && strcmp(variable, "on") == 0;
+		if (variable != nullptr)
+			PS5_MARK("display: variable refresh %s", ps5::variableRefresh ? "is on: one present a frame" : "was refused");
+	}
+	return once || ps5::variableRefresh ? 1 : swapInterval;
 }
 
 void reset()
@@ -274,6 +287,7 @@ void reset()
 	counting = false;
 	slow = 0;
 	once = false;
+	asked = false;
 }
 
 // After a frame's presents, flipsNow of them.
@@ -1360,7 +1374,8 @@ void VulkanContext::Present() noexcept
 				}
 			}
 #if defined(USE_PS5)
-			ps5display::frame(flipsNow, !gui_is_open() && swapOnVSync && swapInterval > 1 && !ps5display::once,
+			ps5display::frame(flipsNow, !gui_is_open() && swapOnVSync && swapInterval > 1 && !ps5display::once
+					&& !ps5::variableRefresh,
 					settings.display.refreshRate);
 #endif
 #endif

@@ -805,7 +805,7 @@
     "base": "0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8",
     "where": "PS5_Mesa at the base revision, plus this repository's shell/ps5/mesa/*.patch; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
    },
-   "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI), and one more for this title: 119.88 Hz on a VRR display, and a title may ask for 59.94 Hz (shell/ps5/mesa/).",
+   "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI), and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
    "files": [
     "eboot.bin"
    ]
@@ -1007,7 +1007,7 @@
   },
   {
    "id": "title-art",
-   "name": "The title's icon, the pictures the console shows for it (sce_sys), and the start-up sound",
+   "name": "The title's icon, the pictures and the sound the console shows and plays for it (sce_sys), and the start-up sound",
    "kind": "asset",
    "licence": "GPL-3.0-or-later",
    "copyright": [
@@ -1019,11 +1019,12 @@
     "path": ".",
     "where": "shell/ps5/sce_sys/ and shell/ps5/sounds/ in this title's repository"
    },
-   "modifications": "Made for this project. icon0.png is the app's mark and name, drawn by shell/ps5/sce_sys/make-icon.py. pic0.dds (the home screen) is the mark and the name as the start-up animation has them, and pic1.dds (while the title loads) the animation's first frame; both are rendered from the interface's own code (shell/ps5/bigpicture.cpp) and encoded with PS5_Vulkan's tools/prepare-assets.sh. sounds/startup.wav is the output of shell/ps5/sounds/make-startup-sound.html, which makes every sound in it from oscillators and noise: nothing in it is sampled or recorded.",
+   "modifications": "Made for this project. icon0.png is the app's mark and name, drawn by shell/ps5/sce_sys/make-icon.py. pic0.dds (the home screen) is the mark and the name as the start-up animation has them, and pic1.dds (while the title loads) the animation's first frame; both are rendered from the interface's own code (shell/ps5/bigpicture.cpp) and encoded with PS5_Vulkan's tools/prepare-assets.sh. sounds/startup.wav is the output of shell/ps5/sounds/make-startup-sound.html, which makes every sound in it from oscillators and noise: nothing in it is sampled or recorded. sce_sys/snd0.at9 (the home screen's sound) is the output of shell/ps5/sounds/make-home-sound.py, which makes a loop from sine waves in the same scale, encoded to ATRAC9 with ps5-at9-converter (BlackBearReloaded, GPL-3.0-or-later; a tool, none of it is in the file).",
    "files": [
     "sce_sys/icon0.png",
     "sce_sys/pic0.dds",
     "sce_sys/pic1.dds",
+    "sce_sys/snd0.at9",
     "sounds/startup.wav"
    ]
   }

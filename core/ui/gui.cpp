@@ -738,6 +738,15 @@ static void gui_display_commands()
 	ImGui::End();
 }
 
+#ifdef FLYCAST_BIGPICTURE
+// For the PS5 interface (shell/ps5/bigpicture.cpp): the pad is the message
+// box's while it is up.
+bool gui_error_shown()
+{
+	return !error_msg.empty();
+}
+#endif
+
 void error_popup()
 {
 	if (!error_msg_shown && !error_msg.empty())

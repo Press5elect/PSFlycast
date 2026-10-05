@@ -53,6 +53,7 @@ extern "C"
 {
 int sceSystemServiceHideSplashScreen(void);
 int sceSystemServiceLoadExec(const char *path, const char *const *argv);
+int sceSystemServiceParamGetInt(int id, int *value);
 }
 
 namespace ps5
@@ -62,6 +63,8 @@ unsigned elevateFilesystem(const char *helperPath);	// elevation/ps5_elevate.cpp
 std::string rootDir;
 bool dataJailbroken;
 bool elevated;
+bool variableRefresh;
+bool restartOnExit;
 std::vector<std::string> usbDirs;
 
 namespace
@@ -107,6 +110,14 @@ void loadOptions(const std::string& dir)
 			currentOptions.splashSound = value != 0;
 		else if (!strcmp(key, "update_check"))
 			currentOptions.updateCheck = value != 0;
+		else if (!strcmp(key, "menu_sounds"))
+			currentOptions.menuSounds = value != 0;
+		else if (!strcmp(key, "light_bar"))
+			currentOptions.lightBar = value != 0;
+		else if (!strcmp(key, "usb_input"))
+			currentOptions.usbInput = value != 0;
+		else if (!strcmp(key, "vrr"))
+			currentOptions.vrr = value != 0;
 		else if (!strcmp(key, "notifications"))
 			currentOptions.notifications = value != 0;
 		else if (!strcmp(key, "skin"))
@@ -130,12 +141,13 @@ void saveOptions()
 		return;
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
-			"update_check = %d\nnotifications = %d\n",
+			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
 			(int)currentOptions.splash, (int)currentOptions.splashSound, (int)currentOptions.updateCheck,
-			(int)currentOptions.notifications);
+			(int)currentOptions.menuSounds, (int)currentOptions.lightBar, (int)currentOptions.usbInput,
+			(int)currentOptions.vrr, (int)currentOptions.notifications);
 	fclose(f);
 }
 
@@ -381,6 +393,9 @@ int main(int argc, char *argv[])
 	// title's folder, which the sandbox shows as /app0.
 	ps5::loadOptions("/app0/");
 	ps5::diag::showNotifications(ps5::options().notifications);
+	// The system's modules for a USB keyboard and mouse and for the keyboard on
+	// the screen, while the sandbox's paths are still this process's.
+	ps5::usb::preload();
 	if (ps5::options().usb)
 	{
 		// Before any other thread exists, as the helper's protocol asks.
@@ -448,6 +463,13 @@ int main(int argc, char *argv[])
 		const int set = setenv("PS5_VIDEOOUT_59HZ", "1", 1);
 		ps5::diag::mark("display: 59.94 Hz asked for in the Settings (setenv %d)", set);
 	}
+	else if (ps5::options().vrr)
+	{
+		// Read by the driver once the 119.88 Hz mode is configured; it then
+		// says "on" or "refused" in the same variable (vulkan_context.cpp).
+		const int set = setenv("PS5_VIDEOOUT_VRR", "1", 1);
+		ps5::diag::mark("display: variable refresh asked for in the Settings (setenv %d)", set);
+	}
 	ps5::diag::mark("flycast_init");
 	if (flycast_init(argc, argv) != 0)
 	{
@@ -489,6 +511,35 @@ int main(int argc, char *argv[])
 		ps5::saveOptions();
 		ps5::diag::mark("settings: UPnP turned off (Settings > Online has it)");
 	}
+	if (ps5::options().defaults < 4)
+	{
+		// The Dreamcast's language was English whatever the console's is. Once,
+		// and only while it is still English: the console's language, where the
+		// Dreamcast has it (system parameter 1: 0 Japanese, 1 and 18 English,
+		// 2 and 22 French, 3 and 20 Spanish, 4 German, 5 Italian).
+		int language = -1;
+		const int rc = sceSystemServiceParamGetInt(1, &language);
+		int dreamcast = -1;
+		switch (rc >= 0 ? language : -1)
+		{
+		case 0: dreamcast = 0; break;
+		case 4: dreamcast = 2; break;
+		case 2: case 22: dreamcast = 3; break;
+		case 3: case 20: dreamcast = 4; break;
+		case 5: dreamcast = 5; break;
+		default: break;
+		}
+		ps5::diag::mark("settings: the console's language is %d (%x)%s", language, (unsigned)rc,
+				dreamcast >= 0 && config::Language == 1 ? ": the Dreamcast's is set to it" : "");
+		if (dreamcast >= 0 && config::Language == 1)
+			config::Language.set(dreamcast);
+		// Saved either way: this build's new options (how a light gun is
+		// aimed) then have their entry in emu.cfg, which a game's own value
+		// of them is kept against.
+		SaveSettings();
+		ps5::options().defaults = 4;
+		ps5::saveOptions();
+	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();
@@ -504,7 +555,7 @@ int main(int argc, char *argv[])
 		ps5::diag::mark("main loop: unknown exception");
 	}
 	ps5::diag::mark("main loop ended");
-	ps5::sound::stop(true);
+	ps5::sound::close();
 	flycast_term();
 	os_UninstallFaultHandler();
 	fflush(nullptr);
@@ -518,6 +569,16 @@ extern "C" void catchReturnFromMain(int status)
 {
 	ps5::diag::mark("quit (status %d)", status);
 	fflush(nullptr);
+	if (ps5::restartOnExit)
+	{
+		// The title's own executable in place of this one (after an update).
+		// Refused, or nothing in five seconds: closed as usual.
+		const int restart = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
+		ps5::diag::mark("restart request: %d", restart);
+		fflush(nullptr);
+		if (restart >= 0)
+			usleep(5000000);
+	}
 	const int result = sceSystemServiceLoadExec("exit", nullptr);
 	ps5::diag::mark("close request: %d", result);
 	if (result >= 0)

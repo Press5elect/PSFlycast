@@ -12,6 +12,8 @@
 */
 #include "ps5_pad.h"
 #include "ps5_diag.h"
+#include "ps5_frontend.h"
+#include "input/mouse.h"
 #include "emulator.h"
 #include "input/gamepad_device.h"
 #include "input/mapping.h"
@@ -44,6 +46,10 @@ int scePadReadState(int32_t handle, void *data);
 int scePadClose(int32_t handle);
 int scePadSetVibration(int32_t handle, const void *param);
 int scePadSetVibrationMode(int32_t handle, int32_t mode);
+int scePadSetLightBar(int32_t handle, const void *colour);
+int scePadResetLightBar(int32_t handle);
+int scePadSetMotionSensorState(int32_t handle, bool enabled);
+int scePadGetControllerInformation(int32_t handle, void *information);
 int sceUserServiceInitialize(const void *params);
 int sceUserServiceGetInitialUser(int32_t *userId);
 int sceUserServiceGetLoginUserIdList(int32_t *userIds);
@@ -54,20 +60,40 @@ namespace ps5::pad
 {
 
 config::Option<int> StickAsDpad("StickAsDpad", StickDpadAuto, "ps5");
+config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
+config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
 
 namespace
 {
 
+// The pad's state, as scePadReadState gives it: the layout PS5 RetroArch and
+// PS5SX2 read the buttons, sticks and connection flag from, and ProsperoLight
+// (BlackBearReloaded) the motion sensor and the touch pad.
 struct alignas(8) PadData
 {
 	uint32_t buttons;
 	uint8_t lx, ly, rx, ry;
 	uint8_t l2, r2;
-	uint8_t reserved[66];
-	int32_t connected;		// 0x4c
-	uint64_t timestamp;		// 0x50
-	uint8_t rest[256];		// the state is 120 bytes; room for a larger one
+	uint8_t pad0[2];
+	float orientation[4];			// 0x0c
+	float acceleration[3];			// 0x1c, in g
+	float angularVelocity[3];		// 0x28, in radians a second
+	uint8_t touchCount;				// 0x34
+	uint8_t pad1[7];
+	struct
+	{
+		uint16_t x, y;
+		uint8_t id;
+		uint8_t pad[3];
+	} touch[2];						// 0x3c
+	int32_t connected;				// 0x4c
+	uint64_t timestamp;				// 0x50, in microseconds
+	uint8_t rest[256];				// the state is 120 bytes; room for a larger one
 };
+static_assert(offsetof(PadData, acceleration) == 0x1c, "acceleration at 0x1c");
+static_assert(offsetof(PadData, angularVelocity) == 0x28, "angular velocity at 0x28");
+static_assert(offsetof(PadData, touchCount) == 0x34, "touch count at 0x34");
+static_assert(offsetof(PadData, touch) == 0x3c, "touches at 0x3c");
 static_assert(offsetof(PadData, connected) == 0x4c, "connection flag at 0x4c");
 static_assert(offsetof(PadData, timestamp) == 0x50, "timestamp at 0x50");
 
@@ -251,6 +277,104 @@ public:
 		feed(none, raw);
 	}
 
+	// A light-gun game's gun follows the touch pad or the pad's motion, when
+	// that is chosen (the left stick moves it otherwise, which is Flycast's
+	// own). The gun's place is in the game's 640 x 480, as the stick gives it.
+	//  - Touch pad: the pad is the screen; the gun stays where the finger left.
+	//  - Motion: turning the pad left and right and tilting it up and down
+	//    moves the gun, a screen's width for about 40 degrees. It starts in
+	//    the middle, and a finger on the touch pad puts it back there.
+	// The gun can leave the picture a little, which is how many of these
+	// games reload.
+	void aim(const PadData& raw)
+	{
+		const int port = maple_port();
+		const bool gunGame = ::settings.input.lightgunGame
+				|| (::settings.platform.isConsole() && port >= 0 && port < 4 && config::MapleMainDevices[port] == MDT_LightGun);
+		if (LightGunAim == AimStick || port < 0 || port >= 4 || !gunGame)
+		{
+			aiming = false;
+			return;
+		}
+		if (!aiming)
+		{
+			aiming = true;
+			aimX = 320;
+			aimY = 240;
+			aimedAt = raw.timestamp;
+		}
+		if (LightGunAim == AimTouch)
+		{
+			if (raw.touchCount > 0)
+			{
+				aimX = raw.touch[0].x * 639.f / std::max(1, touchWidth - 1);
+				aimY = raw.touch[0].y * 479.f / std::max(1, touchHeight - 1);
+			}
+		}
+		else
+		{
+			const float dt = std::clamp((float)((double)(raw.timestamp - aimedAt) / 1e6), 0.f, 0.05f);
+			if (raw.touchCount > 0)
+			{
+				aimX = 320;
+				aimY = 240;
+			}
+			else
+			{
+				// Turning to the left is a positive turn about the pad's
+				// upward axis, tilting its top toward the player one about
+				// its rightward axis. 917 pixels a radian: 640 for 40 degrees.
+				const float sideways = (MotionAimDirection & 1) != 0 ? 1.f : -1.f;
+				const float upward = (MotionAimDirection & 2) != 0 ? 1.f : -1.f;
+				aimX += sideways * raw.angularVelocity[1] * dt * 917.f;
+				aimY += upward * raw.angularVelocity[0] * dt * 917.f;
+			}
+		}
+		aimedAt = raw.timestamp;
+		aimX = std::clamp(aimX, -24.f, 663.f);
+		aimY = std::clamp(aimY, -18.f, 497.f);
+		mo_x_abs[port] = (s32)std::lround(aimX);
+		mo_y_abs[port] = (s32)std::lround(aimY);
+	}
+
+	// The light bar in the player's colour, as the console's own games show
+	// who is who: blue, red, green, pink. Or the console's own again.
+	void lightBar(bool players)
+	{
+		const int wanted = players ? maple_port() + 1 : 0;
+		if (wanted == lightBarShown)
+			return;
+		lightBarShown = wanted;
+		int rc;
+		if (wanted >= 1 && wanted <= 4)
+		{
+			static const uint8_t colours[4][4] = { { 0, 0, 255, 0 }, { 255, 0, 0, 0 }, { 0, 255, 0, 0 }, { 255, 0, 255, 0 } };
+			rc = scePadSetLightBar(handle, colours[wanted - 1]);
+		}
+		else
+			rc = scePadResetLightBar(handle);
+		if (rc != 0)
+			ps5::diag::mark("pads: player %d's light bar: %x", maple_port() + 1, rc);
+	}
+
+	// The motion sensor on, and the touch pad's size.
+	void sensors()
+	{
+		const int motion = scePadSetMotionSensorState(handle, true);
+		alignas(8) uint8_t information[256] = {};
+		const int rc = scePadGetControllerInformation(handle, information);
+		uint16_t width = 0, height = 0;
+		memcpy(&width, information + 4, 2);
+		memcpy(&height, information + 6, 2);
+		if (rc >= 0 && width > 1 && height > 1)
+		{
+			touchWidth = width;
+			touchHeight = height;
+		}
+		ps5::diag::mark("pads: player %d: motion sensor %x, touch pad %d x %d (%x)", maple_port() + 1, motion, touchWidth,
+				touchHeight, rc);
+	}
+
 	int32_t userId;
 	int32_t handle;
 
@@ -322,6 +446,11 @@ private:
 		return stickHeld;
 	}
 
+	bool aiming = false;	// a light gun follows the touch pad or the motion sensor
+	float aimX = 320, aimY = 240;
+	uint64_t aimedAt = 0;
+	int touchWidth = 1920, touchHeight = 1080;
+	int lightBarShown = -1;	// 0 the console's own, 1 to 4 a player's colour
 	u32 stickHeld = 0;		// the d-pad directions the left stick holds
 	u32 lastButtons = 0;
 	int lastAxes[6] = { 0, 0, 0, 0, -32768, -32768 };
@@ -386,6 +515,7 @@ void addPad(Seat& seat, int port)
 			seat.userId, seat.handle, mode);
 	seat.port = port;
 	pads[port] = std::make_shared<DualSenseGamepad>(port, seat.userId, seat.handle);
+	pads[port]->sensors();
 	GamepadDevice::Register(pads[port]);
 	portsPresent |= 1u << port;
 }
@@ -589,6 +719,8 @@ void plugPorts()
 		ps5::diag::mark("pads: port %s gets a controller, a memory card and a rumble pack for player %d",
 				portLetters[port], port + 1);
 	}
+	// A USB keyboard and mouse take the ports after the pads'.
+	ps5::usb::plugPorts(present | 1u);
 }
 
 std::string portsText()
@@ -611,6 +743,7 @@ std::string portsText()
 
 void poll()
 {
+	ps5::usb::poll();
 	for (int i = 0; i < MaxPads; i++)
 	{
 		auto& pad = pads[i];
@@ -645,6 +778,8 @@ void poll()
 		s.l2 = raw.l2 / 255.f;
 		s.r2 = raw.r2 / 255.f;
 		pad->feed(s, raw);
+		pad->aim(raw);
+		pad->lightBar(ps5::options().lightBar);
 		pad->update_rumble();
 	}
 }

@@ -66,6 +66,9 @@ cp -- "$src/shell/ps5/sce_sys/param.json" "$src/shell/ps5/sce_sys/icon0.png" "$a
 # start-up animation, which is the backdrop alone, so the animation begins
 # from what is already on the screen).
 cp -- "$src/shell/ps5/sce_sys/pic0.dds" "$src/shell/ps5/sce_sys/pic1.dds" "$app/sce_sys/"
+# What the console plays while the title is selected on the home screen: a
+# loop made by shell/ps5/sounds/make-home-sound.py.
+cp -- "$src/shell/ps5/sce_sys/snd0.at9" "$app/sce_sys/"
 cp -- "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The folders Flycast keeps its files in (see README).
 for dir in games bios covers cheats patches; do

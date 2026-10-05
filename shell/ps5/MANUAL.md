@@ -87,6 +87,8 @@ The library is what you see when PSFlyCast starts.
 | Square | Scan the open tab for games again |
 | L1 / R1 | Previous / next tab: Internal, USB, Network |
 | L2 / R2 | Jump by letter: R2 to the first game of the next letter, L2 back |
+| R3 (press the right stick) | Search |
+| Circle | Leave PSFlyCast (it asks first). With a search: show every game again |
 | OPTIONS | Open or close the Settings |
 
 - **Tabs.** Internal is the `games/` folder. The USB tab is there only when
@@ -94,6 +96,11 @@ The library is what you see when PSFlyCast starts.
   opens on the tab you used last.
 - **Views.** Shelves (with a Recently played row), a compact grid, or a list.
   Change it in Settings > Library > Library view.
+- **Search.** R3 opens the console's keyboard. Type a title or part of it
+  and the tab shows only the games whose title has every word you typed;
+  L1 and R1 look in the other tabs. Circle shows every game again.
+- **Leaving.** Circle in the library asks **Quit PSFlyCast?**: Cross quits,
+  Circle stays. (Settings > About > Quit PSFlyCast is still there.)
 - **Covers and descriptions** are downloaded by the game's file name. Names
   in the usual dump style, such as `Game (USA).chd`, are found most reliably.
   To use a cover of your own, save it as `<game file name>.png` (or `.jpg`) in
@@ -255,6 +262,28 @@ that shared one.
 default. Settings > Controls > Controller slot 2 swaps it for a second memory
 card. Vibration strength and the stick's dead zone are there too.
 
+**Light-gun games.** The gun follows the left stick. Settings > Controls >
+**Light gun aiming** offers two other ways:
+
+- **Touch pad:** the pad is the screen. Put a finger where you want to
+  shoot; the gun stays there when you lift it. Touch it lightly: clicking
+  the pad still opens the quick menu.
+- **Motion:** turn and tilt the controller, as if pointing it. A touch on
+  the touch pad puts the gun back in the middle of the screen. If it moves
+  the wrong way, change **Motion aiming direction**.
+
+**Light gun crosshair** shows where each gun points. The buttons do what
+they did before. An arcade gun game needs nothing more. A Dreamcast game
+played with a light gun needs the gun plugged in: in that game's options
+(Game details > Options, or the quick menu > Game options) set **Port A** to
+**Light gun** and start the game again.
+
+**A USB keyboard and mouse.** Plug them into the console before starting a
+game. For a Dreamcast game the keyboard goes into the first port no
+controller is in and the mouse into the next, so a game that knows them
+finds them. Settings > Controls > Controllers lists them, and **USB keyboard
+and mouse** turns this off. The menus still need the controller.
+
 ## 12. More players
 
 Each DualSense belongs to a signed-in user. To join, a player presses the
@@ -270,6 +299,9 @@ controllers.
 - Every controller has the same button layout, the one
   [Changing the controls](#11-changing-the-controls) sets.
 - The menus follow the first controller that is connected.
+- Each controller's light bar shows its player: blue for 1, red for 2,
+  green for 3, pink for 4. Settings > Controls > **Light bar in the
+  player's colour** turns that off.
 
 When a player signs out, their port is free again. Settings > Controls >
 **Controllers** shows which ports have a controller.
@@ -281,12 +313,12 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, upscaling (FSR 1), frame pacing, the FPS counter, 120 Hz output |
+| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, upscaling (FSR 1), frame pacing, the FPS counter, 120 Hz output, variable refresh rate |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
-| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, restore the default layout, which ports have a controller |
+| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state |
-| **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, how a game's own online mode connects |
-| **Interface** | Skin, accent colour, background, motion, the start-up animation and its sound |
+| **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
+| **Interface** | Skin, accent colour, background, motion, the start-up animation and its sound, menu sounds |
 | **Library** | Scan for games, library view, cover downloads, USB drives, disc grouping, network game loading |
 | **About** | The version and build, check for updates, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
@@ -339,6 +371,16 @@ makes the menus smoother and a late frame less visible. Settings > About >
 Display shows the mode in use. Settings > Video > 120 Hz output turns it off,
 from the next start.
 
+**Variable refresh rate** (off by default, experimental). For a TV with VRR,
+with 120 Hz output on: each frame is shown as soon as it is ready instead of
+at the TV's next fixed step. Turn it on, start PSFlyCast again, and look at
+Settings > About > Display: it says "variable refresh" when the console
+allowed it. If the picture stutters more than before, turn it off.
+
+**Language.** The first time this version starts, the Dreamcast's language
+is set to the console's (Japanese, English, German, French, Spanish or
+Italian) if you had not changed it. Settings > System > Language changes it.
+
 ## 14. Games on a network share
 
 PSFlyCast can read games from a shared folder on a PC or a NAS (SMB, the
@@ -388,7 +430,8 @@ Cover downloads may stop working while USB drives are on.
 connects through Flycast's DCNet service, with nothing to set up: start the
 game and use its online menu. Settings > Online > **Dreamcast online**
 chooses between the modem and the broadband adapter, for a game that wants
-one of them, and between DCNet and a direct connection.
+one of them, and between DCNet and a direct connection. **Name online** is
+the name those games sign in with: Cross opens the console's keyboard.
 
 **Netplay** puts two players in one game, each on their own PS5 or on a PC
 running Flycast.
@@ -396,7 +439,9 @@ running Flycast.
 1. Both players open Settings > Online and set **Netplay**: one to
    **Host: player 1**, the other to **Join: player 2**.
 2. Both enter the other's address under **Other player** (D-pad changes the
-   numbers, Cross saves). **This console** on the same page shows your own.
+   numbers, Cross saves; Square types it on the console's keyboard, where a
+   computer's name on your network works too). **This console** on the same
+   page shows your own.
 3. Both start the same game. Each sees a waiting screen until the other is
    there; Circle cancels.
 
@@ -427,8 +472,9 @@ Settings > About > **Check for updates**.
 - When there is a newer version, the dialog names it and what changed.
   **Update now** downloads it, checks the download, and replaces PSFlyCast's
   own files. Your games, saves, settings and covers are not touched.
-- The new version starts **the next time you open PSFlyCast**. The dialog
-  offers to close it for you.
+- The new version starts **the next time you open PSFlyCast**. **Restart
+  PSFlyCast now** in the dialog does that for you; if the console only
+  closes PSFlyCast, open it again from the home screen.
 - If anything fails, the dialog says what, and PSFlyCast is left as it was.
   You can always update by copying the ZIP, as in
   [Install and update](#2-install-and-update).
@@ -436,6 +482,10 @@ Settings > About > **Check for updates**.
 A released version also looks for a newer one when it starts, and offers it
 once: **Update now**, **Later**, or **Skip this version**. Settings > About >
 **Look for updates at start-up** turns that off.
+
+With **USB drives** turned on, the check and the download may not reach the
+internet. If they fail, turn USB drives off (Settings > Library), start
+PSFlyCast again, update, and turn them back on.
 
 ## 18. The look
 
@@ -450,6 +500,12 @@ Settings > Interface. A change shows at once.
   fly to the top bar as birds. On or off; any button skips it.
 - **Start-up sound:** on or off. To use your own, save a 16-bit WAV file as
   `sounds/startup.wav` in PSFlyCast's folder.
+- **Menu sounds:** a soft note for moving, choosing, going back and changing
+  tab. On or off.
+
+On the console's home screen PSFlyCast has a quiet sound of its own while it
+is selected. The console's setting for home-screen music turns it off, along
+with every other title's.
 
 **Your own logo.** A square picture with a transparent background, saved as
 `logo.png` in PSFlyCast's folder, replaces the turning disc in the top bar
@@ -500,14 +556,31 @@ rumble pack, and Vibration above zero.
 the PS button on that controller and choose a user. Settings > Controls >
 Controllers then shows two ports.
 
+**The keyboard does not open** (search, the address, the name). A message
+says so, and `flycast-boot.log` has a line starting "keyboard:" with the
+reason. Send it with your report. The address can still be set with the
+D-pad.
+
+**A light gun does not follow the controller.** Check Settings > Controls >
+Light gun aiming. For a Dreamcast game, Port A must be a light gun in that
+game's own options. `flycast-boot.log` has a line for each controller's
+motion sensor ("pads: ...").
+
+**A USB keyboard or mouse does nothing.** It has to be connected when the
+game starts, and listed in Settings > Controls > Controllers; if it is not,
+press a key or move the mouse once and look again. `flycast-boot.log` has
+lines starting "usb:" that say what was found and which port each got.
+
 **Every game waits for "player 2".** Netplay is on: Settings > Online >
 Netplay > Off.
 
 **A game's online mode does not connect.** `flycast-boot.log` has a line for
 each name it looked up ("names: ..."). Send it with your report.
 
-**No covers.** Check that downloading is on and that the game's file is named
-in the usual dump style. Turning USB drives off can bring downloads back.
+**No covers, or the update check fails.** Check that downloading is on and
+that the game's file is named in the usual dump style. With USB drives on,
+PSFlyCast may not reach the internet for covers or updates: turn them off and
+start it again.
 
 **The Network tab is empty.** The tab says what the share answered. Check
 the IP address, the share and folder names, and the account in `network.cfg`.

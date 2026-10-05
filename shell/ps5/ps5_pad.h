@@ -71,6 +71,14 @@ constexpr u32 AxisCodeL2 = 4, AxisCodeR2 = 5;
 enum { StickDpadAuto, StickDpadOn, StickDpadOff };
 extern config::Option<int> StickAsDpad;
 
+// What aims a light-gun game's gun: the left stick (Flycast's own), a finger
+// on the touch pad, or the pad's motion sensor; and for motion, which way it
+// goes (bit 0: left and right the other way round, bit 1: up and down).
+// Settings, and a game can have its own.
+enum { AimStick, AimTouch, AimMotion };
+extern config::Option<int> LightGunAim;
+extern config::Option<int> MotionAimDirection;
+
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();
 void term();

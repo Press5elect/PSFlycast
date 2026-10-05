@@ -20,37 +20,44 @@ everything in it.
 | ![Game details](screenshots/02-details.png) | ![The quick menu](screenshots/45-quick-menu-restart.png) |
 | ![The start-up animation](screenshots/47-splash.png) | ![The Ember skin](screenshots/31-skin-ember.png) |
 | ![The letters fly to the top bar as birds](screenshots/48-splash-leaving.png) | ![Settings > Online](screenshots/50-settings-online.png) |
+| ![The library searched from the console's keyboard](screenshots/62-search.png) | ![Leaving from the library](screenshots/61-quit.png) |
 
 ## Status
 
-Latest release: **v1.0.1** (build 39). I ran build 38, which has the same
-code, on my PS5 before releasing it. It is built on Flycast's `dev` branch,
+Latest release: **v1.0.2** (build 41). It is built on Flycast's `dev` branch,
 the one Flycast's nightly builds are made from.
 
 Played on a PS5 over the builds that led to it: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; save states made
 by v1.0.0; cover downloads; the quick menu and the per-game options; games on
-several discs, grouped and swapped from the quick menu; the start-up
-animation and the library; 119.88 Hz output on a display that takes it, and
+several discs, grouped and swapped from the quick menu; the library; the
+mark made of one spiral line, with the start-up animation and its sound;
+PSFlyCast updating itself from a release, whose files replaced the ones in
+the title's folder; 119.88 Hz output on a display that takes it, and
 60 frames a second on one that shows fewer than its mode says; the three
 frame pacing choices; internal resolution above 6x and the texture options;
 FSR 1 upscaling; per-pixel transparency with 32 to 128 layers, with its HUD
 and menus at 3x and 4x; object draw distance, with which objects appeared
 from further away. No frame rates or audio were measured.
 
-In the build but not confirmed on a console: the left stick as the joystick
-in arcade games (its setting is there), per-pixel transparency above 4x, USB
-drives, the skins and transitions, the letter jump, the Controls page,
-Restart game and the CPU clock. NAOMI and Atomiswave games have not been
-tried. With per-triangle sorting a game can show surfaces flickering in and
-out; per-pixel draws them right.
+New in v1.0.2 and not confirmed on a console: leaving PSFlyCast from the
+library; searching the library on the console's keyboard, and the keyboard
+for the netplay address and the name online; the menu sounds and the sound
+on the console's home screen; aiming a light gun with the touch pad or by
+turning the controller, and the light bar in the player's colour; a USB
+keyboard and mouse as the Dreamcast's; restarting into a new version after
+an update; the Dreamcast's language set from the console's; and variable
+refresh rate, which is off until it is turned on.
 
-The source is ahead of that release (build 40, test builds only). New in it,
-and none of it confirmed on a console yet: the mark made of one spiral line
-and the start-up animation and sound that go with it; a second, third and
+In earlier builds and still not confirmed on a console: a second, third and
 fourth player joining while the title runs; names looked up for the games'
 own online modes and for network shares; Settings > Online, with Flycast's
-netplay; and PSFlyCast updating itself from its releases.
+netplay; the left stick as the joystick in arcade games (its setting is
+there); per-pixel transparency above 4x; USB drives; the skins and
+transitions; the letter jump; the Controls page; Restart game and the CPU
+clock. NAOMI and Atomiswave games have not been tried. With per-triangle
+sorting a game can show surfaces flickering in and out; per-pixel draws them
+right.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped
@@ -242,6 +249,8 @@ lines (`notice: ...`) either way.
 | Cross | Play |
 | Triangle | Game details: description, load state, the game's own options, cheats |
 | Square | Scan the open tab again |
+| R3 (press the right stick) | Search: the console's keyboard opens, and the tab shows the games whose title has every word typed |
+| Circle | With a search: every game again. Without: leave PSFlyCast, after asking |
 | OPTIONS | Settings. (The view - shelves, grid or list - is chosen there: Library > Library view) |
 
 While a game loads, Circle cancels.
@@ -269,6 +278,28 @@ moves the joystick** as the D-pad does; a game with a wheel, a flight stick or
 a light gun keeps it as the analog stick. Settings > Controls > "Left stick as
 D-pad" is Automatic (that), On (every game, Dreamcast ones too) or Off, and a
 game can have its own choice.
+
+**Light guns.** In an arcade light-gun game the gun follows the left stick,
+as in Flycast. Settings > Controls > **Light gun aiming** makes it follow a
+finger on the touch pad (the pad is the screen, and the gun stays where the
+finger left it) or the controller's motion sensor (turn and tilt the
+controller; about 40 degrees cross the screen, and a touch on the pad puts
+the gun back in the middle). **Motion aiming direction** swaps a direction
+that goes the wrong way, and **Light gun crosshair** shows where each gun
+points. The buttons stay as they are. A Dreamcast game played with a light
+gun needs one in the port: the game's own options (Details > Options, or the
+quick menu) have **Port A: Light gun**, from the game's next start. Not
+confirmed on a console yet.
+
+**A USB keyboard and a USB mouse** plugged into the console are the
+Dreamcast's keyboard and mouse: when a Dreamcast game starts, the keyboard
+takes the first port no controller has and the mouse the one after it, for
+that game. Settings > Controls > Controllers says what is connected, and
+**USB keyboard and mouse** turns it off. The menus are driven by the
+controller only. Not confirmed on a console yet.
+
+Each controller's **light bar** shows its player: blue, red, green, pink
+(Settings > Controls turns that off).
 
 **Restart game** loads the game again from its beginning, as the console's
 power button would: asked twice (press Cross again within four seconds), as
@@ -426,16 +457,37 @@ at its left edge, winds in to the centre and out again to the right edge;
 `sounds/make-startup-sound.html` in the source makes the sound from
 oscillators and noise, with nothing sampled or recorded.
 
+## Sounds
+
+The menus have a soft note for moving, choosing, going back and changing
+tab, made from the start-up sound's scale; Settings > Interface > **Menu
+sounds** turns them off. On the console's home screen the title has a sound
+of its own while it is selected (`sce_sys/snd0.at9`): a 24-second loop from
+the same notes, which `sounds/make-home-sound.py` in the source makes from
+sine waves. The console's own setting for home-screen music governs it.
+
 ## Settings
 
 Interface (above), Video (per-triangle, per-strip or per-pixel transparency with 32 to 128 layers, internal resolution up to 10x,
 widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
 FSR 1 upscaling, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
-frame pacing, FPS counter), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
-second slot, default layout, which ports have a pad), System (region, language, TV standard, cable, built-in BIOS,
+frame pacing, FPS counter, 120 Hz output, variable refresh rate), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
+second slot, light-gun aiming and crosshair, default layout, which ports have a pad, the light bar, a USB keyboard and mouse), System (region, language, TV standard, cable, built-in BIOS,
 auto save/load states, fast loading, CPU recompiler), Online (below), Library and About (the
 build, checking for updates, credits). The
 defaults: Vulkan, 3x resolution (1440p), 4x anisotropic filtering.
+
+The Dreamcast's **language** follows the console's the first time this
+version starts, where the Dreamcast has it (Japanese, English, German,
+French, Spanish, Italian) and it was still English; Settings > System >
+Language changes it.
+
+**Variable refresh rate** (Video, off by default, experimental) is for a
+display with VRR and 120 Hz output on: the output is asked to leave its
+fixed rate, a frame is then shown as soon as it is ready, once, and the
+sound paces the game. It takes effect at the next start, and About > Display
+says "variable refresh" when the output took it. If the console refuses,
+nothing changes. Not confirmed on a console or a TV yet.
 
 ## Online
 
@@ -447,15 +499,19 @@ for the games whose servers were brought back. Up to build 39 no name could
 be looked up from the title ("A non-recoverable error occurred during
 database lookup"), so none of it connected. Names are now looked up by the
 console's own resolver. Settings > Online > **Dreamcast online** chooses the
-modem or the broadband adapter, through DCNet or directly.
+modem or the broadband adapter, through DCNet or directly, and **Name
+online** is the name such a game signs in with, typed on the console's
+keyboard.
 
 **Netplay** is Flycast's own (GGPO): two players in one game, each on a
 console or a PC running Flycast, over the home network or the internet.
 
 1. Both: Settings > Online > **Netplay**. One is **Host: player 1**, the
    other **Join: player 2**.
-2. Both: **Other player**, the other's address. Settings > Online > This
-   console shows yours. Over the internet it is the router's public address,
+2. Both: **Other player**, the other's address: its numbers set with the
+   D-pad, or typed on the console's keyboard (Square), where a name on the
+   network works too and is looked up. Settings > Online > This console
+   shows yours. Over the internet it is the router's public address,
    and UDP port 19713 has to reach the console (forward it in the router, or
    try **Open the router's port (UPnP)**).
 3. Both start the same game. Each waits on a screen of its own until the
@@ -474,8 +530,9 @@ starts. Turn it off to play alone.
 
 ## Updates
 
-Not confirmed on a console yet; it is made so that a failure leaves the title
-as it was.
+Seen working on a console from build 40: the release was downloaded and its
+files replaced the title's. It is made so that a failure leaves the title as
+it was.
 
 Settings > About > **Check for updates** asks the project's GitHub page for
 its releases. When one is newer than what is running, PSFlyCast can install
@@ -483,7 +540,10 @@ it: it downloads the release's ZIP, checks it against the SHA-256 the release
 names, unpacks it, and moves each file of the title that the ZIP has to
 `update/old/` and the new one into its place. If the console refuses any of
 those moves, every file already moved is moved back. The new version starts
-the next time PSFlyCast is opened, and that start deletes `update/`. What is
+the next time PSFlyCast is opened, and that start deletes `update/`.
+**Restart PSFlyCast now** asks the console to start the title again in place
+of the running one; if the console only closes it (this step is not
+confirmed on one), open it from the home screen. What is
 yours is never touched: games, BIOS files, covers, `data/`, the settings.
 
 A release's build also asks once as it starts and offers a newer release
@@ -491,10 +551,11 @@ A release's build also asks once as it starts and offers a newer release
 updates at start-up** turns that off. A test build asks only when told to,
 and can install the newest release in its own place.
 
-The step nobody has seen work on a console is replacing `eboot.bin` while it
-runs. If it is refused, the dialog says so and names the reason,
+If a step is refused, the dialog says so and names the reason,
 `flycast-boot.log` has every step ("update: ..."), and updating by copying
-the ZIP works as before.
+the ZIP works as before. With **USB drives** on, PSFlyCast runs outside its
+sandbox, where the console can refuse it HTTPS: if the update check or the
+cover downloads fail, turn USB drives off and start it again.
 
 ## What has been verified
 
@@ -521,6 +582,12 @@ On the build machine, without a console:
   games or paths outside the folder in it has them left out; a cut-off or
   damaged ZIP is refused. What needs a console is not covered: the download
   itself, and the moves in the title's real folder.
+- The text that goes to and comes from the console's keyboard
+  (`shell/ps5/ps5_ime.cpp`), against a stand-in for the dialog: the
+  parameter block's layout, text with accents and non-Latin characters both
+  ways, a cancelled entry, a value longer than the field.
+- The home-screen sound: the same file comes out of its generator every
+  time, and the loop's last sample runs into its first.
 
 On a console: see Status, at the top.
 
@@ -530,9 +597,14 @@ On a console: see Status, at the top.
 - `shell/ps5/ps5_main.cpp` - start-up, folders, log, first-run settings.
 - `shell/ps5/ps5_diag.cpp` - `flycast-boot.log` and the crash report
   (`shell/ps5/symbolize.sh` turns its offsets into functions).
-- `shell/ps5/ps5_pad.cpp` - DualSense through libScePad, rumble, up to four pads.
+- `shell/ps5/ps5_pad.cpp` - DualSense through libScePad, rumble, up to four
+  pads; the touch pad and the motion sensor as a light gun's aim; the light bar.
+- `shell/ps5/ps5_usbinput.cpp` - a USB keyboard and mouse (libSceKeyboard,
+  libSceMouse) as Flycast's keyboard and mouse devices.
+- `shell/ps5/ps5_ime.cpp` - text from the console's own keyboard
+  (libSceImeDialog).
 - `shell/ps5/ps5_audio.cpp` - libSceAudioOut at 48 kHz, resampled from the
-  emulator's 44.1 kHz.
+  emulator's 44.1 kHz; the interface's own sounds, mixed on a port of theirs.
 - `core/rend/vulkan/vulkan_context.cpp` - RADV's ICD entry point and a
   `VK_KHR_display` surface on VideoOut, as PS5_Vulkan's RADV test title drives
   it; the 4K mode with the highest refresh rate the driver offers (119.88 Hz
@@ -557,7 +629,10 @@ On a console: see Status, at the top.
 - `shell/ps5/ps5_covers.cpp`, `ps5_cheats.cpp`, `ps5_pipelines.cpp` - cover
   downloads, `.cht` cheat files, the per-game shader warm-up.
 - `shell/ps5/elevation/` - the USB helper.
-- `shell/ps5/ps5-link.sh` - the link: PS5_Vulkan's RADV title recipe.
+- `shell/ps5/ps5-link.sh` - the link: PS5_Vulkan's RADV title recipe, with
+  import libraries made at link time for what the SDK has none for
+  (`shell/ps5/runtime/stubs`: the mouse, the common dialogs, and one more
+  name of the video output's).
 - `shell/ps5/ps5-toolchain.cmake` - the cross-compile: for the console's
   processor (`-march=znver2`), with floating point left as on every other
   x86-64 build of Flycast (`-ffp-contract=off`).
@@ -576,8 +651,9 @@ git clone https://github.com/mihawk-99/PS5_RetroArch         # for its SDK insta
 git clone https://github.com/sahlberg/libsmb2
 git clone https://github.com/libretro/libretro-database     # optional: the cheat files
 
-# RADV, with the display-mode patch of this repository (119.88 Hz on a VRR
-# display; PS5_VIDEOOUT_59HZ). The patch is made on PS5_Mesa 0b2d6d1.
+# RADV, with the display-mode patches of this repository (119.88 Hz on a VRR
+# display, PS5_VIDEOOUT_59HZ; variable refresh, PS5_VIDEOOUT_VRR). They are
+# made on PS5_Mesa 0b2d6d1.
 git -C PS5_Mesa checkout -b psflycast 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8
 git -C PS5_Mesa am ../PSFlyCast/shell/ps5/mesa/*.patch
 sed -i "s/^mesa_revision=.*/mesa_revision=$(git -C PS5_Mesa rev-parse HEAD)/" PS5_Vulkan/tools/build-radv.sh
@@ -598,7 +674,7 @@ shell/ps5/build.sh               # -> build-ps5/dist/PPSA99247
 ```
 
 The builds published so far were made with PS5_Vulkan `3f3ee69`, PS5_Mesa
-`0b2d6d1` plus the patch, and the payload SDK fork at `cd3b239`; `BUILD.txt`
+`0b2d6d1` plus the patches (one up to v1.0.1, two from v1.0.2), and the payload SDK fork at `cd3b239`; `BUILD.txt`
 in the title's folder names what a build was made from.
 
 ## Credits and licences
@@ -614,9 +690,17 @@ What is in this build, and whose it is:
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
 | Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |
 | The cheat files | [libretro-database](https://github.com/libretro/libretro-database), `cht/Sega - Dreamcast` | CC BY-SA 4.0 |
-| The mark, the icon, the start-up animation and its sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/make-startup-sound.html` | GPL-3.0-or-later |
+| The mark, the icon, the start-up animation and its sound, the menu sounds and the home-screen sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/make-startup-sound.html`, `shell/ps5/sounds/make-home-sound.py` | GPL-3.0-or-later |
 | Covers, downloaded when PSFlyCast runs | [libretro-thumbnails](https://github.com/libretro-thumbnails/Sega_-_Dreamcast) | |
 | Descriptions and release dates, downloaded when PSFlyCast runs | [TheGamesDB](https://thegamesdb.net), with Flycast's own scraper and its key | |
+
+The console's calls for the keyboard on the screen, a USB keyboard and
+mouse, the controller's motion sensor and light bar, and variable refresh
+are made the way BlackBearReloaded's open projects make them (ProsperoLight,
+ProsperoStore, ProsperoTV), which is where I read how; the code here is
+PSFlyCast's own. The home-screen sound was encoded to ATRAC9 with
+BlackBearReloaded's [ps5-at9-converter](https://github.com/blackbearreloaded/ps5-at9-converter),
+a tool: none of it is in the build.
 
 ShadowMountPlus (drakmor, after VoidWhisper's ShadowMount) is what mounts and
 starts the title on the console; none of it is in the build either.

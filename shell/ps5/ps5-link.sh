@@ -59,13 +59,43 @@ cc -std=c++20 -O2 -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections 
     -c "$runtime/app_cpp_runtime.cpp" -o "$work/obj/app_cpp_runtime.o"
 # AGC comes from system modules; these host-link stubs only name the imports.
 stub() {
-    local library=$1 source=$2
-    cc -std=c11 -O2 -fPIC -c "$vk/$source" -o "$work/obj/${library}_stub.o"
-    "$sdk_root/bin/prospero-lld" --shared -soname "${library}.prx" \
+    local library=$1 source=$2 suffix=${3:-prx}
+    cc -std=c11 -O2 -fPIC -c "$source" -o "$work/obj/${library}_stub.o"
+    "$sdk_root/bin/prospero-lld" --shared -soname "${library}.${suffix}" \
         -o "$work/stubs/${library}.so" "$work/obj/${library}_stub.o"
 }
-stub libSceAgc vendor/ps5/sdk/stubs/agc_canary_link_stub.c
-stub libSceAgcDriver vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c
+stub libSceAgc "$vk/vendor/ps5/sdk/stubs/agc_canary_link_stub.c"
+stub libSceAgcDriver "$vk/vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c"
+# Two system libraries the payload SDK has no import library for: a USB mouse
+# (shell/ps5/ps5_usbinput.cpp) and the common dialogs, which the keyboard on
+# the screen starts first (shell/ps5/ps5_ime.cpp).
+stub libSceMouse "$runtime/stubs/mouse_link_stub.c"
+stub libSceCommonDialog "$runtime/stubs/common_dialog_link_stub.c"
+# libSceVideoOut: the SDK's import library has no sceVideoOutVrrUnpegFromFixedRate,
+# which the driver calls for variable refresh. One library can have one import
+# library, so this one is made from the names of the SDK's, with that name
+# added, under the SDK's own name for it (.sprx) and given before the SDK's:
+# the linker reads the first of a name.
+{
+    printf '/* Made by ps5-link.sh from the names in the payload SDK libSceVideoOut.so. */\n'
+    "$sdk_root/bin/prospero-nm" -D --defined-only "$sdk_root/target/lib/libSceVideoOut.so" |
+        awk '$2 ~ /^[TW]$/ && $3 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "int " $3 "(void) { return -1; }" }
+             $2 ~ /^[BDR]$/ && $3 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ { print "int " $3 " = 0;" }' | sort -u
+    printf 'int sceVideoOutVrrUnpegFromFixedRate(void) { return -1; }\n'
+} > "$work/obj/videoout_link_stub.c"
+grep -q '^int sceVideoOutOpen(void)' "$work/obj/videoout_link_stub.c" ||
+    { echo "ps5-link: the SDK's libSceVideoOut.so gave no names" >&2; exit 2; }
+if [[ $(grep -c 'sceVideoOutVrrUnpegFromFixedRate' "$work/obj/videoout_link_stub.c") != 1 ]]; then
+    # The SDK has it now: its own import library is enough.
+    sed -i '$d' "$work/obj/videoout_link_stub.c"
+fi
+stub libSceVideoOut "$work/obj/videoout_link_stub.c" sprx
+title_stubs=("$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" "$work/stubs/libSceMouse.so"
+    "$work/stubs/libSceCommonDialog.so" "$work/stubs/libSceVideoOut.so")
+stub_options=()
+for file in "${title_stubs[@]}"; do
+    stub_options+=(--stub "$file")
+done
 
 # shellcheck source=/dev/null
 source "$vk/tools/radv-link.sh"
@@ -110,13 +140,12 @@ title_defsyms=()
     -e _start -o "$work/llvm-pie.elf" \
     "$work/obj/ps5_crt.o" "$work/obj/app_cpp_runtime.o" "${objects[@]}" \
     --start-group "${archives[@]}" --end-group \
-    "$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" \
+    "${title_stubs[@]}" \
     "${radv_link_inputs[@]}" \
     --as-needed "$sdk_root"/target/lib/*.so
 
 "$tool" link --in "$work/llvm-pie.elf" --out "$work/eboot.elf" \
-    --stub-dir "$sdk_root/target/lib" --stub "$work/stubs/libSceAgc.so" \
-    --stub "$work/stubs/libSceAgcDriver.so" --module-sdk 0x02000009 \
+    --stub-dir "$sdk_root/target/lib" "${stub_options[@]}" --module-sdk 0x02000009 \
     --companion-sdk 0x08050001 --file-name eboot.elf
 "$tool" self --sign --in "$work/eboot.elf" --out "$target" --magic 0x1D3D154F
 "$tool" self --inspect --file "$target" > "$work/eboot.inspect.txt"

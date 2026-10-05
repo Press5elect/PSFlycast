@@ -68,6 +68,11 @@
 #include <functional>
 #include <map>
 #include <future>
+#include <mutex>
+#include <thread>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <type_traits>
 #include <string>
 #include <vector>
@@ -76,6 +81,8 @@ extern ImFont *boldFont;
 void SaveSettings();
 
 using ps5::shownRoot;
+
+bool gui_error_shown();		// core/ui/gui.cpp: Flycast's message box is up
 
 namespace bigpicture
 {
@@ -802,7 +809,7 @@ void spinMark(ImDrawList *dl, float cx, float cy, float radius, float a = 1.f)
 
 // ------------------------------------------------------------ button glyphs
 
-enum class Glyph { Cross, Circle, Square, Triangle, L1, R1, L1R1, L2, R2, L2R2, Options, TouchPad, DPadLR, DPadUD };
+enum class Glyph { Cross, Circle, Square, Triangle, L1, R1, L1R1, L2, R2, L2R2, R3, Options, TouchPad, DPadLR, DPadUD };
 
 // A DualSense button, as the face buttons are printed: white symbol on a dark disc.
 float glyph(ImDrawList *dl, Glyph g, float x, float cy, float size = 34.f)
@@ -832,6 +839,7 @@ float glyph(ImDrawList *dl, Glyph g, float x, float cy, float size = 34.f)
 	}
 	case Glyph::L2: return label("L2", size * 1.35f);
 	case Glyph::R2: return label("R2", size * 1.35f);
+	case Glyph::R3: return label("R3", size * 1.35f);
 	case Glyph::L2R2:
 	{
 		const float w = size * 1.35f, gap = size * 0.2f, x0 = x;
@@ -925,10 +933,15 @@ void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 
 // ------------------------------------------------------------------ input
 
+// The console's own keyboard (ps5_ime.cpp) is up, and what its text is for.
+// The pad is the keyboard's meanwhile.
+enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName };
+int keyboardFor = KeyboardNone;
+
 struct Input
 {
 	bool up, down, left, right;
-	bool accept, back, triangle, square, l1, r1, l2, r2, options;
+	bool accept, back, triangle, square, l1, r1, l2, r2, r3, options;
 };
 Input in;
 
@@ -946,6 +959,7 @@ void readInput()
 	in.r1 = pad.pressed & ps5::pad::R1;
 	in.l2 = pad.pressed & ps5::pad::L2;
 	in.r2 = pad.pressed & ps5::pad::R2;
+	in.r3 = pad.pressed & ps5::pad::R3;
 	in.options = pad.pressed & ps5::pad::Options;
 
 	struct Repeat { double next = 0; bool held = false; };
@@ -980,6 +994,22 @@ void readInput()
 		splash.skip = pad.pressed != 0;
 		in = Input{};
 	}
+	// So do the console's keyboard and Flycast's own message box (a game
+	// that did not start), which is closed with Cross.
+	if (keyboardFor != KeyboardNone || gui_error_shown())
+		in = Input{};
+	// The menu's sounds, one a frame: what the press is for, most telling first.
+	using ps5::sound::Cue;
+	if (in.accept)
+		ps5::sound::cue(Cue::Select);
+	else if (in.back)
+		ps5::sound::cue(Cue::Back);
+	else if (in.l1 || in.r1)
+		ps5::sound::cue(Cue::Tab);
+	else if (in.triangle || in.square || in.options || in.r3)
+		ps5::sound::cue(Cue::Open);
+	else if (in.up || in.down || in.left || in.right || in.l2 || in.r2)
+		ps5::sound::cue(Cue::Move);
 }
 
 // ----------------------------------------------------------- frame set-up
@@ -1800,6 +1830,59 @@ struct LibraryState
 } lib;
 LibraryState otherTabs[SourceCount];
 bool sourceChosen;
+
+// What the library is searched for (R3 and the console's keyboard): the games
+// whose title has every word of it, in any tab. Empty: every game.
+std::string librarySearch;
+std::vector<std::string> searchWords;		// its words, in small letters
+
+std::string trimmed(const std::string& given)
+{
+	const size_t from = given.find_first_not_of(" \t\r\n");
+	if (from == std::string::npos)
+		return "";
+	return given.substr(from, given.find_last_not_of(" \t\r\n") - from + 1);
+}
+
+std::string lowered(std::string words)
+{
+	for (char& c : words)
+		c = (char)tolower((unsigned char)c);
+	return words;
+}
+
+void setSearch(const std::string& given)
+{
+	librarySearch = trimmed(given);
+	searchWords.clear();
+	std::string word;
+	for (const char c : lowered(librarySearch) + " ")
+		if (c == ' ')
+		{
+			if (!word.empty())
+				searchWords.push_back(word);
+			word.clear();
+		}
+		else
+			word += c;
+	// From the first of what is found, in this tab and the others.
+	lib.shelf = 0;
+	lib.flatFocus = 0;
+	lib.flatPath.clear();
+	lib.flatScroll = 0;
+	for (LibraryState& other : otherTabs)
+	{
+		other.shelf = 0;
+		other.flatFocus = 0;
+		other.flatPath.clear();
+		other.flatScroll = 0;
+	}
+}
+
+std::string searchShelfName()
+{
+	return "Search: " + librarySearch;
+}
 // The game on the loading screen.
 std::string loadingPath, loadingTitle;
 
@@ -1848,7 +1931,19 @@ size_t listsKey(bool selectDisk)
 	key = key * 31 + (grouping(selectDisk) ? 1 : 0);
 	if (selectDisk)
 		key = key * 31 + std::hash<std::string>()(insertedPath);
+	key = key * 31 + std::hash<std::string>()(librarySearch);
 	return key;
+}
+
+bool matchesSearch(const Game& g)
+{
+	if (searchWords.empty())
+		return true;
+	const std::string title = lowered(g.title + " " + g.setTitle);
+	for (const std::string& word : searchWords)
+		if (title.find(word) == std::string::npos)
+			return false;
+	return true;
 }
 
 void buildFlat(bool selectDisk)
@@ -1859,7 +1954,8 @@ void buildFlat(bool selectDisk)
 	lib.flatKey = key;
 	lib.flat.clear();
 	for (size_t i = 0; i < games.size(); i++)
-		if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !hiddenDisc(games[i], selectDisk))
+		if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !hiddenDisc(games[i], selectDisk)
+				&& matchesSearch(games[i]))
 			lib.flat.push_back(i);
 	std::sort(lib.flat.begin(), lib.flat.end(), [](size_t a, size_t b) {
 		return strcasecmp(games[a].title.c_str(), games[b].title.c_str()) < 0;
@@ -1958,6 +2054,30 @@ void buildShelves(bool selectDisk)
 		return;
 	lib.shelvesKey = key;
 	std::vector<Shelf> shelves;
+	if (!librarySearch.empty())
+	{
+		// One shelf: what was found, by title.
+		Shelf found{ searchShelfName() };
+		for (size_t i = 0; i < games.size(); i++)
+			if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !hiddenDisc(games[i], selectDisk)
+					&& matchesSearch(games[i]))
+				found.items.push_back(i);
+		std::sort(found.items.begin(), found.items.end(), [](size_t a, size_t b) {
+			return strcasecmp(games[a].title.c_str(), games[b].title.c_str()) < 0;
+		});
+		if (!found.items.empty())
+			shelves.push_back(found);
+		for (const auto& old : lib.shelves)
+			if (!shelves.empty() && old.name == shelves[0].name)
+			{
+				shelves[0].focus = std::clamp(old.focus, 0, (int)shelves[0].items.size() - 1);
+				shelves[0].scroll = old.scroll;
+				shelves[0].focusAnim = old.focusAnim;
+			}
+		lib.shelves = std::move(shelves);
+		lib.shelf = 0;
+		return;
+	}
 	if (!selectDisk)
 	{
 		Shelf recent{ "Recently played" };
@@ -2083,7 +2203,14 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 	const std::string root = shownRoot();
 	std::string title, body, foot = "Press Square to scan again.";
 	bool busy = false;
-	if (lib.source == Network)
+	if (!librarySearch.empty())
+	{
+		title = "No game here matches";
+		body = "\"" + librarySearch + "\"\n\nThe titles of this tab's games were searched for every word of it.\n"
+				"L1 and R1 look in the other tabs.";
+		foot = "Press R3 to search for something else, or Circle to show every game.";
+	}
+	else if (lib.source == Network)
 	{
 		const std::vector<std::string>& folders = ps5::smb::gameFolders();
 		std::string named;
@@ -2196,7 +2323,9 @@ std::string gameIdOf(const Game& g)
 // its section when the page is left).
 struct GameOption
 {
-	enum Category { Video, Audio, System, Controls, Patch };
+	// Own: a Flycast option that only a game has here (the Settings do not
+	// show it): what is right for one game and wrong for the rest.
+	enum Category { Video, Audio, System, Controls, Patch, Own };
 	const char *label;
 	const char *desc;
 	// In a game's section of emu.cfg: the option's section, a dot, its name.
@@ -2448,6 +2577,23 @@ const std::vector<GameOption>& gameOptions()
 		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack",
 				"input.device1.2", { "Rumble pack", "Memory card" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
+		pick("Port A", "A light gun in place of the controller, for the Dreamcast games that are played with one",
+				"input.device1", { "Controller", "Light gun" }, { (int)MDT_SegaController, (int)MDT_LightGun },
+				config::MapleMainDevices[0], G::Own, true),
+		pick("Light gun aiming",
+				"The left stick, a finger on the touch pad, or turning the controller (a touch on the pad centres it)",
+				"ps5.LightGunAim", { "Left stick", "Touch pad", "Motion" },
+				{ ps5::pad::AimStick, ps5::pad::AimTouch, ps5::pad::AimMotion }, ps5::pad::LightGunAim, G::Controls),
+		pick("Motion aiming direction", "For a gun that goes the other way when the controller turns",
+				"ps5.MotionAimDirection", { "As it is", "Left and right swapped", "Up and down swapped", "Both swapped" },
+				{ 0, 1, 2, 3 }, ps5::pad::MotionAimDirection, G::Controls),
+		combined("Light gun crosshair", "Shows where each gun points: white for player 1, then red, green and pink",
+				{ "Off", "On" },
+				{ part("config.rend.CrossHairColor1", config::CrosshairColor[0]),
+						part("config.rend.CrossHairColor2", config::CrosshairColor[1]),
+						part("config.rend.CrossHairColor3", config::CrosshairColor[2]),
+						part("config.rend.CrossHairColor4", config::CrosshairColor[3]) },
+				{ { 0, 0, 0, 0 }, { (int)0xC0FFFFFF, (int)0xC00000FF, (int)0xC000FF00, (int)0xC0FF00FF } }, G::Controls),
 
 		pick("Region", "The console's region", "config.Dreamcast.Region",
 				{ "Japan", "USA", "Europe", "Follow the game" }, { 0, 1, 2, 3 }, config::Region, G::System, true),
@@ -3332,6 +3478,70 @@ float dialogButton(ImDrawList *dl, float x, float y, Glyph g, const char *label,
 	return w;
 }
 
+// ---- the console's own keyboard (ps5_ime.cpp)
+
+bool openKeyboard(int purpose, const char *title, const char *placeholder, const std::string& value, size_t maxLength)
+{
+	if (!ps5::ime::open(title, placeholder, value, maxLength))
+	{
+		ps5::sound::cue(ps5::sound::Cue::Refuse);
+		os_notify("The keyboard did not open", 4000, "flycast-boot.log in PSFlyCast's folder says why");
+		return false;
+	}
+	keyboardFor = purpose;
+	return true;
+}
+
+// Asked each frame by the screen that can open it: -1 while the keyboard is
+// up (the pad is the keyboard's), what the text is for, once, when it was
+// accepted (typed is the text), and 0 otherwise.
+int keyboardState(std::string& typed)
+{
+	if (keyboardFor == KeyboardNone)
+		return 0;
+	switch (ps5::ime::poll())
+	{
+	case ps5::ime::State::Open:
+		return -1;
+	case ps5::ime::State::Accepted:
+	{
+		const int purpose = keyboardFor;
+		keyboardFor = KeyboardNone;
+		typed = ps5::ime::text();
+		return purpose;
+	}
+	default:
+		keyboardFor = KeyboardNone;
+		return 0;
+	}
+}
+
+// ---- leaving PSFlyCast, from the library
+
+struct QuitUi
+{
+	bool open = false;
+} quitUi;
+
+void quitDialog(ImDrawList *dl, const Input& given)
+{
+	if (given.accept)
+	{
+		quitUi.open = false;
+		dc_exit();
+	}
+	else if (given.back)
+		quitUi.open = false;
+	const float w = 700, h = 286, pad = 52;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "Quit PSFlyCast?");
+	text(dl, regular(), 23, at.x + pad, at.y + pad + 50, col::dim, "Back to the console's home screen");
+	float x = at.x + pad;
+	const float y = at.y + h - pad - 60 + 8;
+	x += dialogButton(dl, x, y, Glyph::Cross, "Quit", true) + 20;
+	dialogButton(dl, x, y, Glyph::Circle, "Stay", false);
+}
+
 // ---- updating (ps5_update.cpp)
 
 struct UpdateUi
@@ -3454,11 +3664,16 @@ void updateDialog(ImDrawList *dl, const Input& given)
 
 	case Phase::Installed:
 		title = "PSFlyCast " + now.latest + " is installed";
-		sub = "It starts the next time you open PSFlyCast";
+		sub = "It starts when PSFlyCast is next started";
+		lines.push_back({ "Restarting closes PSFlyCast and opens it again, as the new version", Plain });
+		lines.push_back({ "If the console only closes it, open it again from the home screen", Dim });
 		lines.push_back({ "This version's files are kept in the update folder until the new one has started once", Dim });
-		buttons = { { Glyph::Cross, "Close PSFlyCast now", true }, { Glyph::Circle, "Later", false } };
+		buttons = { { Glyph::Cross, "Restart PSFlyCast now", true }, { Glyph::Circle, "Later", false } };
 		if (given.accept)
+		{
+			ps5::restartOnExit = true;
 			dc_exit();
+		}
 		else if (given.back)
 			updateUi.open = false;
 		break;
@@ -3533,7 +3748,100 @@ struct AddressUi
 	bool open = false;
 	int field = 3;
 	int part[5] = { 192, 168, 1, 2, 19713 };	// the address's four numbers, and the port
+	std::string note;		// what came of typing it
+	bool noteBad = false;
 } addressUi;
+
+// A name typed for the address, looked up off this thread: the numbers it
+// stands for are what the setting holds (Flycast's netplay takes numbers).
+struct AddressLookup
+{
+	std::mutex lock;
+	int state = 0;			// 0 nothing, 1 asking, 2 found, 3 not found
+	unsigned serial = 0;	// the lookup whose answer counts
+	std::string name;
+	int part[4] = {};
+	int port = 0;
+} addressLookup;
+
+void lookUpAddress(const std::string& host, int port)
+{
+	unsigned serial;
+	{
+		std::lock_guard<std::mutex> hold(addressLookup.lock);
+		addressLookup.state = 1;
+		addressLookup.name = host;
+		addressLookup.port = port;
+		serial = ++addressLookup.serial;
+	}
+	std::thread([host, serial] {
+		addrinfo hints{};
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_DGRAM;
+		addrinfo *found = nullptr;
+		const int rc = getaddrinfo(host.c_str(), nullptr, &hints, &found);
+		{
+			std::lock_guard<std::mutex> hold(addressLookup.lock);
+			if (serial == addressLookup.serial)
+			{
+				if (rc == 0 && found != nullptr && found->ai_family == AF_INET && found->ai_addr != nullptr)
+				{
+					const uint8_t *bytes = (const uint8_t *)&((const sockaddr_in *)found->ai_addr)->sin_addr;
+					for (int i = 0; i < 4; i++)
+						addressLookup.part[i] = bytes[i];
+					addressLookup.state = 2;
+				}
+				else
+					addressLookup.state = 3;
+			}
+		}
+		if (found != nullptr)
+			freeaddrinfo(found);
+	}).detach();
+}
+
+// What the keyboard gave for the address: its numbers, or a name, each with
+// or without a port after a colon.
+void addressTyped(const std::string& given)
+{
+	std::string host = trimmed(given);
+	if (host.empty())
+		return;
+	{
+		// A name still being looked up no longer counts.
+		std::lock_guard<std::mutex> hold(addressLookup.lock);
+		addressLookup.serial++;
+		addressLookup.state = 0;
+	}
+	int port = addressUi.part[4];
+	const size_t colon = host.rfind(':');
+	if (colon != std::string::npos && host.find(':') == colon)
+	{
+		const int asked = atoi(host.c_str() + colon + 1);
+		if (asked >= 1 && asked <= 65535)
+			port = asked;
+		host.resize(colon);
+	}
+	unsigned a, b, c, d;
+	char more;
+	if (sscanf(host.c_str(), "%u.%u.%u.%u%c", &a, &b, &c, &d, &more) == 4 && a < 256 && b < 256 && c < 256 && d < 256)
+	{
+		const unsigned numbers[4] = { a, b, c, d };
+		for (int i = 0; i < 4; i++)
+			addressUi.part[i] = (int)numbers[i];
+		addressUi.part[4] = port;
+		addressUi.note = "Typed. Cross saves it";
+		addressUi.noteBad = false;
+		return;
+	}
+	if (host.find_first_of(" /") != std::string::npos || host.empty())
+	{
+		addressUi.note = "\"" + host + "\" is not an address or a name";
+		addressUi.noteBad = true;
+		return;
+	}
+	lookUpAddress(host, port);
+}
 
 constexpr int NetplayPort = 19713;		// Flycast's (core/network/ggpo.cpp)
 
@@ -3567,6 +3875,33 @@ std::string otherPlayerText()
 void addressDialog(ImDrawList *dl, const Input& given)
 {
 	AddressUi& ui = addressUi;
+	bool asking;
+	{
+		std::lock_guard<std::mutex> hold(addressLookup.lock);
+		if (addressLookup.state == 2)
+		{
+			for (int i = 0; i < 4; i++)
+				ui.part[i] = addressLookup.part[i];
+			ui.part[4] = addressLookup.port;
+			ui.note = addressLookup.name + " is this address. Cross saves it";
+			ui.noteBad = false;
+			addressLookup.state = 0;
+		}
+		else if (addressLookup.state == 3)
+		{
+			ui.note = "\"" + addressLookup.name + "\" was not found. Its numbers work without a name";
+			ui.noteBad = true;
+			addressLookup.state = 0;
+		}
+		asking = addressLookup.state == 1;
+		if (asking)
+		{
+			ui.note = "Looking up " + addressLookup.name;
+			ui.noteBad = false;
+		}
+	}
+	if (given.square)
+		openKeyboard(KeyboardAddress, "The other player's address", "192.168.1.20, or a name", "", 80);
 	if (given.left && ui.field > 0)
 		ui.field--;
 	if (given.right && ui.field < 4)
@@ -3579,8 +3914,12 @@ void addressDialog(ImDrawList *dl, const Input& given)
 			value = ((value + step) % 256 + 256) % 256;		// round and round
 		else
 			value = std::clamp(value + step, 1, 65535);
+		if (!asking)
+			ui.note.clear();
 	}
-	if (given.accept)
+	if (given.accept && asking)
+		ps5::sound::cue(ps5::sound::Cue::Refuse);
+	else if (given.accept)
 	{
 		char address[48];
 		snprintf(address, sizeof(address), "%d.%d.%d.%d", ui.part[0], ui.part[1], ui.part[2], ui.part[3]);
@@ -3603,6 +3942,13 @@ void addressDialog(ImDrawList *dl, const Input& given)
 	const float w = 1080, h = 470, pad = 52;
 	const ImVec2 at = dialogPanel(dl, w, h);
 	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "The other player's address");
+	if (given.back || given.triangle)
+	{
+		// Closed: a name still being looked up no longer counts.
+		std::lock_guard<std::mutex> hold(addressLookup.lock);
+		addressLookup.serial++;
+		addressLookup.state = 0;
+	}
 	const std::string own = ps5::net::localAddress();
 	const std::string sub = "Their console or PC on the network. They enter this console's"
 			+ (own.empty() ? std::string("") : ": " + own);
@@ -3638,14 +3984,17 @@ void addressDialog(ImDrawList *dl, const Input& given)
 			x += space;
 		}
 	}
-	const char *field = ui.field < 4 ? "Up and down change the number; L2 and R2 by 10, L1 and R1 by 100"
+	const std::string field = !ui.note.empty() ? fit(regular(), 22, ui.note, w - 2 * pad)
+			: ui.field < 4 ? "Up and down change the number; L2 and R2 by 10, L1 and R1 by 100"
 			: "The port: 19713 unless the other player says otherwise";
-	const ImVec2 fs = textSize(regular(), 22, field);
-	text(dl, regular(), 22, at.x + (w - fs.x) / 2, by + boxH + 44, col::faint, field);
+	const ImVec2 fs = textSize(regular(), 22, field.c_str());
+	text(dl, regular(), 22, at.x + (w - fs.x) / 2, by + boxH + 44, ui.note.empty() ? col::faint : ui.noteBad ? col::warm : col::text,
+			field.c_str());
 	float bx = at.x + pad;
 	const float buttonsY = at.y + h - pad - 60 + 8;
 	bx += dialogButton(dl, bx, buttonsY, Glyph::Cross, "Save", true) + 20;
 	bx += dialogButton(dl, bx, buttonsY, Glyph::Circle, "Cancel", false) + 20;
+	bx += dialogButton(dl, bx, buttonsY, Glyph::Square, "Type it", false) + 20;
 	dialogButton(dl, bx, buttonsY, Glyph::Triangle, "No address", false);
 }
 
@@ -3877,7 +4226,7 @@ void library(bool selectDisk)
 			if (skipped)
 			{
 				// The sound ends with it, and the mark turns as it always does.
-				ps5::sound::stop();
+				ps5::sound::stopStartup();
 				markSpunAt = -1e9;
 			}
 		}
@@ -3923,11 +4272,26 @@ void libraryScreen(bool selectDisk)
 	// dialog takes the pad while it is open.
 	if (!selectDisk && !game_started && ps5::update::offerAtStart())
 		openUpdate(false);
+	// The console's keyboard, for a search: the pad is its while it is up.
+	{
+		std::string typed;
+		const int keyboard = keyboardState(typed);
+		if (keyboard == KeyboardSearch)
+			setSearch(typed);
+		if (keyboard == -1)
+			in = Input{};
+	}
 	if (updateUi.open)
 	{
 		const Input given = in;
 		in = Input{};
 		updateDialog(ImGui::GetForegroundDrawList(), given);
+	}
+	if (quitUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		quitDialog(ImGui::GetForegroundDrawList(), given);
 	}
 	chooseSource();
 	refreshGames(lib.source == Network);
@@ -4035,8 +4399,20 @@ void libraryScreen(bool selectDisk)
 		// game: its options are in the quick menu).
 		if (in.options && !selectDisk)
 			gui_setState(GuiState::Settings);
-		if (selectDisk && in.back)
-			gui_setState(GuiState::Commands);
+		// R3 searches the titles, on the console's keyboard. Circle shows every
+		// game again; with nothing searched for it leaves: the disc choice for
+		// its game, the library for the console's home screen (after asking).
+		if (in.r3)
+			openKeyboard(KeyboardSearch, "Search the library", "A game's title, or part of it", librarySearch, 40);
+		if (in.back)
+		{
+			if (!librarySearch.empty())
+				setSearch("");
+			else if (selectDisk)
+				gui_setState(GuiState::Commands);
+			else
+				quitUi.open = true;
+		}
 		if (in.l1 || in.r1)
 		{
 			// The next tab, round and round.
@@ -4119,6 +4495,17 @@ void libraryScreen(bool selectDisk)
 	const std::string downloading = ps5::covers::status();
 	if (!downloading.empty())
 		notes.push_back(std::string(ICON_FA_DOWNLOAD) + "   " + downloading);
+	// What is searched for and how many games have it, on the other side
+	// (the shelves say it over the one shelf they are then).
+	if (!librarySearch.empty() && !empty && !lib.details && v != Shelves)
+	{
+		const size_t count = lib.flat.size();
+		const std::string found = std::string(ICON_FA_MAGNIFYING_GLASS) + "   " + fit(regular(), 20, librarySearch, 420) + "   \xc2\xb7   "
+				+ std::to_string(count) + (count == 1 ? " game" : " games");
+		const ImVec2 fs = textSize(regular(), 20, found.c_str());
+		rect(dl, 96, H - 72 - 52, fs.x + 32, 36, alpha(col::accent, 0.85f), 18);
+		text(dl, regular(), 20, 96 + 16, H - 72 - 52 + 18 - fs.y / 2, col::text, found.c_str());
+	}
 	float noteY = H - 72 - 52;
 	for (const std::string& note : notes)
 	{
@@ -4138,6 +4525,8 @@ void libraryScreen(bool selectDisk)
 	topBar(dl, lib.source, false, selectDisk ? Reach::Sources : Reach::All);
 	const Glyph browse = view() == List ? Glyph::DPadUD : Glyph::DPadLR;
 	const char *scanHint = lib.source == Network ? "Scan the share" : "Rescan";
+	const bool searching = !librarySearch.empty();
+	const char *leave = searching ? "Clear search" : selectDisk ? "Back" : "Quit";
 	if (lib.details && selectDisk)
 		hintBar(dl, { { Glyph::Cross, "Insert" }, { Glyph::Circle, "Back" } });
 	else if (lib.details && det.page == PageActions && setsGrouped && focused != nullptr && focused->setSize > 1)
@@ -4149,16 +4538,22 @@ void libraryScreen(bool selectDisk)
 		hintBar(dl, { { Glyph::DPadUD, "Slot" }, { Glyph::Cross, "Start from it" }, { Glyph::Circle, "Back" } });
 	else if (lib.details)
 		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } });
+	else if (selectDisk && empty && searching)
+		hintBar(dl, { { Glyph::L1R1, "Source" }, { Glyph::R3, "Search" }, { Glyph::Circle, "Clear search" } });
 	else if (selectDisk)
-		hintBar(dl, { { Glyph::L1R1, "Source" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" },
-				{ Glyph::Cross, "Insert disc" }, { Glyph::Triangle, "Details" }, { Glyph::Circle, "Back" } });
+		hintBar(dl, { { Glyph::L1R1, "Source" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
+				{ Glyph::Cross, "Insert disc" }, { Glyph::Triangle, "Details" }, { Glyph::Circle, leave } });
+	else if (empty && searching)
+		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::R3, "Search" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty && lib.source == Network && (ps5::smb::gameFolders().empty() || net.scanning || net.wanted))
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" } });
+		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty)
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Square, scanHint }, { Glyph::Options, "Settings" } });
+		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Square, scanHint }, { Glyph::Options, "Settings" },
+				{ Glyph::Circle, leave } });
 	else
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::Square, scanHint },
-				{ Glyph::Options, "Settings" }, { Glyph::Triangle, "Details" }, { Glyph::Cross, "Play" } });
+		hintBar(dl, { { Glyph::L1R1, "Tab" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
+				{ Glyph::Square, scanHint }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave },
+				{ Glyph::Triangle, "Details" }, { Glyph::Cross, "Play" } });
 	endScreen();
 }
 
@@ -4448,9 +4843,16 @@ std::vector<Category> buildCategories()
 	{
 		// The front end's own: the driver takes the mode, or not, when Flycast starts.
 		Row r{ Row::Toggle, "120 Hz output",
-				"On a TV that takes 4K at 120 Hz. Takes effect the next time PSFlyCast starts; About says what the display runs at" };
+				"On a TV that takes 4K at 120 Hz. From the next start; About says what the display runs at" };
 		r.get = [] { return ps5::options().hz120 ? 1 : 0; };
 		r.set = [](int v) { ps5::options().hz120 = v != 0; ps5::saveOptions(); };
+		video.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Variable refresh rate",
+				"Experimental, on a VRR display with 120 Hz output: a frame shows as soon as it is ready. Next start" };
+		r.get = [] { return ps5::options().vrr ? 1 : 0; };
+		r.set = [](int v) { ps5::options().vrr = v != 0; ps5::saveOptions(); };
 		video.rows.push_back(r);
 	}
 	cats.push_back(video);
@@ -4476,8 +4878,25 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Info, "Controllers",
-				"Another player joins by signing in on a second DualSense (PS button): the next port, own memory card" };
-		r.info = [] { return ps5::pad::portsText(); };
+				"Another player joins from a second DualSense, with its PS button" };
+		r.info = [] {
+			const std::string usb = ps5::usb::text();
+			return ps5::pad::portsText() + (usb.empty() ? "" : "; USB " + usb);
+		};
+		controls.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Light bar in the player's colour",
+				"Blue for player 1, red for 2, green for 3, pink for 4. Off: the console's own colour" };
+		r.get = [] { return ps5::options().lightBar ? 1 : 0; };
+		r.set = [](int v) { ps5::options().lightBar = v != 0; ps5::saveOptions(); };
+		controls.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "USB keyboard and mouse",
+				"Plugged into the console, they are the Dreamcast's: in the ports after the controllers', from a game's start" };
+		r.get = [] { return ps5::options().usbInput ? 1 : 0; };
+		r.set = [](int v) { ps5::options().usbInput = v != 0; ps5::saveOptions(); };
 		controls.rows.push_back(r);
 	}
 	const char *layout[][2] = {
@@ -4565,6 +4984,12 @@ std::vector<Category> buildCategories()
 		online.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Action, "Name online", "The name a game's own online mode signs in with: typed on the console's keyboard" };
+		r.info = [] { return config::ISPUsername.get().empty() ? std::string("The console's own") : config::ISPUsername.get(); };
+		r.action = [] { openKeyboard(KeyboardName, "Name online", "Letters and numbers, no spaces", config::ISPUsername.get(), 28); };
+		online.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Choice, "Dreamcast online",
 				"How a game's own online mode connects. DCNet is Flycast's service for games' revived servers",
 				{ "Modem, through DCNet", "Broadband adapter, through DCNet", "Modem, direct", "Broadband adapter, direct" },
@@ -4611,6 +5036,10 @@ std::vector<Category> buildCategories()
 		sound.get = [] { return ps5::options().splashSound ? 1 : 0; };
 		sound.set = [](int v) { ps5::options().splashSound = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(sound);
+		Row menu{ Row::Toggle, "Menu sounds", "A soft note for moving, choosing, going back and changing tab" };
+		menu.get = [] { return ps5::options().menuSounds ? 1 : 0; };
+		menu.set = [](int v) { ps5::options().menuSounds = v != 0; ps5::saveOptions(); };
+		look.rows.push_back(menu);
 	}
 	cats.push_back(look);
 
@@ -4746,7 +5175,7 @@ std::vector<Category> buildCategories()
 			char mode[64];
 			snprintf(mode, sizeof(mode), "%d x %d at %.2f Hz", ::settings.display.width, ::settings.display.height,
 					::settings.display.refreshRate);
-			return std::string(mode);
+			return std::string(mode) + (ps5::variableRefresh ? ", variable refresh" : "");
 		};
 		about.rows.push_back(r);
 	}
@@ -4772,6 +5201,7 @@ std::vector<Category> buildCategories()
 			{ "Vulkan driver", "Mesa RADV: PS5_Vulkan and PS5_Mesa, by Mihawk-99" },
 			{ "Title start-up and SDK", "ps5-payload-sdk, by John Tornblom, and Mihawk-99's fork of it" },
 			{ "USB drive access", "ps5-native-app-boilerplate, by BlackBearReloaded" },
+			{ "Keyboard, USB input, home sound", "After BlackBearReloaded's Prospero projects; ps5-at9-converter" },
 			{ "Network shares", "libsmb2, by Ronnie Sahlberg" },
 			{ "Upscaling", "FidelityFX Super Resolution 1.0, by AMD" },
 			{ "Cheats", "libretro-database (CC BY-SA 4.0)" },
@@ -4875,6 +5305,23 @@ void settings()
 		st.cats = buildCategories();
 	ImDrawList *dl = beginScreen("##bp-settings", true);
 
+	// The console's keyboard takes the pad while it is up; what was typed goes
+	// where it was asked for.
+	{
+		std::string typed;
+		const int keyboard = keyboardState(typed);
+		if (keyboard == KeyboardAddress)
+			addressTyped(typed);
+		else if (keyboard == KeyboardName)
+		{
+			// As Flycast keeps it: printable characters, no spaces.
+			typed.erase(std::remove_if(typed.begin(), typed.end(), [](char c) { return c <= ' ' || c > '~'; }), typed.end());
+			config::ISPUsername.set(typed);
+			st.dirty = true;
+		}
+		if (keyboard == -1)
+			in = Input{};
+	}
 	// A dialog over the Settings takes the pad.
 	const Input given = in;
 	const bool dialog = updateUi.open || addressUi.open;

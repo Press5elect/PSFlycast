@@ -7,6 +7,7 @@
 #pragma once
 #include "cfg/option.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -42,6 +43,10 @@ struct Options
 	bool groupDiscs = true;	// the discs of one game are one entry in the library
 	bool splash = true;		// the start-up animation, before the library
 	bool splashSound = true;	// and its sound
+	bool menuSounds = true;		// a sound for moving, choosing and going back
+	bool lightBar = true;		// each pad's light bar in its player's colour
+	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
+	bool vrr = false;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts
 	// The console's pop-up notices (USB drives without elfldr, a crash). Off:
 	// they are lines of flycast-boot.log only. No setting; frontend.cfg has it.
@@ -56,7 +61,7 @@ struct Options
 	// Which of the port's own defaults were already written over the settings
 	// an earlier build saved: 1 native depth interpolation on (build 18), 2 a
 	// rumble pack in the controller's second slot (build 19), 3 UPnP off
-	// (build 40).
+	// (build 40), 4 the Dreamcast's language from the console's (build 41).
 	int defaults = 0;
 };
 Options& options();
@@ -172,14 +177,53 @@ bool offerAtStart();
 
 namespace sound
 {
-// The start-up sound, <root>/sounds/startup.wav (16-bit PCM), through a port
-// of its own that is closed when the sound ends: from a moment of it, at a
-// loudness (1 as recorded). Returns at once; nothing happens without the file.
+// The interface's sounds (ps5_audio.cpp), through a port of their own that
+// is closed before a game opens the emulator's.
+// The start-up sound, <root>/sounds/startup.wav (16-bit PCM): from a moment
+// of it, at a loudness (1 as recorded). Returns at once; nothing happens
+// without the file. stopStartup ends it within a few hundredths of a second.
 void playStartup(float fromSeconds, float gain);
-// Ends it within a few hundredths of a second. With wait, returns once its
-// port is closed (the emulator's own sound opens one next).
-void stop(bool wait = false);
+void stopStartup();
+// The menu's sounds, when they are on (Options::menuSounds).
+enum class Cue { Move, Select, Back, Tab, Open, Refuse, Count };
+void cue(Cue which);
+// Everything ends and the port is closed; returns when it is.
+void close();
 }
+
+namespace usb
+{
+// A USB keyboard and a USB mouse as the Dreamcast's (ps5_usbinput.cpp).
+// Loads the system's modules for them and for the keyboard on the screen:
+// called once, before the sandbox is left.
+void preload();
+// Reads them: once a frame, with the pads.
+void poll();
+// As a game starts: the keyboard and the mouse that are connected take the
+// first ports no pad has (taken: a bit for each port a pad is in).
+void plugPorts(uint32_t taken);
+// "keyboard", "mouse", "keyboard and mouse", or empty.
+std::string text();
+}
+
+namespace ime
+{
+// Text from the console's own keyboard on the screen (ps5_ime.cpp). open
+// shows it, and is false when it cannot be shown; poll says each frame how
+// it stands, and once Accepted or Cancelled (then Idle again); text is what
+// was last accepted.
+enum class State { Idle, Open, Accepted, Cancelled, Failed };
+bool open(const std::string& title, const std::string& placeholder, const std::string& value, size_t maxLength);
+State poll();
+const std::string& text();
+}
+
+// Variable refresh was asked for and the output took it (vulkan_context.cpp
+// sets it): a frame is shown when it is ready, and the sound paces the game.
+extern bool variableRefresh;
+// PSFlyCast starts again once it has closed, instead of going back to the
+// console's home screen (after an update).
+extern bool restartOnExit;
 
 namespace covers
 {
