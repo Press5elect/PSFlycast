@@ -224,7 +224,15 @@ std::string lower(std::string text)
 std::vector<std::string> notesOf(const std::string& body)
 {
 	std::vector<std::string> notes;
+	// From where the changes begin: what is above that heading (the notice
+	// every release's notes open with) has lists of its own.
 	size_t at = 0;
+	for (const char *heading : { "\n## Changes", "\n## What's new", "\n## Highlights" })
+		if (const size_t found = body.find(heading); found != std::string::npos)
+		{
+			at = found + 1;
+			break;
+		}
 	while (at < body.size() && notes.size() < 4)
 	{
 		size_t end = body.find('\n', at);
