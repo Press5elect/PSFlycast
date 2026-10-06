@@ -1,5 +1,19 @@
 # PSFlyCast
 
+![Important warning](shell/ps5/screenshots/important-warning.png)
+
+## PSFlyCast is a passion project, not a piracy project.
+
+It exists so you can play the games you own on the console you own.
+
+- **Piracy is not condoned.**
+- **No games, BIOS files, console firmware or decryption keys are included, and they never will be.**
+- **Use only legally obtained backups of games you own**, made yourself from your own discs.
+- **Use only BIOS files dumped from hardware you own.**
+- **Requests for, or links to, games, BIOS files, firmware or keys are not welcome** in this project's issues or discussions.
+
+---
+
 **PSFlyCast** is an unofficial port of Flycast to a jailbroken PS5: a native
 app with a controller-only interface, drawing through RADV. Everything about
 it - installing, the controls, building, credits - is in
