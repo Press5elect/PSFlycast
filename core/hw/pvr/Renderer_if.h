@@ -30,6 +30,13 @@ void rend_process_custom_texture_preloads();
 bool rend_supports_gpu_texture_preload();
 void rend_serialize(Serializer& ser);
 void rend_deserialize(Deserializer& deser);
+#ifdef USE_PS5
+// PSFlyCast: the frame being rendered is the software renderer's (rend/soft),
+// and frames are shown as in full framebuffer emulation: read back from VRAM
+// at each vertical blank. Set when a frame is queued, so it does not change
+// while that frame is processed and rendered.
+bool rend_software_frame();
+#endif
 static void rend_updatePalette();
 static void rend_updateFogTable();
 

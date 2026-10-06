@@ -11,8 +11,9 @@
 # the signed eboot.
 #
 # PS5_VULKAN_DIR names the PS5_Vulkan checkout, with RADV built
-# (tools/build-radv.sh release) and libc.prx and the host tool rebuilt
-# (tools/rebuild-libc.sh). RADV_ARCHIVE may name another RADV archive.
+# (tools/build-radv.sh release) and its host tool made (make, after
+# tools/bootstrap.sh): shell/ps5/build.sh says what it looks for.
+# RADV_ARCHIVE may name another RADV archive.
 set -euo pipefail
 target=$1
 shift

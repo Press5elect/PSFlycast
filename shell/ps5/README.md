@@ -21,13 +21,16 @@ everything in it.
 | ![The start-up animation](screenshots/47-splash.png) | ![The Ember skin](screenshots/31-skin-ember.png) |
 | ![The letters fly to the top bar as birds](screenshots/48-splash-leaving.png) | ![Settings > Online](screenshots/50-settings-online.png) |
 | ![The library searched from the console's keyboard](screenshots/62-search.png) | ![Leaving from the library](screenshots/61-quit.png) |
+| ![The Favourites shelf](screenshots/70-favourites-shelf.png) | ![Game details > Manage](screenshots/71b-details-manage.png) |
+| ![Change cover](screenshots/72-change-cover.png) | ![The memory card manager](screenshots/82b-cards-saves.png) |
+| ![The quick menu's Rewind page](screenshots/95-quick-menu-rewind.png) | ![Settings > Achievements](screenshots/92c-settings-achievements-signed-in.png) |
 
 ## Status
 
-Latest release: **v1.0.2** (build 41). It is built on Flycast's `dev` branch,
-the one Flycast's nightly builds are made from.
+Latest release: **v1.1.0** (build 42), built on Flycast's `dev` branch, the
+one Flycast's nightly builds are made from.
 
-Played on a PS5 over the builds that led to it: Dreamcast games from the
+Played on a PS5 over the builds that led to v1.0.2: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; save states made
 by v1.0.0; cover downloads; the quick menu and the per-game options; games on
 several discs, grouped and swapped from the quick menu; the library; the
@@ -38,16 +41,26 @@ the title's folder; 119.88 Hz output on a display that takes it, and
 frame pacing choices; internal resolution above 6x and the texture options;
 FSR 1 upscaling; per-pixel transparency with 32 to 128 layers, with its HUD
 and menus at 3x and 4x; object draw distance, with which objects appeared
-from further away. No frame rates or audio were measured.
+from further away. And on v1.0.2 itself: leaving PSFlyCast from the library;
+searching the library on the console's keyboard, and the keyboard for the
+netplay address and the name online; the menu sounds and the sound on the
+console's home screen; aiming a light gun with the touch pad and by turning
+the controller; the light bar in the player's colour. No frame rates or
+audio were measured.
 
-New in v1.0.2 and not confirmed on a console: leaving PSFlyCast from the
-library; searching the library on the console's keyboard, and the keyboard
-for the netplay address and the name online; the menu sounds and the sound
-on the console's home screen; aiming a light gun with the touch pad or by
-turning the controller, and the light bar in the player's colour; a USB
-keyboard and mouse as the Dreamcast's; restarting into a new version after
-an update; the Dreamcast's language set from the console's; and variable
-refresh rate, which is off until it is turned on.
+New in v1.1.0, and none of it run on a console yet: RetroAchievements;
+rewind; the memory card manager; favourites, hidden games, time played and
+last played; Change cover; fast forward and screenshots, from the quick menu
+or a button of the controller; the Scanlines and CRT picture filters; the
+software renderer; the memory card's screen in a corner of the picture, and
+Stretch to fill; what Flycast's 16 newer commits change; the title as built
+on PS5_VulkanTemplate's stack, with its newer driver and SDK; and 120 Hz
+output with USB drives on. [New in v1.1.0](#new-in-v110) says what each is.
+
+From v1.0.2 and still not confirmed on a console: a USB keyboard and mouse
+as the Dreamcast's; restarting into a new version after an update; the
+Dreamcast's language set from the console's; and variable refresh rate,
+which is off until it is turned on.
 
 In earlier builds and still not confirmed on a console: a second, third and
 fourth player joining while the title runs; names looked up for the games'
@@ -65,6 +78,68 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.1.0
+
+None of it has been run on a console yet: what follows is what the code
+does.
+
+Added:
+
+- **RetroAchievements** (Settings > Achievements): the achievements of
+  retroachievements.org, earned as you play, through Flycast's own support
+  for the site. Softcore only: hardcore mode is not offered. See
+  [Achievements](#achievements).
+- **Rewind** (Settings > System, off by default, experimental): a game's
+  last three minutes are kept in memory, and the quick menu goes back into
+  them. See [Controls](#controls).
+- **A memory card manager** (Settings > System > Memory cards): the saves
+  on each card, copied to another card, deleted, and taken to and from
+  files. See [Memory cards](#memory-cards).
+- **Favourites, hidden games, time played and last played**, under
+  **Manage** in a game's details, with a Favourites shelf in the library
+  and Settings > Library > Show hidden games.
+- **Change cover**, under Manage too: the collection's box art, title
+  screen or picture of a moment of play, the cover PSFlyCast finds by
+  itself, or your own picture.
+- **Fast forward** and **Screenshot** in the quick menu, and as two
+  controls that can be put on a button of the controller.
+- **Scanlines** and **CRT**, two picture filters in Settings > Video >
+  Upscaling.
+- **Software renderer** (Settings > Video, or for one game; experimental):
+  the picture computed on the CPU by a software model of the Dreamcast's
+  graphics chip.
+- **Memory card screen** and **Stretch to fill** in Settings > Video.
+- Two folders: `screenshots/` and `vmu/`.
+
+Changed:
+
+- The emulator is Flycast's `dev` branch at
+  `4dca1988dab56f603c2309e8882e264252fa7c8f`; v1.0.2 had
+  `f83fda7069ee7a32e206cb5092c38fd0216d80af`. That is 16 commits of
+  Flycast's, among them a fix to the synchronisation between render passes
+  and frames in the Vulkan per-pixel transparency renderer, checks of the
+  buffer lengths in a save state and of the packets netplay and DCNet
+  receive, and the Stretch to fill option.
+- The build uses the stack of
+  [PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate):
+  newer revisions of PS5_Vulkan, PS5_Mesa and the payload SDK fork, which
+  [Building](#building) names.
+- The link step refuses a build that imports a function no module a title
+  loads exports. Such an import links, and is null at run time: its first
+  call would stop the title.
+- With USB drives on, PSFlyCast runs outside its sandbox, where there is no
+  `/app0` for the driver to read the title's `param.json` from. The title
+  now names the file to the driver, so that 120 Hz output can be taken
+  there too.
+- Every request PSFlyCast makes over the web says what it comes from:
+  `PSFlyCast/1.1.0 (PlayStation 5) Flycast/<Flycast's version>`.
+- `flycast-boot.log` has a line starting `storage:` for each of the folders
+  a title may be given (`/app0`, `/download0`, `/data`, `/data/homebrew`,
+  `/user/data`): whether it is there, and whether a file can be made in it.
+  They are for a later version, which may
+  keep what is yours outside the title's folder. Nothing is moved or kept
+  anywhere else yet.
 
 ## What you need
 
@@ -113,7 +188,9 @@ Everything is in the title's own folder, `/data/homebrew/PPSA99247/`
 | `network.cfg` | The network shares to read games from |
 | `cheats/` | Cheat files (`.cht`); the libretro database's Dreamcast set is included |
 | `patches/` | Game patches (60 FPS, widescreen): your own `patches.txt`; none is included |
-| `data/` | Saves, VMUs, save states, which cheats are on, each game's shader list |
+| `data/` | Saves, VMUs, save states, which cheats are on, each game's shader list; favourites, hidden games and time played (`library.txt`) |
+| `screenshots/` | The pictures Screenshot saves, each named `Flycast-` and its date and time |
+| `vmu/` | Memory card saves as files: where the memory card manager exports them to, and where it looks for the ones to add (`.vmi` with its `.vms`, or `.dci`) |
 | `sounds/` | `startup.wav`, the start-up sound; a WAV file of your own there plays in its place |
 | `update/` | Only while an update is on its way: the download, and the version before it until the new one has started |
 | `radv-shader-cache/` | The graphics driver's compiled shaders |
@@ -132,15 +209,48 @@ Everything is in the title's own folder, `/data/homebrew/PPSA99247/`
   description and release date come from TheGamesDB, through Flycast's own
   scraper: a local disc is looked up by the ID on the disc, a game on the
   network share by its file name (the share is not read for this).
-- **Game details (Triangle in the library):** the description, and four
+- **Game details (Triangle in the library):** the description, and five
   actions. **Play**; **Load state** starts the game from one of its saved
   states; **Options** gives the game settings of its own (resolution,
   widescreen, region, cable and others: each follows the Settings until you
   change it here); **Cheats** picks the cheat file and switches cheats on
-  before the game starts. Options and cheats are kept under the ID the emulator
+  before the game starts; **Manage** is below. Options and cheats are kept under the ID the emulator
   reads from the game, so a network or arcade game has to be started once
   before they can be set. While a game that has options of its own runs,
-  changes made in Settings are kept for that game only.
+  changes made in Settings are kept for that game only. Under the cover are
+  the file's name, the game's ID, and how long the game was played and when
+  last.
+- **Manage (in Game details):** five rows, new in v1.1.0 and not confirmed
+  on a console yet.
+  - *Favourite.* A favourite is on a **Favourites** shelf of its tab, after
+    Recently played, and has a star in the grid and in the list.
+  - *Hide from the library.* The game leaves every list, the search's too.
+    Settings > Library > **Show hidden games** lists the hidden ones again,
+    dimmed and marked with a struck-through eye, and the same row, now
+    **Show in the library again**, brings one back. Settings > Library >
+    Hidden games counts them. Nothing is deleted.
+  - *Change cover* opens the choice of covers, below.
+  - *Time played* and *Last played.* The time counts while the game itself
+    runs: not in the quick menu, nor in the Settings. A game last started
+    by an earlier version says "Before play time was kept".
+
+  A game on several discs is one game for all of these: every disc is a
+  favourite or hidden with it, and their times are added up. It is all kept
+  in `data/library.txt`.
+- **Change cover:** up to five pictures side by side. **Automatic** is the
+  cover PSFlyCast finds by itself: the downloaded box art, or the picture
+  the game brings. **Box art**, **Title screen** and **In game** are the
+  three pictures the libretro thumbnails collection keeps under a game's
+  file name, downloaded when the choice opens; **Yours** is your own
+  picture from `covers/`, when there is one. Left and right choose, Cross
+  uses the picture, Square asks again for one that could not be downloaded.
+  The collection's pictures are of Dreamcast discs, so for an arcade game
+  the three cannot be chosen, and downloads have to be on (Settings >
+  Library). Every disc of a game takes the cover chosen (with Yours, each
+  disc that has a picture of yours takes its own). Your own picture
+  is never deleted: while another cover has its place it is put aside in
+  `covers/.yours/`, and Yours puts it back. The downloaded pictures are
+  kept in `covers/.choices/`.
 - **Cheats:** also in a game, touch pad > Cheats. The closest-named cheat file
   is loaded with every cheat off; switch on the ones you want, or pick another
   file with left/right on the first row. Your own `.cht` files go in `cheats/`.
@@ -151,7 +261,8 @@ Everything is in the title's own folder, `/data/homebrew/PPSA99247/`
   `atomiswave`, `arcade`) at the top of the drive. This needs elfldr listening
   on port 9021 (the payload loader kstuff setups run): PSFlyCast sends it the
   bundled `sandbox-elevator.elf`, which lets PSFlyCast out of its sandbox.
-  Cover downloads may stop working while this is on.
+  Cover downloads may stop working while this is on, and with them what
+  else needs HTTPS: the update check and the achievements.
 - **Network share (SMB):** edit `network.cfg` in PSFlyCast's folder (PSFlyCast
   writes a template the first time it runs):
 
@@ -205,6 +316,11 @@ Everything is in the title's own folder, `/data/homebrew/PPSA99247/`
     refused it.
   - *Settings > Video > 120 Hz output* turns it off (from the next start of
     PSFlyCast), should a display take the mode badly.
+  - *With USB drives on.* The driver asks for 119.88 Hz only when the
+    title's `param.json` allows it, and reads that file from `/app0`.
+    Outside the sandbox, where PSFlyCast runs with USB drives on, there is
+    no `/app0`: from v1.1.0 the title names the file to the driver, so the
+    mode can be taken there too. Not confirmed on a console yet.
 - **A game that draws wrong, or shows nothing:**
   - *Native depth interpolation* (Settings > Video, on by default). The console's graphics chip is AMD's, as in the Xbox, and without
     this option wall and floor textures warp and flicker as you move in
@@ -247,7 +363,7 @@ lines (`notice: ...`) either way.
 | D-pad / left stick | Browse |
 | L2 / R2 | Jump by letter: R2 to the first game of the next letter, L2 to the first of this one, then of the one before. The letter shows for a moment |
 | Cross | Play |
-| Triangle | Game details: description, load state, the game's own options, cheats |
+| Triangle | Game details: description, load state, the game's own options, cheats, and Manage (favourite, hide, cover, time played) |
 | Square | Scan the open tab again |
 | R3 (press the right stick) | Search: the console's keyboard opens, and the tab shows the games whose title has every word typed |
 | Circle | With a search: every game again. Without: leave PSFlyCast, after asking |
@@ -269,7 +385,8 @@ While a game loads, Circle cancels.
 | **Touch pad click** | **Quick menu** | **Quick menu** |
 
 The **quick menu** pauses the game: resume, save and load states (10 slots,
-with a picture of each), change discs, cheats, game options, controls,
+with a picture of each), rewind (when it is on), fast forward, a screenshot,
+change discs, cheats, achievements (when they are on), game options, controls,
 restart the game, and quit it. Circle or the touch pad resumes. Up to four DualSense controllers
 work, one per logged-in user.
 
@@ -313,6 +430,33 @@ Dreamcast's processor slower or faster than its 200 MHz, from 100 to
 is uneven; it does not make a 30 fps game run at 60, and some games break
 or run too fast with it. It takes effect when the game resumes.
 
+**Rewind** (experimental, off by default) goes back a little way in a game.
+With Settings > System > **Rewind** on, a snapshot of the whole machine is
+taken every 5 seconds of play, as Save state would make one, and the last
+3 minutes of them are kept, compressed, in memory: 384 MiB at most, the
+oldest dropped first. The quick menu then has **Rewind**, a list of those
+moments, the newest first ("8 seconds ago"); Cross goes back to one and the
+game goes on from there. The memory cards go back with the machine, so what
+the game saved since is undone, and the moments after the one chosen are
+forgotten. The time is time of play: the menus do not count. The moments
+are also forgotten when a state is loaded, the disc is changed, or the game
+starts, ends or goes online. There is no rewind in netplay, while a game is
+online, or between linked arcade boards. `flycast-boot.log` has what it
+does, in the lines starting `rewind:`. Not confirmed on a console yet.
+
+**Fast forward**, in the quick menu, lets the game run without being held
+to its own pace, with no sound, until it is turned off there again or the
+game is quit. It is Flycast's own. On this console the display still holds
+it: every frame is shown for one refresh, so with 120 Hz output a game that
+runs at 60 frames a second can reach at most about twice its speed, and
+with 60 Hz output nothing is gained. Not in netplay, online or between
+linked arcade boards. Not confirmed on a console yet.
+
+**Screenshot**, in the quick menu, saves the game's picture as it was last
+drawn, without the menu, as a PNG file in `screenshots/` in PSFlyCast's
+folder, and the game goes on with a line saying so. It is Flycast's own too.
+Not confirmed on a console yet.
+
 **Controls**, in the quick menu, changes which DualSense button is which
 Dreamcast (or arcade) one, for the running game: Cross on a control, then
 the button for it. A button that did something else stops doing it, and
@@ -322,7 +466,10 @@ not changed. The first change gives the game a layout of its own, kept
 with the emulator's controller mappings and loaded whenever the game starts;
 the Layout row at the top puts the game back on the layout every game has
 (Settings > Controls restores that one to its default). The layout is the
-DualSense's: every pad plays with it.
+DualSense's: every pad plays with it. The last two rows are the emulator's
+own, **Fast forward** (a press turns it on, the next one off) and
+**Screenshot**: they are on no button until they are given one, and Square
+takes one off its button again. L3 and R3 are free in Dreamcast games.
 
 **Game options** are the running game's own, and hold every setting the
 Settings have for a game: what you change there is in effect when the game
@@ -344,7 +491,8 @@ one source, are shown as one entry with the number of discs on its cover.
   pad again, **Insert disc**. The game's own discs are listed first, with
   the one after the disc in the drive already chosen; every other disc
   image is below.
-- The memory card is the same for all discs, so the save carries over. Save
+- The memory card goes by the ID on the disc too, so where the discs share
+  it (most games) the save carries over. Save
   states are kept per disc. Options and cheats are kept under the ID on the
   disc, which the discs of most games share (Details shows it).
 - Settings > Library > Group the discs of a game turns the grouping off;
@@ -415,6 +563,50 @@ Arcade games read every port as it is. The top bar counts the pads, and
 Settings > Controls > Controllers names their ports. The menus follow the
 first pad that is connected.
 
+## Memory cards
+
+New in v1.1.0, and not confirmed on a console yet.
+
+Settings > System > **Memory cards** opens the memory card manager, while
+no game is loaded: Flycast keeps a loaded game's cards open, and a card
+changed under it would lose what the game saves next, so with a game loaded
+the row says to quit it first.
+
+The cards are the files Flycast keeps in `data/`, 128 KiB each. On the left
+are the shared cards that have a file (`vmu_save_A1.bin` to
+`vmu_save_D2.bin`: a port, A to D, and one of its two slots), then each
+game's own card. By Flycast's default a Dreamcast game does not use the
+shared card of port A, slot 1, but a card of its own there, named after
+the game's ID (`<ID>_vmu_save_A1.bin`); it is listed under the game's title
+when the library knows the game, else under the ID. On the right are the
+saves of the card in focus: each with its picture, its name as the
+Dreamcast's file manager shows it, its file name, its size in blocks and
+its date. In a Japanese name the kana are shown and each kanji is a `?`.
+
+- **Cross** on a card goes to its saves, and Cross on a save offers **Copy
+  to another card**, **Export to a file** and **Delete**.
+- A copy is byte for byte, and is refused when the other card has a file of
+  that name or too few free blocks. A save marked copy-protected is copied
+  and exported all the same, with a line saying that a Dreamcast would have
+  refused and that its game may not accept the copy.
+- Export writes the save to `vmu/` in PSFlyCast's folder as a `.vms` file
+  and the `.vmi` file that names it, in place of files of the same name.
+- Delete asks first.
+- **Square** on a card lists the save files in `vmu/` and adds the one
+  chosen to the card: a `.vmi` with its `.vms`, or a `.dci`. A `.vms` with
+  no `.vmi` is not enough: nothing in it says what the save is called on a
+  card.
+- A card whose file holds nothing yet can be formatted (Cross), as a game
+  would format it when it starts. A card that cannot be read is listed with
+  the reason, and nothing here changes it.
+
+Before a card is changed for the first time in a visit, it is kept as it
+was beside it, as `<card>.bak`, in place of an older `.bak`. To undo a
+visit, give that file the card's name again.
+
+The code that reads and writes the cards is `shell/ps5/ps5_vmu.cpp`, plain
+C++ with nothing of the console in it.
+
 ## Skins, backgrounds and motion
 
 Settings > Interface changes how PSFlyCast looks and moves; a change shows at
@@ -469,13 +661,43 @@ sine waves. The console's own setting for home-screen music governs it.
 ## Settings
 
 Interface (above), Video (per-triangle, per-strip or per-pixel transparency with 32 to 128 layers, internal resolution up to 10x,
-widescreen and widescreen patches, filtering, texture upscaling and custom textures, scaling,
-FSR 1 upscaling, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
-frame pacing, FPS counter, 120 Hz output, variable refresh rate), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
+widescreen and widescreen patches, stretch to fill, filtering, texture upscaling and custom textures, scaling,
+FSR 1 upscaling and the Scanlines and CRT picture filters, the software renderer, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
+the memory card's screen, frame pacing, FPS counter, 120 Hz output, variable refresh rate), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
 second slot, light-gun aiming and crosshair, default layout, which ports have a pad, the light bar, a USB keyboard and mouse), System (region, language, TV standard, cable, built-in BIOS,
-auto save/load states, fast loading, CPU recompiler), Online (below), Library and About (the
+auto save/load states, fast loading, CPU recompiler, rewind, the memory card manager), Online (below), Achievements (below), Library
+(with the hidden games) and About (the
 build, checking for updates, credits). The
 defaults: Vulkan, 3x resolution (1440p), 4x anisotropic filtering.
+
+![Settings > Video, with the CRT filter chosen](screenshots/90-settings-video-crt.png)
+
+**Upscaling** (Video) has two picture filters after its FSR 1 choices.
+**Scanlines** shows the game's own 240 or 480 lines the way a tube draws
+them, whatever the internal resolution is and however large the picture is
+drawn; **CRT** adds the tube's mask of red, green and blue stripes, its
+glow and its darker corners. While one of them is chosen FSR 1 is not
+used: the filter draws straight from the game's picture. The shader is
+PSFlyCast's own (`shell/ps5/ps5_crt.glsl.h`). A game can have its own
+choice. Not confirmed on a console yet.
+
+**Software renderer** (Video, off by default, experimental). The game's
+picture is not drawn by the console's graphics processor but computed on
+its CPU, on several threads, by REFSW, a software model of the Dreamcast's
+graphics chip by Stefanos Kornilios Mitsis Poiitidis (skmp). The picture is
+the Dreamcast's own 480p whatever Internal resolution says, is shown the
+way Full framebuffer emulation shows one, and Widescreen does nothing to
+it. A NAOMI 2 game is not drawn this way (its graphics need transform and
+lighting, which the model does not have), nor is any game while Netplay is
+on: those are drawn as before. A game can have its own choice. Not run on
+a console yet.
+
+**Memory card screen** (Video, off by default) shows the memory card's
+little screen in a corner of the picture while a game runs: Flycast's own
+overlay. **Stretch to fill** (Video, off by default) stretches the 4:3
+picture over the whole screen: no black bars, and everything a third
+wider. It is the option Flycast gained in the commits this version takes.
+Neither is confirmed on a console yet.
 
 The Dreamcast's **language** follows the console's the first time this
 version starts, where the Dreamcast has it (Japanese, English, German,
@@ -528,6 +750,36 @@ other player's, with a controller in it.
 While Netplay is not Off, **every** game waits for another player when it
 starts. Turn it off to play alone.
 
+## Achievements
+
+New in v1.1.0, and not confirmed on a console yet.
+
+PSFlyCast can earn the achievements of
+[RetroAchievements](https://retroachievements.org) as you play, with
+Flycast's own support for the site (the rcheevos library). It needs an
+account on the site, and the console's network.
+
+- Settings > Achievements > **RetroAchievements** turns it on.
+- **Account** opens the sign-in: the user name and the password are typed
+  on the console's keyboard, and **Sign in** sends them to the site. The
+  password is not kept. What is kept, in `emu.cfg` in PSFlyCast's folder,
+  is the user name and the key (a token) the site gives in return, with
+  which PSFlyCast signs in by itself from then on. That key is all a
+  sign-in needs: leave `emu.cfg` out of anything you pass on. Triangle in
+  the same dialog signs out.
+- **Softcore only.** Save states, cheats, rewind and fast forward stay as
+  they are. The site's hardcore mode, which forbids them, is not offered,
+  and PSFlyCast turns it off at every start.
+- In a game the site has achievements for, one that is earned is shown
+  over the game as it happens, and the quick menu has **Achievements**:
+  how many are earned and their points, then each one with its picture,
+  what it asks for and how far along it is, in the site's own groups. When
+  there is nothing to list the row says why: "Not signed in", or "None for
+  this game".
+
+With **USB drives** on, the console may refuse the connection to the site,
+as it may refuse the update check: the sign-in's dialog says so.
+
 ## Updates
 
 Seen working on a console from build 40: the release was downloaded and its
@@ -554,8 +806,9 @@ and can install the newest release in its own place.
 If a step is refused, the dialog says so and names the reason,
 `flycast-boot.log` has every step ("update: ..."), and updating by copying
 the ZIP works as before. With **USB drives** on, PSFlyCast runs outside its
-sandbox, where the console can refuse it HTTPS: if the update check or the
-cover downloads fail, turn USB drives off and start it again.
+sandbox, where the console can refuse it HTTPS: if the update check, the
+cover downloads or the achievements' sign-in fail, turn USB drives off and
+start it again.
 
 ## What has been verified
 
@@ -588,6 +841,22 @@ On the build machine, without a console:
   ways, a cancelled entry, a value longer than the field.
 - The home-screen sound: the same file comes out of its generator every
   time, and the loop's last sample runs into its first.
+- The link's import check, new in v1.1.0: it stopped a build of this
+  version that called a function no module a title loads has.
+- The memory card code (`shell/ps5/ps5_vmu.cpp`), on card images made for
+  the purpose: listing, copying, deleting, exporting and importing saves,
+  damaged and unformatted cards, a card that changed between listing and
+  acting, the backup made before a card's first change.
+- Rewind's store of snapshots (`shell/ps5/ps5_rewind.cpp`), under the
+  compiler's thread and memory checkers: taking, dropping, listing and
+  reading back snapshots from several threads, its memory limit, and when a
+  snapshot may be taken, against the emulator's own scheduler code. Not
+  covered: a real game going back.
+- The software renderer (`core/rend/soft/`), in a harness of its own with
+  made-up frames, under the same checkers. Not covered: a real game's frames,
+  and its speed on the console.
+- The Scanlines and CRT shader compiles with the compiler the title uses for
+  its shaders, and was drawn on a PC from test pictures.
 
 On a console: see Status, at the top.
 
@@ -614,10 +883,26 @@ On a console: see Status, at the top.
 - `shell/ps5/ps5_fsr.cpp`, `ps5_fsr_constants.h`, `shell/ps5/fsr/` - FSR 1
   upscaling of the picture: AMD's two headers, compiled as GLSL, in two draws
   between the game's picture and the swapchain.
+- `shell/ps5/ps5_crt.glsl.h` - the Scanlines and CRT picture filters: one
+  fragment shader, drawn by `ps5_fsr.cpp` in place of the emulator's stretch.
+- `core/rend/soft/` - the software renderer: REFSW's tiles
+  (`refsw_tile.cpp`), fed from Flycast's parsed frame by `soft_renderer.cpp`
+  and writing the emulated video memory, which is shown as full framebuffer
+  emulation shows it (`core/hw/pvr/Renderer_if.cpp`).
 - `core/linux/posix_vmem.cpp` - guest memory and JIT code in direct memory
   through the PS5 payload SDK fork's platform layer (`ps5platform/shm.h`,
   `ps5platform/exec.h`), with fastmem.
-- `shell/ps5/bigpicture.cpp` - the interface.
+- `shell/ps5/bigpicture.cpp` - the interface, with the memory card
+  manager's screen (`bigpicture_cards.inc`) and the achievements' account
+  (`bigpicture_achievements.inc`).
+- `shell/ps5/ps5_library.cpp` - what the library keeps about each game
+  (`data/library.txt`): favourite, hidden, time played, last played, and
+  which covers PSFlyCast put in `covers/` itself.
+- `shell/ps5/ps5_rewind.cpp` - rewind: the snapshots, taken on the
+  emulator's thread between two of the processor's time slices, compressed
+  with zstd on a thread of their own, and loaded as a save state is.
+- `shell/ps5/ps5_vmu.cpp` - the memory card manager's reading and writing
+  of the card images and of `.vmi`, `.vms` and `.dci` files.
 - `shell/ps5/sce_sys/` - the title's name, its icon and `pic0.dds`, the
   picture the console shows behind the title and while it loads (4K, BC7):
   the start-up animation's first frame, made with PS5_Vulkan's
@@ -627,55 +912,85 @@ On a console: see Status, at the top.
 - `shell/ps5/ps5_drawdist.cpp`, `ps5_drawdist_scan.h` - the object draw
   distance option.
 - `shell/ps5/ps5_covers.cpp`, `ps5_cheats.cpp`, `ps5_pipelines.cpp` - cover
-  downloads, `.cht` cheat files, the per-game shader warm-up.
+  downloads and the choice of covers, `.cht` cheat files, the per-game
+  shader warm-up. `ps5_covers.cpp` is also Flycast's HTTP client on the
+  console (libSceHttp2), which the descriptions and the achievements use.
 - `shell/ps5/elevation/` - the USB helper.
 - `shell/ps5/ps5-link.sh` - the link: PS5_Vulkan's RADV title recipe, with
   import libraries made at link time for what the SDK has none for
   (`shell/ps5/runtime/stubs`: the mouse, the common dialogs, and one more
-  name of the video output's).
+  name of the video output's). Before the title is signed it lists what the
+  linked file imports, and refuses a name that only `libkernel_sys` or
+  `libScePosixForWebKit` export: a title loads neither, so the import would
+  be null at run time.
 - `shell/ps5/ps5-toolchain.cmake` - the cross-compile: for the console's
   processor (`-march=znver2`), with floating point left as on every other
   x86-64 build of Flycast (`-ffp-contract=off`).
 
 ## Building
 
-On Linux with clang 18, lld 18, CMake, Ninja and Python 3. The repositories
-sit side by side in one folder:
+On Linux with clang 18, lld 18, CMake, Ninja and Python 3. From v1.1.0 the
+title is built on the stack of
+[PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate): its
+`ps5/tools/bootstrap.sh` checks out and builds what a title links, and its
+`ps5/tools/setup-sdk.sh` pins the payload SDK. The repositories sit side by
+side in one folder:
 
 ```sh
 git clone --recursive <this repository's URL> PSFlyCast
+git clone https://github.com/mihawk-99/PS5_VulkanTemplate
 git clone https://github.com/mihawk-99/PS5_Vulkan
 git clone https://github.com/mihawk-99/PS5_Mesa
 git clone https://github.com/mihawk-99/PS5_PayloadSDK
-git clone https://github.com/mihawk-99/PS5_RetroArch         # for its SDK install script only
 git clone https://github.com/sahlberg/libsmb2
 git clone https://github.com/libretro/libretro-database     # optional: the cheat files
 
+# PS5_Vulkan at the revision this version is built with.
+git -C PS5_Vulkan checkout fde9e3798c2ec1d8fccc90d5067cd6060490607f
+
 # RADV, with the display-mode patches of this repository (119.88 Hz on a VRR
 # display, PS5_VIDEOOUT_59HZ; variable refresh, PS5_VIDEOOUT_VRR). They are
-# made on PS5_Mesa 0b2d6d1.
-git -C PS5_Mesa checkout -b psflycast 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8
+# made on PS5_Mesa 7b59ef2, the revision that PS5_Vulkan pins.
+git -C PS5_Mesa checkout -b psflycast 7b59ef27c1b09b9671bc4153c41940c3155c3af2
 git -C PS5_Mesa am ../PSFlyCast/shell/ps5/mesa/*.patch
 sed -i "s/^mesa_revision=.*/mesa_revision=$(git -C PS5_Mesa rev-parse HEAD)/" PS5_Vulkan/tools/build-radv.sh
 
-cd PS5_Vulkan
-tools/setup-native-dependencies.sh
-tools/build-radv.sh release      # needs LLVM/Clang 18, libclc, llvm-spirv, meson, mako
-tools/rebuild-libc.sh
-cd ..
-
-# The payload SDK the title is compiled with: PS5_PayloadSDK at cd3b239 or
-# later, installed in PS5_RetroArch/.deps/native/ps5-payload-sdk, where
-# build.sh looks for it (PS5_PAYLOAD_SDK names another place).
-(cd PS5_RetroArch && tools/setup-native-dependencies.sh)
+# The rest of the stack, each part only where it is missing: PS5_Vulkan's
+# own payload SDK (b83202b, which RADV is compiled with), its host tool and
+# libc.prx (make), the RADV release archive at the revision set above
+# (tools/build-radv.sh release: a long build, which needs LLVM/Clang 18,
+# libclc, llvm-spirv, meson and mako), and the payload SDK the title is
+# compiled with: PS5_PayloadSDK at 611893f, installed in
+# PS5_VulkanTemplate/.deps/native/ps5-payload-sdk, where build.sh looks for
+# it (PS5_PAYLOAD_SDK names another place).
+PS5_VulkanTemplate/ps5/tools/bootstrap.sh
 
 cd PSFlyCast
 shell/ps5/build.sh               # -> build-ps5/dist/PPSA99247
 ```
 
-The builds published so far were made with PS5_Vulkan `3f3ee69`, PS5_Mesa
-`0b2d6d1` plus the patches (one up to v1.0.1, two from v1.0.2), and the payload SDK fork at `cd3b239`; `BUILD.txt`
-in the title's folder names what a build was made from.
+`bootstrap.sh` also checks the host for what the template's own titles need
+(glslangValidator, curl, zstd, numpy and Pillow among them), builds
+PS5_Vulkan's control payload, and looks for the console's address
+(`PS5_HOST` in PS5_Vulkan's `.env`), which only the console tools use:
+without one it ends by saying that this is left to do, after everything
+else is built.
+
+`build.sh` stops before compiling when a part is missing (the SDK's
+compiler, the RADV release archive, the host tool, or `libc.prx`, whose
+SHA-256 it checks against the one PS5_Vulkan records) or when the payload
+SDK is older than the pin (it looks for the platform layer's
+`ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
+a title that imports a function no module a title loads exports.
+
+v1.1.0 is made with PS5_Vulkan `fde9e37`, PS5_Mesa `7b59ef2` plus the two
+patches, and the payload SDK fork at `611893f`; RADV's archive is compiled
+with the SDK at `b83202b`. v1.0.0 to v1.0.2 were made with PS5_Vulkan
+`3f3ee69`, PS5_Mesa `0b2d6d1` plus the patches (one up to v1.0.1, two from
+v1.0.2), and the payload SDK fork at `cd3b239`. (Those two repositories'
+histories were rewritten by their author on 2026-10-05 and every commit got
+a new id: the same trees are now `504adad` and `a9ca6bd`.) `BUILD.txt` in
+the title's folder names what a build was made from.
 
 ## Credits and licences
 
@@ -689,6 +1004,8 @@ What is in this build, and whose it is:
 | USB drive access (`sandbox-elevator.elf` and its client) | The sandbox-elevation example of ps5-native-app-boilerplate, by BlackBearReloaded | GPL-3.0 |
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
 | Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |
+| The software renderer's model of the Dreamcast's graphics chip (`core/rend/soft/refsw_*`) | REFSW, by Stefanos Kornilios Mitsis Poiitidis (skmp), from [nullDC-rust](https://github.com/skmp/nullDC-rust) | MIT |
+| Achievements | [rcheevos](https://github.com/RetroAchievements/rcheevos), by RetroAchievements.org, as Flycast carries it | MIT |
 | The cheat files | [libretro-database](https://github.com/libretro/libretro-database), `cht/Sega - Dreamcast` | CC BY-SA 4.0 |
 | The mark, the icon, the start-up animation and its sound, the menu sounds and the home-screen sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/make-startup-sound.html`, `shell/ps5/sounds/make-home-sound.py` | GPL-3.0-or-later |
 | Covers, downloaded when PSFlyCast runs | [libretro-thumbnails](https://github.com/libretro-thumbnails/Sega_-_Dreamcast) | |
@@ -704,6 +1021,18 @@ a tool: none of it is in the build.
 
 ShadowMountPlus (drakmor, after VoidWhisper's ShadowMount) is what mounts and
 starts the title on the console; none of it is in the build either.
+
+The build stack is that of
+[PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate), by
+Mihawk-99: which revisions of PS5_Vulkan, PS5_Mesa and the payload SDK fork
+go together, the script that installs the SDK at its pin, and the link's
+check for imports that would be null, which `ps5-link.sh` makes the way the
+template does. Its tools are under the MIT licence; they build the title
+and are not in it.
+
+The achievements themselves, their pictures and the account belong to
+[RetroAchievements](https://retroachievements.org), and are asked for when
+PSFlyCast runs; none of them comes with it.
 
 Flycast compiles a number of libraries in with it (Dear ImGui, glslang,
 libchdr, FreeType, xBRZ, picoTCP and others), and the title links the LLVM

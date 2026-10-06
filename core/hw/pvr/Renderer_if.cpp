@@ -17,6 +17,10 @@
 #include <cassert>
 #include <mutex>
 #include <deque>
+#ifdef USE_PS5
+#include "rend/soft/soft_renderer.h"
+#include <atomic>
+#endif
 
 #ifdef LIBRETRO
 void retro_rend_present();
@@ -39,6 +43,39 @@ static bool rendererEnabled = true;
 
 static bool presented;
 static u32 fbAddrHistory[2] { 1, 1 };
+
+#ifdef USE_PS5
+// PSFlyCast: the software renderer (rend/soft, the option ps5.SoftwareRenderer)
+// draws into the emulated VRAM, as the hardware does, so its frames are shown
+// the way full framebuffer emulation shows them. Everything here that asks
+// config::EmulateFramebuffer asks emulateFramebuffer() instead. With the
+// option off it is config::EmulateFramebuffer.
+static std::atomic<bool> softwareFrame;
+
+// Whether the next frame is the software renderer's. It draws what the
+// Dreamcast's and the Naomi's tile accelerator lists describe: not a Naomi 2's
+// (they need transform and lighting). Not with GGPO, which cannot have the
+// emulator wait for the frame.
+static bool softwareWanted()
+{
+	return ps5::SoftwareRenderer
+			&& (config::RendererType == RenderType::Vulkan || config::RendererType == RenderType::Vulkan_OIT)
+			&& !settings.platform.isNaomi2()
+			&& !config::GGPOEnable;
+}
+
+bool rend_software_frame() {
+	return softwareFrame.load(std::memory_order_relaxed);
+}
+
+static inline bool emulateFramebuffer() {
+	return config::EmulateFramebuffer || softwareFrame.load(std::memory_order_relaxed);
+}
+#else
+static inline bool emulateFramebuffer() {
+	return config::EmulateFramebuffer;
+}
+#endif
 
 class PvrMessageQueue
 {
@@ -207,7 +244,7 @@ private:
 		getScaledFramebufferSize(taContext->rend, width, height);
 		taContext->rend.framebufferWidth = width;
 		taContext->rend.framebufferHeight = height;
-		bool renderToScreen = !taContext->rend.isRTT && !config::EmulateFramebuffer;
+		bool renderToScreen = !taContext->rend.isRTT && !emulateFramebuffer();
 #ifdef LIBRETRO
 		if (renderToScreen)
 			retro_resize_renderer(taContext->rend.framebufferWidth, taContext->rend.framebufferHeight,
@@ -551,6 +588,9 @@ void Renderer::processGpuCleanupOperations()
 void rend_reset()
 {
 	FinishRender(DequeueRender());
+#ifdef USE_PS5
+	softwareFrame = false;
+#endif
 	render_called = false;
 	pend_rend = false;
 	FrameCount = 1;
@@ -566,6 +606,13 @@ void rend_start_render()
 {
 	render_called = true;
 	pend_rend = false;
+#ifdef USE_PS5
+	// This frame is the software renderer's: shown as in full framebuffer emulation
+	const bool software = softwareWanted();
+	const bool emulateFb = config::EmulateFramebuffer || software;
+#else
+	const bool emulateFb = config::EmulateFramebuffer;
+#endif
 
 	TA_context *ctx = nullptr;
 	u32 addresses[MAX_PASSES];
@@ -627,7 +674,7 @@ void rend_start_render()
 		}
 		ggpo::endOfFrame();
 		swapIntervalDetector.render();
-		if (!config::EmulateFramebuffer)
+		if (!emulateFb)
 			ctx->rend.swapInterval = swapIntervalDetector.swapInterval();
 		else
 			ctx->rend.swapInterval = 1;
@@ -635,10 +682,14 @@ void rend_start_render()
 
 	if (QueueRender(ctx))
 	{
+#ifdef USE_PS5
+		// No frame is being rendered now (QueueRender waited for it or refused): the renderer may change
+		softwareFrame = software;
+#endif
 		palette_update();
 		pend_rend = true;
 		pvrQueue.enqueue(PvrMessageQueue::Render);
-		if (!config::DelayFrameSwapping && !ctx->rend.isRTT && !config::EmulateFramebuffer)
+		if (!config::DelayFrameSwapping && !ctx->rend.isRTT && !emulateFb)
 			pvrQueue.enqueue(PvrMessageQueue::Present);
 	}
 }
@@ -665,7 +716,7 @@ int rend_end_render(int tag, int cycles, int jitter, void *arg)
 
 void rend_vblank()
 {
-	if (config::EmulateFramebuffer
+	if (emulateFramebuffer()
 			|| (!render_called && FB_R_CTRL.fb_enable && FramebufferWatcher::Instance().isDirty()))
 	{
 		if (rend_is_enabled())
@@ -674,7 +725,7 @@ void rend_vblank()
 			fbInfo.update();
 			pvrQueue.enqueue(PvrMessageQueue::RenderFramebuffer, fbInfo);
 			pvrQueue.enqueue(PvrMessageQueue::Present);
-			if (!config::EmulateFramebuffer)
+			if (!emulateFramebuffer())
 				DEBUG_LOG(PVR, "Direct framebuffer write detected");
 		}
 	}
@@ -708,7 +759,7 @@ void rend_set_fb_write_addr(u32 fb_w_sof1)
 
 void rend_swap_frame(u32 fb_r_sof)
 {
-	if (!config::EmulateFramebuffer && fb_r_sof == fb_w_cur && rend_is_enabled())
+	if (!emulateFramebuffer() && fb_r_sof == fb_w_cur && rend_is_enabled())
 		pvrQueue.enqueue(PvrMessageQueue::Present);
 }
 

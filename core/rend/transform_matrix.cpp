@@ -449,7 +449,14 @@ void getVideoShift(float& x, float& y)
 			INFO_LOG(RENDERER, "unknown video mode: vcount %d", SPG_LOAD.vcount);
 			break;
 	}
-	if (!config::EmulateFramebuffer)
+#ifdef USE_PS5
+	// PSFlyCast: the software renderer's frames are shown as in full
+	// framebuffer emulation, at the Dreamcast's own size (hw/pvr/Renderer_if.h)
+	const bool emulateFramebuffer = config::EmulateFramebuffer || rend_software_frame();
+#else
+	const bool emulateFramebuffer = config::EmulateFramebuffer;
+#endif
+	if (!emulateFramebuffer)
 	{
 		x *= config::RenderResolution / 480.f;
 		y *= config::RenderResolution / 480.f;
@@ -458,7 +465,7 @@ void getVideoShift(float& x, float& y)
 	{
 		float aspectRatio = config::Rotate90 ? 3.f / 4.f : 4.f / 3.f;
 
-		if (!config::Rotate90 && config::Widescreen && !config::EmulateFramebuffer)
+		if (!config::Rotate90 && config::Widescreen && !emulateFramebuffer)
 			aspectRatio = config::SuperWidescreen
 					? (float)settings.display.width / settings.display.height
 					: 16.f / 9.f;

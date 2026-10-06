@@ -15,12 +15,17 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_stdio.cpp
 	shell/ps5/ps5_pipelines.cpp
 	shell/ps5/ps5_covers.cpp
+	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
 	shell/ps5/ps5_cheats.cpp
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_fsr.cpp
 	shell/ps5/ps5_update.cpp
+	shell/ps5/ps5_rewind.cpp
+	shell/ps5/ps5_rewind.h
+	shell/ps5/ps5_vmu.cpp
+	shell/ps5/ps5_vmu.h
 	shell/ps5/ps5_usbinput.cpp
 	shell/ps5/ps5_ime.cpp
 	shell/ps5/ps5_fsr.h

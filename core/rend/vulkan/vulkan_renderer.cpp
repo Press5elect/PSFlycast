@@ -23,6 +23,10 @@
 #include "drawer.h"
 #include "hw/pvr/ta.h"
 #include "rend/transform_matrix.h"
+#ifdef USE_PS5
+#include "rend/soft/soft_renderer.h"
+#include "cfg/option.h"
+#endif
 
 bool BaseVulkanRenderer::BaseInit(vk::RenderPass renderPass, int subpass)
 {
@@ -55,7 +59,82 @@ void BaseVulkanRenderer::Term()
 	framebufferTextures.clear();
 	framebufferTexIndex = 0;
 	shaderManager.term();
+#ifdef USE_PS5
+	ps5::soft::term();
+	softwareFrame = false;
+#endif
 }
+
+#ifdef USE_PS5
+/*
+	PSFlyCast: the software renderer (rend/soft, the option ps5.SoftwareRenderer).
+
+	When a frame is its own (rend_software_frame(), decided when the frame was
+	queued), Process only parses the frame, Render has the software renderer
+	draw it into the emulated VRAM, and Present shows what RenderFramebuffer
+	read back from VRAM at the vertical blank, as in full framebuffer
+	emulation. Nothing of the frame goes to the graphics processor.
+
+	softwareProcess is called first by each renderer's Process, which has
+	ended what its screen drawer had open if the renderer changes with this
+	frame. True: the frame is parsed, and Process is done.
+*/
+bool BaseVulkanRenderer::softwareProcess(TA_context *ctx)
+{
+	const bool software = rend_software_frame();
+	if (software != softwareFrame)
+	{
+		softwareFrame = software;
+		if (software)
+		{
+			// The texture cache write-protects the pages of VRAM its textures
+			// came from, and the software renderer's threads write frame
+			// buffers and rendered textures into VRAM. It reads textures from
+			// VRAM itself: the cache is emptied, which lifts the protection,
+			// and stays empty (GetTexture).
+			GetContext()->WaitIdle();
+			textureCache.Clear();
+		}
+		else
+		{
+			// its threads and buffers are not needed any more
+			ps5::soft::term();
+		}
+	}
+	if (!software)
+		return false;
+
+	rendContext = &ctx->rend;
+	if (!ctx->rend.isRTT)
+		framebufferRendered = false;
+	if (!ctx->rend.isRTT && ctx->rend.swapInterval > 0)
+		GetContext()->setSwapInterval(ctx->rend.swapInterval);
+
+	// ta_parse moves the texture coordinates of flat textured polygons half a
+	// texel inwards when the picture is rendered larger than 480 lines ("fix
+	// upscale bleeding edge"). This picture is not: the option is off while
+	// this frame is parsed. Only ta_parse reads it, on this thread.
+	struct NoBleedingFix
+	{
+		NoBleedingFix() : saved(config::FixUpscaleBleedingEdge) {
+			config::FixUpscaleBleedingEdge.set(false);
+		}
+		~NoBleedingFix() {
+			config::FixUpscaleBleedingEdge.set(saved);
+		}
+		const bool saved;
+	} noBleedingFix;
+	ta_parse(ctx, true);
+
+	return true;
+}
+
+bool BaseVulkanRenderer::softwareRender()
+{
+	ps5::soft::render(*rendContext);
+	return !rendContext->isRTT;
+}
+#endif
 
 void BaseVulkanRenderer::processCustomTexturePreloads()
 {
@@ -91,6 +170,15 @@ void BaseVulkanRenderer::processCustomTexturePreloads()
 
 BaseTextureCacheData *BaseVulkanRenderer::GetTexture(TSP tsp, TCW tcw, int area)
 {
+#ifdef USE_PS5
+	if (softwareFrame)
+	{
+		// The software renderer reads textures from VRAM. ta_parse only has
+		// to hear that the polygon has one: nothing is decoded or uploaded.
+		static Texture *anyTexture = new Texture();
+		return anyTexture;
+	}
+#endif
 	Texture* tf = textureCache.getTextureCacheData(tsp, tcw, area);
 
 	//update if needed
@@ -311,6 +399,13 @@ public:
 	void Process(TA_context* ctx) override
 	{
 		try {
+#ifdef USE_PS5
+			// PSFlyCast: the software renderer's frames (softwareProcess)
+			if (rend_software_frame() != softwareFrame)
+				screenDrawer.EndRenderPass();
+			if (softwareProcess(ctx))
+				return;
+#endif
 			if (emulateFramebuffer != config::EmulateFramebuffer)
 			{
 				screenDrawer.EndRenderPass();
@@ -336,6 +431,10 @@ public:
 	bool Render() override
 	{
 		try {
+#ifdef USE_PS5
+			if (softwareFrame)
+				return softwareRender();
+#endif
 			Drawer *drawer;
 			if (rendContext->isRTT)
 				drawer = &textureDrawer;
@@ -365,6 +464,11 @@ public:
 		if (clearLastFrame)
 			return false;
 		try {
+#ifdef USE_PS5
+			// PSFlyCast: the software renderer's frames are in VRAM
+			if (softwareFrame)
+				return presentFramebuffer();
+#endif
 			if (config::EmulateFramebuffer || framebufferRendered)
 				return presentFramebuffer();
 			else

@@ -1,8 +1,8 @@
-From 9a5133306b7ed3cb8051f85ccfc031c91bf0f7c7 Mon Sep 17 00:00:00 2001
+From eac740a389da49fd3e424c4e6bfb75f48f3d1933 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Mon, 5 Oct 2026 20:07:48 +0000
-Subject: [PATCH] wsi/videoout: a title may ask the output to leave its fixed
- rate (variable refresh)
+Subject: [PATCH 2/2] wsi/videoout: a title may ask the output to leave its
+ fixed rate (variable refresh)
 
 With PS5_VIDEOOUT_VRR=1 in the environment before the first Vulkan call, the
 output is asked to leave its fixed rate once the high-frame-rate mode is
@@ -15,10 +15,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 33 insertions(+)
 
 diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
-index 511c0de35d1..b136beaaf52 100644
+index 47d022008c4..a7a0169717f 100644
 --- a/src/vulkan/wsi/wsi_common_videoout.c
 +++ b/src/vulkan/wsi/wsi_common_videoout.c
-@@ -77,6 +77,12 @@
+@@ -87,6 +87,12 @@
   * its own, for a display that takes the mode badly): set before the first
   * Vulkan call. */
  #define VIDEOOUT_NO_HIGH_FRAME_RATE_ENV "PS5_VIDEOOUT_59HZ"
@@ -29,9 +29,9 @@ index 511c0de35d1..b136beaaf52 100644
 + * "refused" when it did not and the mode was configured again without it. */
 +#define VIDEOOUT_VRR_ENV "PS5_VIDEOOUT_VRR"
  #define VIDEOOUT_PERIOD_INTERVALS 6
- /* param.json's attribute3 bits for high-frame-rate output (PS5_Vulkan R31). */
- #define VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE 0x80040u
-@@ -160,6 +166,12 @@ sceVideoOutConfigureOutput(int32_t handle, uint32_t mode, const void *a, const v
+ /* param.json's attribute3 bit for 120 Hz output. PS5_Vulkan R31/R92 declared it with 0x80000
+  * (a 120 Hz mode that requires VRR), which turns the system's VRR off; retail titles with VRR
+@@ -172,6 +178,12 @@ sceVideoOutConfigureOutput(int32_t handle, uint32_t mode, const void *a, const v
  {
     return -1;
  }
@@ -43,8 +43,8 @@ index 511c0de35d1..b136beaaf52 100644
 +}
  #endif
  
- /* The display and its modes: one each per process, as VideoOut is. */
-@@ -172,6 +184,10 @@ struct wsi_videoout_display {
+ /* The sizes VideoOut takes buffers of, the largest first, and a buffer's
+@@ -206,6 +218,10 @@ struct wsi_videoout_display {
     int dummy;
  };
  
@@ -53,9 +53,9 @@ index 511c0de35d1..b136beaaf52 100644
 +#endif
 +
  static struct wsi_videoout_display videoout_display;
- static struct wsi_videoout_mode videoout_mode = {.refresh_millihertz = VIDEOOUT_REFRESH_MILLIHERTZ};
- static struct wsi_videoout_mode videoout_high_mode = {
-@@ -332,12 +348,27 @@ videoout_open_locked(void)
+ 
+ #define VIDEOOUT_SIZE_MODES(index)                                                                               \
+@@ -399,12 +415,27 @@ videoout_open_locked(void)
              ? sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL)
              : supported;
        out->high_frame_rate = configured == 0;
@@ -83,7 +83,7 @@ index 511c0de35d1..b136beaaf52 100644
              fprintf(stderr,
                      "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; 59.94 Hz restored\n",
                      (double)period / 1e6);
-@@ -352,6 +383,8 @@ videoout_open_locked(void)
+@@ -419,6 +450,8 @@ videoout_open_locked(void)
           fprintf(stderr, "wsi/videoout: 119.88 Hz %s (%d); presenting at 59.94 Hz\n",
                   supported > 0 ? "refused" : "not supported", configured);
        }

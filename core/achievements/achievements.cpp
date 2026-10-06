@@ -374,6 +374,11 @@ void Achievements::term()
 	stopThreads();
 	rc_client_destroy(rc_client);
 	rc_client = nullptr;
+#ifdef USE_PS5
+	// PSFlyCast: the user is no longer signed in once the client is gone (the
+	// next one signs in again with the saved key)
+	loggedOn = false;
+#endif
 }
 
 void Achievements::authenticationSuccess(const rc_client_user_t *user)

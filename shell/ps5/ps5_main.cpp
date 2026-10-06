@@ -32,6 +32,7 @@
 #include "ps5_build.h"
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
+#include "ps5_rewind.h"
 #include "cfg/option.h"
 
 #include <algorithm>
@@ -104,6 +105,10 @@ void loadOptions(const std::string& dir)
 			currentOptions.hz120 = value != 0;
 		else if (!strcmp(key, "group_discs"))
 			currentOptions.groupDiscs = value != 0;
+		else if (!strcmp(key, "show_hidden"))
+			currentOptions.showHidden = value != 0;
+		else if (!strcmp(key, "rewind"))
+			currentOptions.rewind = value != 0;
 		else if (!strcmp(key, "splash"))
 			currentOptions.splash = value != 0;
 		else if (!strcmp(key, "splash_sound"))
@@ -141,13 +146,15 @@ void saveOptions()
 		return;
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
-			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n",
+			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
+			"show_hidden = %d\nrewind = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
 			(int)currentOptions.splash, (int)currentOptions.splashSound, (int)currentOptions.updateCheck,
 			(int)currentOptions.menuSounds, (int)currentOptions.lightBar, (int)currentOptions.usbInput,
-			(int)currentOptions.vrr, (int)currentOptions.notifications);
+			(int)currentOptions.vrr, (int)currentOptions.notifications, (int)currentOptions.showHidden,
+			(int)currentOptions.rewind);
 	fclose(f);
 }
 
@@ -159,8 +166,11 @@ std::string shownRoot()
 }
 }
 
+// Once a frame, on the interface's thread, whether a game runs or a menu is up.
 void os_DoEvents()
 {
+	// The time a game is played is counted while the emulator runs.
+	ps5::library::tick();
 }
 
 void os_RunInstance(int argc, const char *argv[])
@@ -187,7 +197,7 @@ void makeDirs(const std::string& root)
 	// Open to everyone, so the console's FTP server can add and remove files in
 	// them (as PS5 RetroArch does for its folders).
 	for (const char *sub : { "", "bios", "games", "covers", "cheats", "data", "logs", "data/savestates", "data/mappings",
-			"data/cheats", "data/pipelines" })
+			"data/cheats", "data/pipelines", "screenshots", "vmu" })
 	{
 		const std::string dir = root + sub;
 		mkdir(dir.c_str(), 0777);
@@ -384,6 +394,33 @@ void ps5::rescanUsb()
 	setFolders();
 }
 
+// Where the title could keep what is the user's (games, saves, settings),
+// for the boot log: of each folder a title may be given, whether it is there
+// and whether a file can be made in it. Nothing is kept there yet; these
+// lines are what a later build goes by.
+static void probeStorage()
+{
+	for (const char *dir : { "/app0", "/download0", "/data", "/data/homebrew", "/user/data" })
+	{
+		struct stat st{};
+		if (stat(dir, &st) != 0)
+		{
+			ps5::diag::mark("storage: %s: not there (errno %d)", dir, errno);
+			continue;
+		}
+		const std::string probe = std::string(dir) + "/.psflycast-probe";
+		FILE *f = fopen(probe.c_str(), "wb");
+		const int writeError = f == nullptr ? errno : 0;
+		if (f != nullptr)
+		{
+			fclose(f);
+			unlink(probe.c_str());
+		}
+		ps5::diag::mark("storage: %s: device %llx, %s", dir, (unsigned long long)st.st_dev,
+				writeError == 0 ? "writable" : ("not writable (errno " + std::to_string(writeError) + ")").c_str());
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	ps5::diag::installCrashHandler();
@@ -428,8 +465,23 @@ int main(int argc, char *argv[])
 	ps5::diag::mark("PSFlyCast, build %d; root folder: %s", PS5_BUILD_NUMBER, ps5::rootDir.c_str());
 	makeDirs(ps5::rootDir);
 	repairModes(ps5::rootDir, 0);
+	probeStorage();
+	// The driver reads the title's param.json to learn whether 119.88 Hz may
+	// be asked for, from /app0: outside the sandbox there is no /app0, and it
+	// is told where the file is. (A root that has none, /download0, leaves
+	// the driver to /app0.)
+	if (hasFile(ps5::rootDir + "sce_sys/param.json"))
+		setenv("PS5_VIDEOOUT_PARAM_JSON", (ps5::rootDir + "sce_sys/param.json").c_str(), 1);
 	// RADV's shader cache, in the root whichever path that is this run.
 	setenv("MESA_SHADER_CACHE_DIR", (ps5::rootDir + "radv-shader-cache").c_str(), 1);
+	// Screenshots: Flycast saves them where a desktop keeps its pictures, which
+	// it asks a command for (none runs in a title: popen fails) and then takes
+	// to be $HOME (core/oslib/oslib.cpp, hostfs::saveScreenshot). So HOME is
+	// <root>/screenshots. The rest of this build reads HOME in two places that
+	// do not come up here: Flycast's own log file when emu.cfg asks for one and
+	// it cannot be made where the title runs, and its folder browser, which
+	// this interface does not show.
+	setenv("HOME", (ps5::rootDir + "screenshots").c_str(), 1);
 	if (ps5::options().usb)
 	{
 		findUsbDirs();
@@ -478,6 +530,16 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	setFolders();
+	// Achievements are earned with save states, cheats and rewind at hand
+	// here: the mode that forbids them is not offered. An emu.cfg that has it
+	// on (copied from a PC) is saved with it off, as the settings are read
+	// from the file again whenever a game is unloaded.
+	if (config::AchievementsHardcoreMode)
+	{
+		config::AchievementsHardcoreMode.set(false);
+		SaveSettings();
+		ps5::diag::mark("settings: the achievements' hardcore mode turned off (it is not offered here)");
+	}
 	if (ps5::options().defaults < 1)
 	{
 		// emu.cfg holds every setting, so a default that changes does not
@@ -540,12 +602,24 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 4;
 		ps5::saveOptions();
 	}
+	if (ps5::options().defaults < 5)
+	{
+		// Build 42's new options (the software renderer) get their entry in
+		// emu.cfg: a game's own value of an option is kept only where it
+		// differs from the entry the Settings have, and is dropped where they
+		// have none.
+		SaveSettings();
+		ps5::options().defaults = 5;
+		ps5::saveOptions();
+	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();
 	ps5::games::init();
 	ps5::patches::init();
 	ps5::drawdist::init();
+	ps5::rewind::init();
+	ps5::rewind::setEnabled(ps5::options().rewind);
 	ps5::diag::mark("main loop");
 	try {
 		mainui_loop();
@@ -555,6 +629,10 @@ int main(int argc, char *argv[])
 		ps5::diag::mark("main loop: unknown exception");
 	}
 	ps5::diag::mark("main loop ended");
+	// A game still running when the title is closed: its time played.
+	ps5::library::flush();
+	// Closing does not wait for the achievements' pictures still to come.
+	ps5::net::gameEnding(true);
 	ps5::sound::close();
 	flycast_term();
 	os_UninstallFaultHandler();

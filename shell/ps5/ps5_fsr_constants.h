@@ -28,6 +28,15 @@ struct RcasConstants
 	int32_t origin[4];		// of the picture, in the framebuffer
 };
 
+// What the picture filters' shader takes (ps5_crt.glsl.h), as it reads them.
+struct CrtConstants
+{
+	float origin[2];	// of the picture in the framebuffer, in pixels
+	float size[2];		// of the picture there, in pixels
+	float beam[4];		// the game's lines; a line's first and second harmonics; the lines left in white
+	float tube[4];		// the mask's pitch, in pixels, and its depth; the glow; the vignette
+};
+
 inline uint32_t floatBits(float v)
 {
 	uint32_t u;
@@ -65,6 +74,42 @@ inline RcasConstants rcasConstants(float stops, int originX, int originY)
 	c.con[0] = floatBits(std::exp2(-stops));
 	c.origin[0] = originX;
 	c.origin[1] = originY;
+	return c;
+}
+
+// The picture filters. tube: the CRT one (a mask, a glow and a vignette as
+// well as the lines). left, top, width, height: where the picture is drawn,
+// in pixels; lines: how many the game's video mode has (240 or 480).
+inline CrtConstants crtConstants(bool tube, float left, float top, float width, float height, float lines)
+{
+	CrtConstants c{};
+	c.origin[0] = left;
+	c.origin[1] = top;
+	c.size[0] = width;
+	c.size[1] = height;
+	c.beam[0] = lines;
+	// A line's profile is 1 + beam[1] cos(a) + beam[2] cos(2a), a being 0
+	// along its middle: it must stay positive (beam[1] <= 1 + beam[2]).
+	// beam[3]: how much darker the gaps are left in plain white, which
+	// would otherwise show no lines at all; half of it is light lost there.
+	if (!tube)
+	{
+		// Gentle: text stays easy to read.
+		c.beam[1] = 0.60f;
+		c.beam[2] = 0.08f;
+		c.beam[3] = 0.05f;
+		c.tube[0] = 1.f;
+		return c;
+	}
+	c.beam[1] = 0.75f;
+	c.beam[2] = 0.12f;
+	c.beam[3] = 0.05f;
+	// A period of three pixels at 2160 lines and of two at 1080 and 1440,
+	// which the console doubles, or nearly, on a 4K screen.
+	c.tube[0] = std::fmax(2.f, std::round(height / 720.f));
+	c.tube[1] = 0.30f;		// a stripe's own colour up to 30% brighter, the other two 15% darker
+	c.tube[2] = 0.05f;		// the share of a pixel's light that is the glow of those around
+	c.tube[3] = 0.10f;		// how much darker the very corners are
 	return c;
 }
 

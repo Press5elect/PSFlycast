@@ -207,6 +207,14 @@ elseif(FLYCAST_PS5)
 	# eboot by shell/ps5/ps5-link.sh (see shell/ps5/README.md).
 	add_executable(${PROJECT_NAME} core/emulator.cpp)
 	set(USE_OPENGL OFF)
+	# PSFlyCast: the software "reference" renderer (the option ps5.SoftwareRenderer)
+	target_sources(${PROJECT_NAME} PRIVATE
+		core/rend/soft/refsw_core.h
+		core/rend/soft/refsw_texutils.cpp
+		core/rend/soft/refsw_texutils.h
+		core/rend/soft/refsw_tile.cpp
+		core/rend/soft/soft_renderer.cpp
+		core/rend/soft/soft_renderer.h)
 elseif(LIBRETRO)
 	add_library(${PROJECT_NAME} SHARED core/emulator.cpp)
 	if(APPLE)

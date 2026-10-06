@@ -1,8 +1,8 @@
-From c8c1b40d7e42343876b58c2f10cf28189712caa4 Mon Sep 17 00:00:00 2001
+From a121d1d3276d7854e4cb4598bf7357b02970eb72 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 2 Oct 2026 08:08:35 +0000
-Subject: [PATCH] wsi/videoout: 119.88 Hz on a VRR display; a title may ask for
- 59.94 Hz
+Subject: [PATCH 1/2] wsi/videoout: 119.88 Hz on a VRR display; a title may ask
+ for 59.94 Hz
 
 With the high-frame-rate mode taken and nothing flipped yet, a VRR display's
 vblank comes at the 48 Hz floor of its window (20.877 ms on a tester's
@@ -19,10 +19,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 28 insertions(+), 4 deletions(-)
 
 diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
-index 9e2ba819943..511c0de35d1 100644
+index 2fca0901d06..47d022008c4 100644
 --- a/src/vulkan/wsi/wsi_common_videoout.c
 +++ b/src/vulkan/wsi/wsi_common_videoout.c
-@@ -60,9 +60,23 @@
+@@ -70,9 +70,23 @@
  #define VIDEOOUT_BUFFER_ALIGNMENT (UINT64_C(2) << 20)
  #define VIDEOOUT_REFRESH_MILLIHERTZ 59940
  #define VIDEOOUT_HIGH_REFRESH_MILLIHERTZ 119880
@@ -46,9 +46,9 @@ index 9e2ba819943..511c0de35d1 100644
 + * Vulkan call. */
 +#define VIDEOOUT_NO_HIGH_FRAME_RATE_ENV "PS5_VIDEOOUT_59HZ"
  #define VIDEOOUT_PERIOD_INTERVALS 6
- /* param.json's attribute3 bits for high-frame-rate output (PS5_Vulkan R31). */
- #define VIDEOOUT_ATTRIBUTE3_HIGH_FRAME_RATE 0x80040u
-@@ -307,7 +321,10 @@ videoout_open_locked(void)
+ /* param.json's attribute3 bit for 120 Hz output. PS5_Vulkan R31/R92 declared it with 0x80000
+  * (a 120 Hz mode that requires VRR), which turns the system's VRR off; retail titles with VRR
+@@ -374,7 +388,10 @@ videoout_open_locked(void)
        fprintf(stderr, "wsi/videoout: sceVideoOutOpen failed: 0x%08x\n", (unsigned)out->handle);
        return false;
     }
@@ -60,7 +60,7 @@ index 9e2ba819943..511c0de35d1 100644
        const int supported =
           sceVideoOutIsOutputSupported(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL);
        const int configured =
-@@ -317,12 +334,19 @@ videoout_open_locked(void)
+@@ -384,12 +401,19 @@ videoout_open_locked(void)
        out->high_frame_rate = configured == 0;
        if (out->high_frame_rate) {
           const uint64_t period = videoout_vblank_period_ns(out->handle);

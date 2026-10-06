@@ -21,17 +21,24 @@
 	is doing (ps5_smb.cpp): waiting for an answer, or reading into memory.
 	Triangle opens a game's details: its description (Flycast's scraper, from
 	TheGamesDB), and what can be done before it starts - play, start from a
-	saved state, options of its own (Flycast's per-game settings), cheats.
+	saved state, options of its own (Flycast's per-game settings), cheats - and
+	Manage: whether it is a favourite or hidden, its cover, and how long it was
+	played (ps5_library.cpp keeps these, in data/library.txt).
 	The mark in the top bar is a disc made of one spiral line, turning
 	clockwise; a picture of the user's own, <root>/logo.png, is shown in its
 	place. The start-up animation (drawSplash) draws that line and ends with
 	the mark and the name where the top bar has them.
 	The quick menu slides in from the right over the paused game; its Cheats
-	page lists the game's cheats (shell/ps5/ps5_cheats.cpp).
+	page lists the game's cheats (shell/ps5/ps5_cheats.cpp). Fast forward and
+	screenshots are Flycast's own, from the quick menu or a button of the pad.
 */
 #include "bigpicture.h"
 #include "ps5_pad.h"
 #include "ps5_build.h"
+#include "ps5_rewind.h"
+#include "ps5_vmu.h"
+#include "rend/soft/soft_renderer.h"
+#include "achievements/achievements.h"
 #include "ps5_frontend.h"
 #include "cheats.h"
 
@@ -60,6 +67,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <dirent.h>
 #include <strings.h>
 #include <sys/stat.h>
 #include <ctime>
@@ -935,7 +943,7 @@ void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 
 // The console's own keyboard (ps5_ime.cpp) is up, and what its text is for.
 // The pad is the keyboard's meanwhile.
-enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName };
+enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName, KeyboardRaUser, KeyboardRaPassword };
 int keyboardFor = KeyboardNone;
 
 struct Input
@@ -1168,6 +1176,9 @@ struct Game
 	bool front = true;			// the disc that stands for the set when sets are grouped
 	std::string fullTitle;		// with the disc: "Shenmue  ·  Disc 2"
 	std::string setTitle;		// without: "Shenmue"
+	// What the library keeps about it (updateMarks, below).
+	bool favourite = false;
+	bool hidden = false;
 };
 
 std::vector<Game> games;
@@ -1185,8 +1196,10 @@ std::vector<std::string> recentPaths;		// the games last played, the latest firs
 std::map<std::string, std::vector<size_t>> discSets;	// key -> indexes into games, in disc order
 std::map<std::string, std::string> frontChoice;			// key -> the disc chosen in Details, this run
 bool setsDirty = true;
+bool marksDirty = true;			// the games' favourite and hidden marks are to be read again
 // Counts what the library's lists are made from changing: the games, the
-// disc that stands for each set and the titles shown, the games last played.
+// disc that stands for each set and the titles shown, the games last played,
+// the favourites and the hidden games.
 // The lists (buildShelves, buildFlat) are made again when it has moved, and
 // not before: sorting a few thousand titles every frame cost several times
 // what drawing the screen does.
@@ -1293,6 +1306,7 @@ void findDiscSets()
 		++it;
 	}
 	setsDirty = true;
+	marksDirty = true;
 }
 
 // Which disc stands for each set, and the titles the lists show: made again
@@ -1338,6 +1352,78 @@ void updateDiscSets(bool selectDisk)
 bool hiddenDisc(const Game& g, bool selectDisk)
 {
 	return grouping(selectDisk) && !g.set.empty() && !g.front;
+}
+
+// ---- favourites and hidden games
+//
+// ps5_library.cpp keeps them, by the game's path. A game on several discs is
+// one game: what is asked for one disc is asked for them all, and what one of
+// them is, the set is, whether or not its discs are grouped. A hidden game is
+// in none of the library's lists until "Show hidden games" is on in the
+// Settings: it is then listed dimmed, so that its details can show it again.
+unsigned marksGeneration;
+int hiddenGames;		// how many there are, a set counted once
+
+// The files a game is: its own, or every disc of its set.
+std::vector<std::string> pathsOf(const Game& g)
+{
+	std::vector<std::string> paths;
+	const auto set = g.set.empty() ? discSets.end() : discSets.find(g.set);
+	if (set == discSets.end())
+		paths.push_back(g.media.path);
+	else
+		for (size_t i : set->second)
+			paths.push_back(games[i].media.path);
+	return paths;
+}
+
+// The marks, read again when the games or what is kept about them changed.
+void updateMarks()
+{
+	const unsigned generation = ps5::library::generation();
+	if (!marksDirty && generation == marksGeneration)
+		return;
+	marksDirty = false;
+	marksGeneration = generation;
+	libraryGeneration++;
+	hiddenGames = 0;
+	for (Game& g : games)
+	{
+		const ps5::library::Entry kept = ps5::library::entry(g.media.path);
+		g.favourite = kept.favourite;
+		g.hidden = kept.hidden;
+		hiddenGames += g.hidden && g.set.empty() ? 1 : 0;
+	}
+	for (const auto& [key, discs] : discSets)
+	{
+		bool favourite = false, hidden = false;
+		for (size_t i : discs)
+		{
+			favourite = favourite || games[i].favourite;
+			hidden = hidden || games[i].hidden;
+		}
+		for (size_t i : discs)
+		{
+			games[i].favourite = favourite;
+			games[i].hidden = hidden;
+		}
+		hiddenGames += hidden ? 1 : 0;
+	}
+}
+
+// Left out of a list: a set's other discs, and a hidden game. The running
+// game's own discs are not, while one of them is chosen for it.
+bool leftOut(const Game& g, bool selectDisk)
+{
+	if (hiddenDisc(g, selectDisk))
+		return true;
+	if (!g.hidden || ps5::options().showHidden)
+		return false;
+	if (selectDisk)
+		for (const Game& running : games)
+			if (running.media.path == insertedPath)
+				return &running != &g && (g.set.empty() || g.set != running.set);
+	return true;
 }
 
 Source sourceOf(const std::string& path)
@@ -1506,15 +1592,9 @@ std::string recentFile() {
 	return ps5::rootDir + "data/recent.txt";
 }
 
-// A path saved under another run's root (/app0 in the sandbox, the title's real
-// folder outside it), under this run's.
-std::string underRoot(const std::string& path)
-{
-	for (const char *prefix : { "/app0/", "/data/homebrew/PPSA99247/", "/mnt/sandbox/PPSA99247_000/app0/" })
-		if (path.rfind(prefix, 0) == 0)
-			return ps5::rootDir + path.substr(strlen(prefix));
-	return path;
-}
+// A path saved under another run's root is read under this run's
+// (ps5::underRoot, which the library's own file shares).
+using ps5::underRoot;
 
 void loadRecents()
 {
@@ -1793,6 +1873,28 @@ void drawCover(ImDrawList *dl, Game& g, float x, float y, float w, float h, floa
 	}
 }
 
+// What the library marks on a cover in its lists: a star on a favourite (in
+// the grid; the shelves have a shelf of them), and a hidden game that is
+// listed after all is dimmed, under an eye struck through.
+void coverMarks(ImDrawList *dl, const Game& g, float x, float y, float w, float h, float r, bool star)
+{
+	if (g.hidden)
+		rect(dl, x, y, w, h, alpha(col::bgTop, 0.64f), r);
+	const float size = std::clamp(w * 0.075f, 16.f, 22.f), bh = size * 1.8f;
+	float bx = x + 10;
+	auto badge = [&](const char *icon, ImU32 colour) {
+		const ImVec2 is = textSize(regular(), size, icon);
+		const float bw = std::max(bh, is.x + size);
+		rect(dl, bx, y + 10, bw, bh, alpha(col::bar, 0.92f), bh / 2);
+		text(dl, regular(), size, bx + (bw - is.x) / 2, y + 10 + (bh - is.y) / 2, colour, icon);
+		bx += bw + 6;
+	};
+	if (star && g.favourite)
+		badge(ICON_FA_STAR, col::warm);
+	if (g.hidden)
+		badge(ICON_FA_EYE_SLASH, col::text);
+}
+
 struct Shelf
 {
 	std::string name;
@@ -1929,6 +2031,7 @@ size_t listsKey(bool selectDisk)
 	key = key * 31 + (size_t)lib.source;
 	key = key * 31 + (selectDisk ? 1 : 0);
 	key = key * 31 + (grouping(selectDisk) ? 1 : 0);
+	key = key * 31 + (ps5::options().showHidden ? 1 : 0);
 	if (selectDisk)
 		key = key * 31 + std::hash<std::string>()(insertedPath);
 	key = key * 31 + std::hash<std::string>()(librarySearch);
@@ -1954,7 +2057,7 @@ void buildFlat(bool selectDisk)
 	lib.flatKey = key;
 	lib.flat.clear();
 	for (size_t i = 0; i < games.size(); i++)
-		if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !hiddenDisc(games[i], selectDisk)
+		if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
 				&& matchesSearch(games[i]))
 			lib.flat.push_back(i);
 	std::sort(lib.flat.begin(), lib.flat.end(), [](size_t a, size_t b) {
@@ -2027,6 +2130,37 @@ void focusPath(const std::string& path)
 			}
 }
 
+// The focus, put back on a game after the lists changed around it: on the
+// shelf it was on if the game is still there (the other shelves keep their
+// own focus), else where focusPath has it. False when no list has the game
+// any more.
+bool refocus(const std::string& path, const std::string& shelf)
+{
+	bool listed = false;
+	for (size_t i : lib.flat)
+		listed = listed || games[i].media.path == path;
+	for (const Shelf& sh : lib.shelves)
+		for (size_t i : sh.items)
+			listed = listed || games[i].media.path == path;
+	if (!listed)
+		return false;
+	for (size_t si = 0; si < lib.shelves.size(); si++)
+		if (lib.shelves[si].name == shelf)
+			for (size_t i = 0; i < lib.shelves[si].items.size(); i++)
+				if (games[lib.shelves[si].items[i]].media.path == path)
+				{
+					lib.shelf = (int)si;
+					lib.shelves[si].focus = (int)i;
+					lib.flatPath = path;
+					for (size_t at = 0; at < lib.flat.size(); at++)
+						if (games[lib.flat[at]].media.path == path)
+							lib.flatFocus = (int)at;
+					return true;
+				}
+	focusPath(path);
+	return true;
+}
+
 std::string platformText(const Game& g)
 {
 	return g.media.arcade ? "ARCADE" : "DREAMCAST";
@@ -2049,6 +2183,7 @@ void buildShelves(bool selectDisk)
 {
 	loadRecents();
 	updateDiscSets(selectDisk);
+	updateMarks();
 	const size_t key = listsKey(selectDisk);
 	if (key == lib.shelvesKey)
 		return;
@@ -2059,7 +2194,7 @@ void buildShelves(bool selectDisk)
 		// One shelf: what was found, by title.
 		Shelf found{ searchShelfName() };
 		for (size_t i = 0; i < games.size(); i++)
-			if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !hiddenDisc(games[i], selectDisk)
+			if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
 					&& matchesSearch(games[i]))
 				found.items.push_back(i);
 		std::sort(found.items.begin(), found.items.end(), [](size_t a, size_t b) {
@@ -2091,11 +2226,22 @@ void buildShelves(bool selectDisk)
 						for (size_t disc : discSets[games[i].set])
 							if (games[disc].front)
 								shown = disc;
-					if (std::find(recent.items.begin(), recent.items.end(), shown) == recent.items.end())
+					if (!leftOut(games[shown], selectDisk)
+							&& std::find(recent.items.begin(), recent.items.end(), shown) == recent.items.end())
 						recent.items.push_back(shown);
 				}
 		if (!recent.items.empty())
 			shelves.push_back(recent);
+		// The favourites, by title: the tab's Dreamcast and arcade games alike.
+		Shelf favourites{ "Favourites" };
+		for (size_t i = 0; i < games.size(); i++)
+			if (games[i].favourite && games[i].source == lib.source && !leftOut(games[i], selectDisk))
+				favourites.items.push_back(i);
+		std::sort(favourites.items.begin(), favourites.items.end(), [](size_t a, size_t b) {
+			return strcasecmp(games[a].title.c_str(), games[b].title.c_str()) < 0;
+		});
+		if (!favourites.items.empty())
+			shelves.push_back(favourites);
 	}
 	else
 	{
@@ -2111,7 +2257,7 @@ void buildShelves(bool selectDisk)
 	Shelf arcade{ "Arcade" };
 	for (size_t i = 0; i < games.size(); i++)
 	{
-		if (games[i].source != lib.source || (selectDisk && !games[i].disc) || hiddenDisc(games[i], selectDisk))
+		if (games[i].source != lib.source || (selectDisk && !games[i].disc) || leftOut(games[i], selectDisk))
 			continue;
 		if (!selectDisk && games[i].media.arcade)
 			arcade.items.push_back(i);
@@ -2297,7 +2443,8 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 
 // ---- the details panel: the game, its description, and what can be done
 // with it before it starts - play, start from a saved state, options of its
-// own, cheats.
+// own, cheats - and Manage: a favourite or not, hidden or not, its cover, and
+// how long it was played.
 
 // A game's ID, under which Flycast keeps its own options and its cheats are
 // kept: the one learned when it last ran, else a local disc's product number
@@ -2513,6 +2660,18 @@ const std::vector<GameOption>& gameOptions()
 				{ 480, 960, 1440, 1920, 2400, 2880, 3360, 3840, 4320, 4800 }, config::RenderResolution, G::Video),
 		onOff("Widescreen", "Draws outside the 4:3 frame where the game allows it", "config.rend.WideScreen",
 				config::Widescreen, G::Video),
+		[] {
+			// Flycast's own settings grey this out with "Super widescreen" and
+			// grey out "Horizontal stretching" with this. Neither is among
+			// these options (a television is never wider than 16:9), so the
+			// first rule is kept here, for an emu.cfg that has super widescreen
+			// on: it is then not turned on.
+			GameOption o = onOff("Stretch to fill",
+					"Stretches the 4:3 picture over the whole screen: no black bars, and everything a third wider",
+					"config.rend.StretchToFill", config::StretchToFill, GameOption::Video);
+			o.set = [](int v) { config::StretchToFill.set(v != 0 && !config::SuperWidescreen); };
+			return o;
+		}(),
 		onOff("Widescreen game patches", "Built-in 16:9 patches for the games that have one",
 				"config.rend.WidescreenGameHacks", config::WidescreenGameHacks, G::Video, true),
 		pick("Anisotropic filtering", "Sharper textures at grazing angles", "config.rend.AnisotropicFiltering",
@@ -2542,14 +2701,26 @@ const std::vector<GameOption>& gameOptions()
 		onOff("Delay frame swapping", "Avoids a flashing screen and glitchy videos in some games",
 				"config.rend.DelayFrameSwapping", config::DelayFrameSwapping, G::Video),
 		onOff("Show frame rate", "The FPS counter in the corner", "config.rend.ShowFPS", config::ShowFPS, G::Video),
+		// Flycast's overlay (core/rend/vulkan/overlay.cpp): each memory card's
+		// 48 x 32 dots at 288 x 192 pixels of a 4K screen, three quarters opaque,
+		// 24 pixels from its corner. The first controller's card has the top
+		// left corner, the second controller's the top right.
+		onOff("Memory card screen", "Shows the memory card's little screen in a corner of the picture while you play",
+				"config.rend.FloatVMUs", config::FloatVMUs, G::Video),
 		onOff("Integer scaling", "Whole-number scaling of the picture, no blur", "config.rend.IntegerScale",
 				config::IntegerScale, G::Video),
 		onOff("Smooth scaling", "Bilinear filtering of the final picture", "config.rend.LinearInterpolation",
 				config::LinearInterpolation, G::Video),
-		pick("Upscaling", "FSR 1 sharpens a picture rendered below the screen's resolution: try it with 3x or 4x",
-				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)" },
-				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp }, ps5::Upscaling,
-				G::Video),
+		pick("Upscaling", "FSR 1 sharpens a picture smaller than the screen. Scanlines and CRT show it as an old TV would",
+				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)", "Scanlines", "CRT" },
+				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp, ps5::UpscalingScanlines,
+						ps5::UpscalingCrt },
+				ps5::Upscaling, G::Video),
+		// The software model of the Dreamcast's graphics chip (core/rend/soft):
+		// it takes the place of the graphics processor from the next frame.
+		onOff("Software renderer",
+				"Experimental: the processor draws each pixel the way the Dreamcast's chip did. Slower, and at 480p",
+				"ps5.SoftwareRenderer", ps5::SoftwareRenderer, G::Video),
 		combined("Frame pacing",
 				"Sync to display is the smoothest: the sound follows the TV. VSync: the sound keeps its exact rate",
 				{ "Sync to display", "VSync", "Off" },
@@ -2614,7 +2785,7 @@ const std::vector<GameOption>& gameOptions()
 		[] {
 			// The Dreamcast's processor, slower or faster than the real one's 200 MHz.
 			GameOption o = pick("CPU clock",
-					"Overclocking smooths a game that slows down or runs at an uneven frame rate; some games break or run too fast",
+					"Overclocking smooths a game that slows down or stutters; some games break or run too fast",
 					"config.Sh4Clock",
 					{ "100 MHz (half)", "150 MHz", "200 MHz (standard)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)" },
 					{ 100, 150, 200, 250, 300, 350, 400 }, config::Sh4Clock, GameOption::System);
@@ -2764,15 +2935,30 @@ void setGameOptionChoice(const std::string& id, const GameOption& option, int ch
 		config::saveInt(id, option.key, option.values[choice]);
 }
 
-enum DetailsPage { PageActions, PageStates, PageOptions, PageCheats };
+enum DetailsPage { PageActions, PageStates, PageOptions, PageCheats, PageManage };
+// The rows of Manage.
+enum { ManageFavourite, ManageHide, ManageCover, ManageTime, ManageLast, ManageRows };
 
 struct DetailsState
 {
 	int page = PageActions;
-	int action = 0;				// Play, Load state, Options, Cheats
+	int action = 0;				// Play, Load state, Options, Cheats, Manage
 	int row = 0;				// in a page's list
 	float scroll = 0;
+	// The game the panel is for and the shelf it was opened on: a favourite
+	// made or a game hidden changes the lists under it.
+	std::string path;
+	std::string shelf;
 	std::string gameId;
+	// How long the game was played and when last (Unix time, 0 for never), a
+	// set's discs together; whether it was started by a build that kept neither.
+	uint64_t seconds = 0;
+	int64_t lastPlayed = 0;
+	bool startedBefore = false;
+	// What its cover is (ps5::covers::current), asked again when a cover changed.
+	int cover = ps5::covers::Automatic;
+	bool coverSure = true;
+	unsigned coverGeneration = 0;
 	std::vector<std::pair<int, time_t>> states;		// slot, when saved
 	// The cheats page.
 	std::vector<std::string> cheatFiles;	// closest names first
@@ -2794,11 +2980,66 @@ void loadCheatList()
 		det.cheatOn.push_back(std::find(on.begin(), on.end(), name) != on.end());
 }
 
+// "3 h 12 min", "12 min"; "less than a minute" for less.
+std::string playTimeText(uint64_t seconds)
+{
+	const uint64_t minutes = seconds / 60;
+	if (minutes == 0)
+		return "less than a minute";
+	if (minutes < 60)
+		return std::to_string(minutes) + " min";
+	return std::to_string(minutes / 60) + " h " + std::to_string(minutes % 60) + " min";
+}
+
+// "4 Oct 2026"
+std::string dayText(int64_t when)
+{
+	const time_t t = (time_t)when;
+	struct tm local;
+	if (localtime_r(&t, &local) == nullptr)
+		return "";
+	static const char *const months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+	return std::to_string(local.tm_mday) + " " + months[local.tm_mon] + " " + std::to_string(local.tm_year + 1900);
+}
+
+// The quiet line under the cover: "Played 3 h 12 min  ·  last on 4 Oct 2026".
+std::string playedLine()
+{
+	if (det.lastPlayed == 0 && det.seconds == 0)
+		return det.startedBefore ? "Played before play time was kept" : "Not played yet";
+	std::string line = "Played " + playTimeText(det.seconds);
+	if (det.lastPlayed != 0)
+		line += "  \xc2\xb7  last on " + dayText(det.lastPlayed);
+	return line;
+}
+
+const char *coverChoiceName(int choice)
+{
+	switch (choice)
+	{
+	case ps5::covers::Boxart: return "Box art";
+	case ps5::covers::Title: return "Title screen";
+	case ps5::covers::Snap: return "In game";
+	case ps5::covers::Own: return "Yours";
+	default: return "Automatic";
+	}
+}
+
 void openDetails(Game& g)
 {
 	ensureArt(g);
 	lib.details = true;
 	det = DetailsState();
+	det.path = g.media.path;
+	if (view() == Shelves && !lib.shelves.empty())
+		det.shelf = lib.shelves[std::clamp(lib.shelf, 0, (int)lib.shelves.size() - 1)].name;
+	for (const std::string& path : pathsOf(g))
+	{
+		const ps5::library::Entry kept = ps5::library::entry(path);
+		det.seconds += kept.seconds;
+		det.lastPlayed = std::max(det.lastPlayed, kept.lastPlayed);
+		det.startedBefore = det.startedBefore || std::find(recentPaths.begin(), recentPaths.end(), path) != recentPaths.end();
+	}
 	det.gameId = gameIdOf(g);
 	// The states saved for this game, by Flycast's own file names.
 	const std::string base = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName);
@@ -2835,6 +3076,8 @@ void saveCheatChoice()
 	ps5::cheats::setEnabled(det.gameId, on);
 }
 
+void openCover(Game& g);
+
 void detailsInput(Game& g, bool selectDisk)
 {
 	if (selectDisk)
@@ -2853,7 +3096,7 @@ void detailsInput(Game& g, bool selectDisk)
 	{
 	case PageActions:
 		if (in.left && det.action > 0) det.action--;
-		if (in.right && det.action < 3) det.action++;
+		if (in.right && det.action < 4) det.action++;
 		if (in.square && setsGrouped && g.setSize > 1)
 		{
 			// The set's next disc: it stands for the set from here, and the
@@ -2890,7 +3133,7 @@ void detailsInput(Game& g, bool selectDisk)
 					det.page = PageStates;
 			}
 			else
-				det.page = det.action == 2 ? PageOptions : PageCheats;
+				det.page = det.action == 2 ? PageOptions : det.action == 3 ? PageCheats : PageManage;
 		}
 		break;
 	case PageStates:
@@ -2964,6 +3207,20 @@ void detailsInput(Game& g, bool selectDisk)
 		}
 		break;
 	}
+	case PageManage:
+		if (in.up && det.row > 0) det.row--;
+		if (in.down && det.row < ManageRows - 1) det.row++;
+		if (in.back)
+			det.page = PageActions;
+		else if (in.accept && det.row == ManageFavourite)
+			ps5::library::setFavourite(pathsOf(g), !g.favourite);
+		else if (in.accept && det.row == ManageHide)
+			// The lists are made again after this: the library closes the
+			// panel of a game that has left them.
+			ps5::library::setHidden(pathsOf(g), !g.hidden);
+		else if (in.accept && det.row == ManageCover)
+			openCover(g);
+		break;
 	}
 }
 
@@ -2987,6 +3244,9 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 	const std::string id = !det.gameId.empty() ? det.gameId : g.art.uniqueId;
 	if (!id.empty())
 		text(dl, regular(), 20, x + 48, y + 522, alpha(col::faint, t), ("ID  " + id).c_str());
+	if (!selectDisk)
+		text(dl, regular(), 20, x + 48, y + (id.empty() ? 522 : 552), alpha(col::faint, t),
+				fit(regular(), 20, playedLine(), 420).c_str());
 
 	const float tx = x + 520, tw = w - 520 - 56;
 	text(dl, bold(), 48, tx, y + 48, alpha(col::text, t), fit(bold(), 48, g.title, tw).c_str());
@@ -3019,7 +3279,10 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		else
 			actions = { { ICON_FA_PLAY "   Play", true },
 					{ ICON_FA_CLOCK_ROTATE_LEFT "   Load state", !det.states.empty() },
-					{ ICON_FA_SLIDERS "   Options", true }, { ICON_FA_BOLT "   Cheats", true } };
+					{ ICON_FA_SLIDERS "   Options", true }, { ICON_FA_BOLT "   Cheats", true },
+					{ ICON_FA_GEAR "   Manage", true } };
+		// Five of them share the row: each is a little narrower than one alone.
+		const float inside = actions.size() > 1 ? 22.f : 32.f, between = actions.size() > 1 ? 14.f : 20.f;
 		float bx = tx;
 		const float by = bottom - 68;
 		if (!selectDisk && setsGrouped && g.setSize > 1)
@@ -3045,13 +3308,13 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		{
 			const bool on = selectDisk || i == det.action;
 			const ImVec2 ls = textSize(bold(), 26, actions[i].label);
-			const float bw = ls.x + 64;
+			const float bw = ls.x + 2 * inside;
 			if (on)
 				glow(dl, bx, by, bw, 64, 32, alpha(col::accent, 0.7f * t), 12);
 			rect(dl, bx, by, bw, 64, alpha(on ? col::accent : col::panelHi, t), 32);
-			text(dl, bold(), 26, bx + 32, by + 32 - ls.y / 2,
+			text(dl, bold(), 26, bx + inside, by + 32 - ls.y / 2,
 					alpha(!actions[i].enabled ? col::faint : on ? col::text : col::dim, t), actions[i].label);
-			bx += bw + 20;
+			bx += bw + between;
 		}
 		if (!selectDisk && det.action == 1 && det.states.empty() && !(setsGrouped && g.setSize > 1))
 			text(dl, regular(), 20, tx, by - 34, alpha(col::faint, t),
@@ -3061,11 +3324,11 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 
 	// A page: its name, then its rows.
 	const char *names[] = { "", ICON_FA_CLOCK_ROTATE_LEFT "   Start from a saved state", ICON_FA_SLIDERS "   Options for this game",
-			ICON_FA_BOLT "   Cheats" };
+			ICON_FA_BOLT "   Cheats", ICON_FA_GEAR "   Manage" };
 	text(dl, bold(), 30, tx, top, alpha(col::text, t), names[det.page]);
 	const float listTop = top + 58, rowH = 58;
 	const float viewH = bottom - listTop;
-	if (det.page != PageStates && det.gameId.empty())
+	if ((det.page == PageOptions || det.page == PageCheats) && det.gameId.empty())
 	{
 		text(dl, regular(), 26, tx, listTop + 8, alpha(col::dim, t),
 				"Start this game once first.\n\nPSFlyCast keeps a game's own options and cheats under the ID it reads from the "
@@ -3073,8 +3336,19 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		return;
 	}
 	const std::vector<GameOption> options = optionsFor(g.media.fileName, true);
-	const int rows = det.page == PageStates ? (int)det.states.size()
+	const int rows = det.page == PageStates ? (int)det.states.size() : det.page == PageManage ? (int)ManageRows
 			: det.page == PageOptions ? (int)options.size() + 1 : 1 + (int)det.cheatNames.size();
+	if (det.page == PageManage && det.coverGeneration != ps5::covers::generation())
+	{
+		// Asked of the files once, and again when a cover changed: not every frame.
+		det.coverGeneration = ps5::covers::generation();
+		const std::string base = get_file_basename(g.media.fileName);
+		det.cover = ps5::covers::current(base);
+		// A .png in the covers folder that nothing is noted about is the
+		// user's, or one an earlier build downloaded (which kept no notes):
+		// the row does not say whose. "Change cover" finds out.
+		det.coverSure = det.cover != ps5::covers::Own || ps5::covers::ownFile(base) != ps5::rootDir + "covers/" + base + ".png";
+	}
 	det.row = std::clamp(det.row, 0, std::max(0, rows - 1));
 	const float visible = viewH / rowH;
 	const float target = std::clamp((float)det.row - (visible - 1) / 2, 0.f, std::max(0.f, (float)rows - visible));
@@ -3117,6 +3391,53 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 			else
 				text(dl, bold(), 26, tx + 8, ry + 14, ink, ICON_FA_ROTATE_LEFT "   Back to the Settings for all of these");
 		}
+		else if (det.page == PageManage)
+		{
+			// A row that opens something: what it is now, before an arrow.
+			auto opens = [&](const std::string& now) {
+				const char *arrow = ICON_FA_CHEVRON_RIGHT;
+				const ImVec2 as = textSize(regular(), 24, arrow);
+				text(dl, regular(), 24, right - as.x, cy - as.y / 2, on ? col::text : col::faint, arrow);
+				const ImVec2 ns = textSize(regular(), 24, now.c_str());
+				text(dl, regular(), 24, right - as.x - 22 - ns.x, cy - ns.y / 2, on ? col::text : col::faint, now.c_str());
+			};
+			// A fact: nothing to press.
+			auto fact = [&](const std::string& what) {
+				const ImVec2 ws = textSize(regular(), 24, what.c_str());
+				text(dl, regular(), 24, right - ws.x, cy - ws.y / 2, on ? col::text : col::faint, what.c_str());
+			};
+			// Its icon in a column of its own, so that the words line up.
+			auto label = [&](const char *icon, const char *words) {
+				const ImVec2 is = textSize(regular(), 26, icon);
+				text(dl, regular(), 26, tx + 26 - is.x / 2, ry + 14, ink, icon);
+				text(dl, bold(), 26, tx + 60, ry + 14, ink, words);
+			};
+			std::string time = det.seconds == 0 && det.lastPlayed == 0 ? "None yet" : playTimeText(det.seconds);
+			time[0] = (char)toupper((unsigned char)time[0]);
+			switch (i)
+			{
+			case ManageFavourite:
+				label(ICON_FA_STAR, "Favourite");
+				drawSwitch(dl, right, cy, g.favourite, on);
+				break;
+			case ManageHide:
+				label(g.hidden ? ICON_FA_EYE : ICON_FA_EYE_SLASH, g.hidden ? "Show in the library again" : "Hide from the library");
+				opens("");
+				break;
+			case ManageCover:
+				label(ICON_FA_IMAGE, "Change cover");
+				opens(det.coverSure ? coverChoiceName(det.cover) : "");
+				break;
+			case ManageTime:
+				label(ICON_FA_CLOCK, "Time played");
+				fact(time);
+				break;
+			default:
+				label(ICON_FA_CLOCK_ROTATE_LEFT, "Last played");
+				fact(det.lastPlayed != 0 ? dayText(det.lastPlayed) : det.startedBefore ? "Before play time was kept" : "Never");
+				break;
+			}
+		}
 		else if (i == 0)
 		{
 			text(dl, bold(), 26, tx + 8, ry + 14, ink, "Cheat file");
@@ -3136,12 +3457,43 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		text(dl, regular(), 22, tx + 8, listTop + rowH + 20, alpha(col::faint, t),
 				det.cheatFiles.empty() ? "No cheat files in the cheats folder."
 				: "No file chosen. Left and right go through the files: the closest names come first.", tw - 16);
+	if (det.page == PageManage)
+	{
+		// What the focused row is about.
+		const bool set = setsGrouped && g.setSize > 1;
+		const char *note = "";
+		switch (det.row)
+		{
+		case ManageFavourite:
+			note = "A favourite is on the Favourites shelf, and has a star in the grid and in the list.";
+			break;
+		case ManageHide:
+			note = g.hidden ? "Puts the game back in the library's lists, as it was."
+					: "The game leaves every list. Settings > Library > Show hidden games lists it again, dimmed, "
+						"and this row then brings it back.";
+			break;
+		case ManageCover:
+			note = set ? "Another picture from the covers' collection, or the one PSFlyCast finds by itself. "
+						"Every disc of the game takes it."
+					: "Another picture from the covers' collection, or the one PSFlyCast finds by itself.";
+			break;
+		case ManageTime:
+			note = set ? "The time the game itself ran, all its discs together: not the time in the quick menu or the Settings."
+					: "The time the game itself ran: not the time in the quick menu or the Settings.";
+			break;
+		default:
+			break;
+		}
+		text(dl, regular(), 22, tx + 8, listTop + ManageRows * rowH + 22, alpha(col::faint, t), note, tw - 16);
+	}
 }
 
 } // namespace
 
 void gameStarted(const std::string& path)
 {
+	// Its time played counts from when it runs.
+	ps5::library::playing(path);
 	loadRecents();
 	recentPaths.erase(std::remove(recentPaths.begin(), recentPaths.end(), path), recentPaths.end());
 	recentPaths.insert(recentPaths.begin(), path);
@@ -3246,6 +3598,7 @@ void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
 				glow(dl, cx, cy, cardW + grow, cardH + grow, 14, alpha(col::accent, near * breath), 22);
 			}
 			drawCover(dl, g, cx, cy, cardW + grow, cardH + grow, 12, near);
+			coverMarks(dl, g, cx, cy, cardW + grow, cardH + grow, 12, false);
 			if (on && motion() == MotionFull)
 			{
 				// A band of light crosses the focused cover now and then.
@@ -3333,6 +3686,7 @@ void drawGrid(ImDrawList *dl, Game *focused)
 		if (near > 0.02f)
 			glow(dl, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 12, alpha(col::accent, near), 20);
 		drawCover(dl, g, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 10, near);
+		coverMarks(dl, g, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 10, true);
 		if (near > 0.02f)
 			outline(dl, x - grow / 2 - 4, y - grow / 2 - 4, cardW + grow + 8, cardH + grow + 8, alpha(col::text, near), 13, 4);
 	}
@@ -3369,10 +3723,23 @@ void drawList(ImDrawList *dl, Game *focused, bool selectDisk)
 			imageFill(dl, id, listX + 12, y + 8, rowH - 16, rowH - 16, 8);
 		else
 			rect(dl, listX + 12, y + 8, rowH - 16, rowH - 16, col::card, 8);
+		if (g.hidden)
+			rect(dl, listX + 12, y + 8, rowH - 16, rowH - 16, alpha(on ? col::accent : col::panel, 0.64f), 8);
 		const std::string badge = platformText(g);
 		const ImVec2 bs = textSize(regular(), 20, badge.c_str());
-		text(dl, bold(), 28, listX + rowH + 12, y + 22, on ? col::text : col::dim,
-				fit(bold(), 28, g.title, listW - rowH - 60 - bs.x).c_str());
+		// A favourite's star and a hidden game's struck-through eye, before the badge.
+		float titleEnd = listX + listW - 48 - bs.x;
+		auto mark = [&](const char *icon, ImU32 colour) {
+			const ImVec2 is = textSize(regular(), 20, icon);
+			text(dl, regular(), 20, titleEnd - is.x, y + 28, on ? col::text : colour, icon);
+			titleEnd -= is.x + 18;
+		};
+		if (g.hidden)
+			mark(ICON_FA_EYE_SLASH, col::faint);
+		if (g.favourite)
+			mark(ICON_FA_STAR, col::warm);
+		text(dl, bold(), 28, listX + rowH + 12, y + 22, on ? col::text : g.hidden ? col::faint : col::dim,
+				fit(bold(), 28, g.title, titleEnd - (listX + rowH + 12)).c_str());
 		text(dl, regular(), 20, listX + listW - 24 - bs.x, y + 28,
 				on ? col::text : (g.media.arcade ? alpha(col::warm, 0.8f) : col::faint), badge.c_str());
 	}
@@ -3383,6 +3750,7 @@ void drawList(ImDrawList *dl, Game *focused, bool selectDisk)
 	const float px = listX + listW + 64, pw = W - px - 96;
 	const float cover = std::min(pw, 440.f);
 	drawCover(dl, *focused, px, top, cover, cover, 16, 1);
+	coverMarks(dl, *focused, px, top, cover, cover, 16, true);
 	float y = top + cover + 36;
 	y += text(dl, bold(), 40, px, y, col::text, focused->title.c_str(), pw).y + 14;
 	const ImU32 tint = focused->media.arcade ? col::warm : col::accent;
@@ -3480,9 +3848,10 @@ float dialogButton(ImDrawList *dl, float x, float y, Glyph g, const char *label,
 
 // ---- the console's own keyboard (ps5_ime.cpp)
 
-bool openKeyboard(int purpose, const char *title, const char *placeholder, const std::string& value, size_t maxLength)
+bool openKeyboard(int purpose, const char *title, const char *placeholder, const std::string& value, size_t maxLength,
+		ps5::ime::Kind kind = ps5::ime::Kind::Text)
 {
-	if (!ps5::ime::open(title, placeholder, value, maxLength))
+	if (!ps5::ime::open(title, placeholder, value, maxLength, kind))
 	{
 		ps5::sound::cue(ps5::sound::Cue::Refuse);
 		os_notify("The keyboard did not open", 4000, "flycast-boot.log in PSFlyCast's folder says why");
@@ -3541,6 +3910,247 @@ void quitDialog(ImDrawList *dl, const Input& given)
 	x += dialogButton(dl, x, y, Glyph::Cross, "Quit", true) + 20;
 	dialogButton(dl, x, y, Glyph::Circle, "Stay", false);
 }
+
+// ---- another cover for a game (ps5_covers.cpp)
+//
+// The collection's three pictures of the game side by side, as the library
+// would crop them, with the cover PSFlyCast finds by itself and, when there is
+// one, the user's own picture. The one chosen is the game's cover from then on.
+
+namespace
+{
+
+struct CoverUi
+{
+	bool open = false;
+	std::string title;
+	std::string base;					// the game's file name without its extension
+	std::vector<std::string> bases;		// its own, and those of its set's other discs: they take the same cover
+	std::string ownArt;					// the picture the game brings itself (its disc's, the scraper's)
+	std::string cannot;					// why nothing is downloaded, when nothing is
+	int focus = -1;						// -1: the cover the game has now, until another is moved to
+	// What the files say, asked again when a download ends or a cover changes:
+	// which the cover is, the user's own picture, and the cover PSFlyCast put
+	// there by itself.
+	int current = ps5::covers::Automatic;
+	std::string own;
+	std::string found;
+	unsigned stamp = 0;
+	std::string note;					// a choice that could not be made
+} coverUi;
+
+// A cover's file has changed: its picture is loaded again, and nothing that
+// is drawn keeps the old one.
+void forgetPicture(const std::string& file)
+{
+	if (imguiDriver != nullptr)
+		imguiDriver->deleteTexture(file);
+	ambient = Ambient{};
+}
+
+void openCover(Game& g)
+{
+	coverUi = CoverUi{};
+	coverUi.open = true;
+	coverUi.title = g.title;
+	coverUi.base = get_file_basename(g.media.fileName);
+	coverUi.bases.push_back(coverUi.base);
+	const auto set = setsGrouped && !g.set.empty() ? discSets.find(g.set) : discSets.end();
+	if (set != discSets.end())
+		for (size_t i : set->second)
+			if (&games[i] != &g)
+				coverUi.bases.push_back(get_file_basename(games[i].media.fileName));
+	coverUi.ownArt = g.art.boxartPath;
+	if (!g.disc || g.media.arcade || coverUi.base.empty())
+		coverUi.cannot = "The collection's pictures are of Dreamcast discs: there is none to download for this game";
+	else if (!ps5::options().covers)
+		coverUi.cannot = "Downloads are off: Settings > Library has Download covers and descriptions";
+	else
+		ps5::covers::fetchAlternatives(coverUi.base);
+}
+
+void coverDialog(ImDrawList *dl, const Input& given)
+{
+	using ps5::covers::Alternatives;
+	CoverUi& ui = coverUi;
+	const Alternatives found = ps5::covers::alternatives(ui.base);
+	unsigned stamp = ps5::covers::generation();
+	for (int i = 0; i < ps5::covers::PictureCount; i++)
+		stamp = stamp * 8 + (unsigned)found.state[i] + 1;
+	if (stamp != ui.stamp)
+	{
+		ui.stamp = stamp;
+		ui.current = ps5::covers::current(ui.base);
+		ui.own = ps5::covers::ownFile(ui.base);
+		const std::string inPlace = ps5::rootDir + "covers/" + ui.base + ".png";
+		ui.found = ui.current == ps5::covers::Automatic && file_exists(inPlace) ? inPlace : "";
+	}
+	// A picture in the covers folder that nothing is noted about is the
+	// user's - unless an earlier build downloaded it, which kept no notes. The
+	// box art tells (ps5_covers.cpp compares the two): until it is here, the
+	// dialog does not say whose the cover is.
+	const bool unsure = ui.current == ps5::covers::Own && found.state[ps5::covers::Boxart] == Alternatives::Waiting
+			&& ui.own.rfind(ps5::rootDir + "covers/.yours/", 0) != 0;
+
+	// The choices, left to right. state is Found for one that can be made.
+	struct Tile { int choice; const char *name; std::string file; Alternatives::State state; };
+	std::vector<Tile> tiles;
+	// Automatic: the cover PSFlyCast put there itself, else the box art a
+	// download brings, else what the game brings itself.
+	const bool boxart = ui.cannot.empty() && found.state[ps5::covers::Boxart] == Alternatives::Found;
+	tiles.push_back({ ps5::covers::Automatic, coverChoiceName(ps5::covers::Automatic),
+			!ui.found.empty() ? ui.found : boxart ? found.file[ps5::covers::Boxart] : ui.ownArt, Alternatives::Found });
+	for (int i = 0; i < ps5::covers::PictureCount; i++)
+		tiles.push_back({ i, coverChoiceName(i), found.state[i] == Alternatives::Found ? found.file[i] : "", found.state[i] });
+	if (!ui.own.empty() && !unsure)
+		tiles.push_back({ ps5::covers::Own, coverChoiceName(ps5::covers::Own), ui.own, Alternatives::Found });
+	const int n = (int)tiles.size();
+	// The focus starts on the cover the game has.
+	int focus = std::clamp(ui.focus, 0, n - 1);
+	if (ui.focus < 0)
+		for (int i = 0; i < n && !unsure; i++)
+			if (tiles[i].choice == ui.current)
+				focus = i;
+	if (given.left && focus > 0)
+		ui.focus = --focus;
+	if (given.right && focus < n - 1)
+		ui.focus = ++focus;
+	const Tile& chosen = tiles[focus];
+	if (given.accept && chosen.state != Alternatives::Found)
+		ps5::sound::cue(ps5::sound::Cue::Refuse);
+	else if (given.accept && chosen.choice == ui.current && !unsure)
+		// The cover it has: nothing changes.
+		ui.open = false;
+	else if (given.accept)
+	{
+		bool done = true;
+		for (const std::string& base : ui.bases)
+		{
+			// A disc of the set with no picture of the user's keeps the cover it has.
+			if (chosen.choice == ps5::covers::Own && ps5::covers::ownFile(base).empty())
+				continue;
+			done = ps5::covers::choose(base, chosen.choice, ui.base) && done;
+			for (const char *extension : { ".png", ".jpg", ".jpeg" })
+				forgetPicture(ps5::rootDir + "covers/" + base + extension);
+		}
+		if (done)
+			ui.open = false;
+		else
+		{
+			ui.note = "The cover could not be written to the covers folder";
+			ps5::sound::cue(ps5::sound::Cue::Refuse);
+		}
+	}
+	else if (given.back)
+		ui.open = false;
+	bool waiting = false, nothing = true, failed = false;
+	for (int i = 0; i < ps5::covers::PictureCount; i++)
+	{
+		waiting = waiting || found.state[i] == Alternatives::Waiting;
+		nothing = nothing && found.state[i] == Alternatives::Missing;
+		failed = failed || found.state[i] == Alternatives::Failed;
+	}
+	// What could not be downloaded is asked for again.
+	if (given.square && failed && !waiting)
+		ps5::covers::fetchAlternatives(ui.base);
+
+	// As wide as its longest line needs, and wider for a fifth picture: the
+	// pictures share the width.
+	const float pad = 52, gap = 24;
+	const float w = n > 4 ? 1200 : 1040, inner = w - 2 * pad;
+	const float tile = (inner - (n - 1) * gap) / n, h = 420 + tile;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "Change cover");
+	const std::string whose = ui.title + (ui.bases.size() > 1 ? "  \xc2\xb7  every disc of it" : "");
+	text(dl, regular(), 23, at.x + pad, at.y + pad + 50, col::dim, fit(regular(), 23, whose, inner).c_str());
+	const float ty = at.y + pad + 104;
+	for (int i = 0; i < n; i++)
+	{
+		const Tile& t = tiles[i];
+		const float tx = at.x + pad + i * (tile + gap);
+		const bool on = i == focus;
+		if (on)
+			glow(dl, tx, ty, tile, tile, 14, alpha(col::accent, 0.9f), 18);
+		rect(dl, tx, ty, tile, tile, col::card, 14);
+		ImTextureID id = ImTextureID();
+		if (!t.file.empty())
+		{
+			ImguiFileTexture picture(t.file);
+			id = picture.getId();
+		}
+		const float cx = tx + tile / 2, cy = ty + tile / 2;
+		if (id != ImTextureID())
+			imageFill(dl, id, tx, ty, tile, tile, 14);
+		else if (t.state == Alternatives::Waiting)
+		{
+			// An arc going round while it is downloaded.
+			const float turn = (float)timeNow * 3.2f;
+			dl->PathClear();
+			dl->PathArcTo(V(cx, cy), 34 * S, turn, turn + IM_PI * 0.7f, 24);
+			dl->PathStroke(col::accent, 0, 6 * S);
+		}
+		else
+		{
+			const bool failed = t.state == Alternatives::Failed;
+			const char *icon = t.choice == ps5::covers::Automatic ? ICON_FA_WAND_MAGIC_SPARKLES
+					: failed ? ICON_FA_TRIANGLE_EXCLAMATION : ICON_FA_IMAGE;
+			const ImVec2 is = textSize(regular(), 54, icon);
+			text(dl, regular(), 54, cx - is.x / 2, cy - is.y / 2, failed ? alpha(col::warm, 0.8f) : col::faint, icon);
+		}
+		if (on)
+			outline(dl, tx - 4, ty - 4, tile + 8, tile + 8, col::text, 17, 4);
+		const ImVec2 ns = textSize(bold(), 24, t.name);
+		text(dl, bold(), 24, tx + (tile - ns.x) / 2, ty + tile + 16, on ? col::text : col::dim, t.name);
+		// Under its name: that it is the cover now, or why it cannot be chosen.
+		std::string under;
+		ImU32 colour = col::faint;
+		if (t.choice == ui.current && !unsure)
+		{
+			under = ICON_FA_CIRCLE_CHECK "  The cover now";
+			colour = col::good;
+		}
+		else if (t.state == Alternatives::Waiting)
+			under = "Downloading";
+		else if (t.state == Alternatives::Missing)
+			under = "None found";
+		else if (t.state == Alternatives::Failed)
+			under = "Not downloaded";
+		else if (t.state == Alternatives::None)
+			under = "Not available";
+		const ImVec2 us = textSize(regular(), 20, under.c_str());
+		text(dl, regular(), 20, tx + (tile - us.x) / 2, ty + tile + 52, colour, under.c_str());
+	}
+	// One line: what went wrong, what is going on, or what the focused choice is.
+	std::string line;
+	bool bad = false;
+	if (!ui.note.empty() || !found.error.empty())
+	{
+		line = !ui.note.empty() ? ui.note : found.error;
+		bad = true;
+	}
+	else if (waiting)
+		line = "Downloading from the covers' collection";
+	else if (!ui.cannot.empty())
+		line = ui.cannot;
+	else if (nothing)
+		line = "The covers' collection has no picture under this game's file name";
+	else if (chosen.choice == ps5::covers::Automatic)
+		line = "The cover PSFlyCast finds by itself: the downloaded box art, or the picture the game brings";
+	else if (chosen.choice == ps5::covers::Own)
+		line = "Your own picture, from the covers folder. It is kept whatever is chosen here";
+	else
+		line = "From the covers' collection, under this game's file name";
+	text(dl, regular(), 22, at.x + pad, ty + tile + 100, bad ? col::warm : col::faint, fit(regular(), 22, line, inner).c_str());
+	float bx = at.x + pad;
+	const float by = at.y + h - pad - 60 + 8;
+	bx += dialogButton(dl, bx, by, Glyph::Cross, "Use this cover", chosen.state == Alternatives::Found) + 20;
+	bx += dialogButton(dl, bx, by, Glyph::Circle, "Cancel", false) + 20;
+	bx += dialogButton(dl, bx, by, Glyph::DPadLR, "Choose", false) + 20;
+	if (failed && !waiting)
+		dialogButton(dl, bx, by, Glyph::Square, "Try again", false);
+}
+
+} // namespace
 
 // ---- updating (ps5_update.cpp)
 
@@ -3998,6 +4608,12 @@ void addressDialog(ImDrawList *dl, const Input& given)
 	dialogButton(dl, bx, buttonsY, Glyph::Triangle, "No address", false);
 }
 
+// ---- the memory card manager (ps5_vmu.cpp): Settings > System > Memory cards
+#include "bigpicture_cards.inc"
+
+// ---- the RetroAchievements account: Settings > Achievements > Account
+#include "bigpicture_achievements.inc"
+
 // ------------------------------------------------------------- the splash
 //
 // The start-up animation, a little over seven seconds:
@@ -4293,6 +4909,12 @@ void libraryScreen(bool selectDisk)
 		in = Input{};
 		quitDialog(ImGui::GetForegroundDrawList(), given);
 	}
+	if (coverUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		coverDialog(ImGui::GetForegroundDrawList(), given);
+	}
 	chooseSource();
 	refreshGames(lib.source == Network);
 	// A disc is to be chosen for the running game: its own tab, and the disc
@@ -4431,6 +5053,20 @@ void libraryScreen(bool selectDisk)
 	buildShelves(selectDisk);
 	buildFlat(selectDisk);
 	focused = focusedGame();
+	// A favourite made or a game hidden in its details changed the lists under
+	// the panel: the focus stays on the panel's game, and the panel of a game
+	// that has left the lists closes at once.
+	if (lib.details && !selectDisk && (focused == nullptr || focused->media.path != det.path))
+	{
+		if (refocus(det.path, det.shelf))
+			focused = focusedGame();
+		else
+		{
+			lib.details = false;
+			lib.detailsAnim = 0;
+			lib.flatPath.clear();
+		}
+	}
 
 	const bool empty = v == Shelves ? lib.shelves.empty() : lib.flat.empty();
 	// The tab comes in from the side it was reached from; the backdrop takes
@@ -4536,6 +5172,12 @@ void libraryScreen(bool selectDisk)
 		hintBar(dl, { { Glyph::DPadLR, "Choose" }, { Glyph::Cross, "Select" }, { Glyph::Circle, "Back" } });
 	else if (lib.details && det.page == PageStates)
 		hintBar(dl, { { Glyph::DPadUD, "Slot" }, { Glyph::Cross, "Start from it" }, { Glyph::Circle, "Back" } });
+	else if (lib.details && det.page == PageManage && det.row == ManageFavourite)
+		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "On / off" }, { Glyph::Circle, "Back" } });
+	else if (lib.details && det.page == PageManage && det.row <= ManageCover)
+		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "Select" }, { Glyph::Circle, "Back" } });
+	else if (lib.details && det.page == PageManage)
+		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Circle, "Back" } });
 	else if (lib.details)
 		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } });
 	else if (selectDisk && empty && searching)
@@ -4919,6 +5561,31 @@ std::vector<Category> buildCategories()
 
 	Category system{ ICON_FA_MICROCHIP, "System" };
 	addOptions(system, GameOption::System);
+	{
+		Row r{ Row::Toggle, "Rewind",
+				"Keeps a game's last three minutes: the quick menu's Rewind goes back into them. Experimental" };
+		r.get = [] { return ps5::options().rewind ? 1 : 0; };
+		r.set = [](int v) {
+			ps5::options().rewind = v != 0;
+			ps5::saveOptions();
+			ps5::rewind::setEnabled(v != 0);
+		};
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Memory cards", "The saves on each card: copy one to another card, delete it, or take it to and from a file" };
+		r.action = [] {
+			// Flycast holds a loaded game's cards open: changed under it, its saves would be lost.
+			if (game_started)
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("Quit the game first", 4000, "Its memory cards are in use while it is loaded");
+			}
+			else
+				openCards();
+		};
+		system.rows.push_back(r);
+	}
 	cats.push_back(system);
 
 	// Playing with someone else: Flycast's netplay (GGPO), and how a game's
@@ -4999,6 +5666,41 @@ std::vector<Category> buildCategories()
 		online.rows.push_back(r);
 	}
 	cats.push_back(online);
+
+	// RetroAchievements: Flycast's own support for the site (core/achievements).
+	Category trophies{ ICON_FA_TROPHY, "Achievements" };
+	{
+		Row r{ Row::Toggle, "RetroAchievements",
+				"Earns the achievements of retroachievements.org as you play. Needs an account on the site" };
+		r.get = [] { return config::EnableAchievements ? 1 : 0; };
+		r.set = [](int v) { config::EnableAchievements.set(v != 0); };
+		trophies.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Account", "Signs in with the console's keyboard. Kept afterwards: a key from the site, not the password" };
+		r.info = [] { return accountText(); };
+		r.action = [] {
+			if (config::EnableAchievements)
+				openAccount();
+			else
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("Turn RetroAchievements on first", 3000);
+			}
+		};
+		trophies.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "Mode", "Save states, cheats, rewind and fast forward stay as they are. Hardcore mode is not offered" };
+		r.info = [] { return std::string("Softcore"); };
+		trophies.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "In a game", "An achievement earned is shown over the game as it happens" };
+		r.info = [] { return std::string("The quick menu lists its achievements"); };
+		trophies.rows.push_back(r);
+	}
+	cats.push_back(trophies);
 
 	Category look{ ICON_FA_PALETTE, "Interface" };
 	{
@@ -5104,6 +5806,20 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Info, "Hidden games", "A game is hidden from its details, under Manage, and is then in none of the lists" };
+		r.info = [] {
+			return hiddenGames == 0 ? std::string("None") : std::to_string(hiddenGames) + (hiddenGames == 1 ? " game" : " games");
+		};
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Show hidden games",
+			"They are listed again, dimmed, so that a game's details, under Manage, can bring it back" };
+		r.get = [] { return ps5::options().showHidden ? 1 : 0; };
+		r.set = [](int v) { ps5::options().showHidden = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Toggle, "Load network games into memory",
 			"On: the whole game is read before it starts and the NAS can sleep. Off: it is streamed while you play" };
 		r.get = [] { return ps5::options().ramCache ? 1 : 0; };
@@ -5125,7 +5841,8 @@ std::vector<Category> buildCategories()
 	}
 	for (const auto& [label, sub] : std::vector<std::pair<std::string, std::string>>{
 			{ "Games folder", "games/" }, { "BIOS folder", "bios/" }, { "Covers folder", "covers/" },
-			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" } })
+			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" }, { "Screenshots", "screenshots/" },
+			{ "Save files in and out", "vmu/" } })
 	{
 		Row r{ Row::Info, label, "" };
 		const std::string path = shownRoot() + sub;
@@ -5203,7 +5920,10 @@ std::vector<Category> buildCategories()
 			{ "USB drive access", "ps5-native-app-boilerplate, by BlackBearReloaded" },
 			{ "Keyboard, USB input, home sound", "After BlackBearReloaded's Prospero projects; ps5-at9-converter" },
 			{ "Network shares", "libsmb2, by Ronnie Sahlberg" },
+			{ "Build foundation", "PS5_VulkanTemplate, by Mihawk-99" },
 			{ "Upscaling", "FidelityFX Super Resolution 1.0, by AMD" },
+			{ "Software renderer", "REFSW, by skmp, from nullDC-rust (MIT)" },
+			{ "Achievements", "rcheevos, by RetroAchievements.org (MIT)" },
 			{ "Cheats", "libretro-database (CC BY-SA 4.0)" },
 			{ "Game patches", "Flycast widescreen and 60 FPS chart, by nexus382 and contributors" },
 			{ "Covers", "libretro-thumbnails" },
@@ -5319,12 +6039,18 @@ void settings()
 			config::ISPUsername.set(typed);
 			st.dirty = true;
 		}
+		else if (keyboard == KeyboardRaUser || keyboard == KeyboardRaPassword)
+		{
+			accountTyped(keyboard, typed);
+			// A password is in the dialog's keeping only.
+			std::fill(typed.begin(), typed.end(), '\0');
+		}
 		if (keyboard == -1)
 			in = Input{};
 	}
 	// A dialog over the Settings takes the pad.
 	const Input given = in;
-	const bool dialog = updateUi.open || addressUi.open;
+	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open;
 	if (dialog)
 		in = Input{};
 	if (updateUi.open)
@@ -5332,6 +6058,13 @@ void settings()
 	else if (addressUi.open)
 	{
 		addressDialog(ImGui::GetForegroundDrawList(), given);
+		st.dirty = true;
+	}
+	else if (cardsUi.open)
+		cardsDialog(ImGui::GetForegroundDrawList(), given);
+	else if (accountUi.open)
+	{
+		accountDialog(ImGui::GetForegroundDrawList(), given);
 		st.dirty = true;
 	}
 
@@ -5572,6 +6305,24 @@ struct QuickState
 	double listenAt = 0;
 	// "Restart game" was chosen once: until then, choosing it again restarts.
 	double restartAsked = -10;
+	// The Rewind page: the moments there were when it was opened.
+	bool rewind = false;
+	float rewindAnim = 0;
+	int rewindFocus = 0;
+	float rewindScroll = 0;
+	std::vector<ps5::rewind::Point> rewindPoints;
+	std::string rewindNote;
+	// The Achievements page: the game's, asked for once when it is opened
+	// (each asking has the pictures still missing downloaded).
+	bool trophies = false;
+	float trophiesAnim = 0;
+	int trophyFocus = 0;
+	float trophyScroll = 0;
+	achievements::Game trophyGame;
+	std::vector<achievements::Achievement> trophyList;
+	// What the menu's own row says, asked for once as the menu opens.
+	bool trophiesActive = false;
+	std::string trophiesDetail;
 } qm;
 
 void openCheats()
@@ -5819,6 +6570,9 @@ struct PadControl
 	const char *console;	// what the control is on a Dreamcast pad
 	const char *arcade;		// and on an arcade board (null: not there)
 	DreamcastKey key;
+	// The emulator's own, not the Dreamcast's: on no button until it is given
+	// one, and Square takes it off again.
+	bool emulator = false;
 };
 
 const PadControl padControls[] = {
@@ -5829,6 +6583,9 @@ const PadControl padControls[] = {
 	{ "D-pad left", "Left", DC_DPAD_LEFT }, { "D-pad right", "Right", DC_DPAD_RIGHT },
 	{ "C (six-button pad)", "Button 3", DC_BTN_C }, { "Z (six-button pad)", "Button 6", DC_BTN_Z },
 	{ nullptr, "Insert coin", DC_BTN_D }, { nullptr, "Service", DC_DPAD2_UP },
+	// Flycast's own (core/input/gamepad_device.cpp): a press turns fast forward
+	// on and the next one off; a press saves a screenshot.
+	{ "Fast forward", "Fast forward", EMU_BTN_FFORWARD, true }, { "Screenshot", "Screenshot", EMU_BTN_SCREENSHOT, true },
 };
 
 std::vector<PadControl> controlsShown()
@@ -5899,6 +6656,20 @@ void bindControl(GamepadDevice& pad, DreamcastKey key, u32 bit)
 	pad.save_mapping();
 }
 
+// Takes a control off its button, in the game's own layout.
+void unbindControl(GamepadDevice& pad, DreamcastKey key)
+{
+	if (!pad.isPerGameMapping())
+		pad.setPerGameMapping(true);
+	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
+	if (mapping == nullptr)
+		return;
+	pad.clearButtonMapping(0, key);
+	pad.clearAxisMapping(0, key);
+	mapping->set_dirty();
+	pad.save_mapping();
+}
+
 void openControls()
 {
 	qm.controls = true;
@@ -5915,6 +6686,9 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	const int count = (int)controls.size();
 	const int rows = count + 1;		// the first row: whose layout this is
 	const bool own = pad != nullptr && pad->isPerGameMapping();
+	// The focused row is one of the emulator's own controls, and is on a button.
+	const bool removable = pad != nullptr && qm.listening < 0 && qm.controlFocus > 0 && qm.controlFocus <= count
+			&& controls[qm.controlFocus - 1].emulator && boundTo(*pad, controls[qm.controlFocus - 1].key) != "Not set";
 
 	if (qm.listening >= 0)
 	{
@@ -5951,6 +6725,8 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			qm.listenArmed = false;
 			qm.listenAt = timeNow;
 		}
+		else if (removable && in.square)
+			unbindControl(*pad, controls[qm.controlFocus - 1].key);
 		else if (in.back || in.options)
 			qm.controls = false;
 	}
@@ -5994,16 +6770,220 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		text(dl, bold(), 24, px + 72, y + 16, on || (i == 0 && own) ? col::text : col::dim, label.c_str());
 		const ImVec2 vs = textSize(regular(), 24, value.c_str());
 		const float pulse = waiting ? 0.6f + 0.4f * std::sin((float)timeNow * 6.f) : 1.f;
+		// A Dreamcast control on no button is amiss; one of the emulator's own is not.
+		const bool amiss = value == "Not set" && !(i > 0 && controls[i - 1].emulator);
 		text(dl, regular(), 24, right - vs.x, cy - vs.y / 2,
-				alpha(on ? col::text : value == "Not set" ? col::warm : col::faint, pulse), value.c_str());
+				alpha(on ? col::text : amiss ? col::warm : col::faint, pulse), value.c_str());
 	}
 	dl->PopClipRect();
+	const bool emulators = qm.controlFocus > 0 && qm.controlFocus <= count && controls[qm.controlFocus - 1].emulator;
 	const char *note = qm.listening >= 0 ? "Press the DualSense button for it. The touch pad leaves it as it is."
 			: qm.controlFocus == 0 ? (own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 					: "This game uses the layout every game has. Changing a button below gives it one of its own.")
+			: emulators && controls[qm.controlFocus - 1].key == EMU_BTN_FFORWARD
+				? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"
+					"Square takes it off its button. L3 and R3 are free in Dreamcast games."
+			: emulators ? "A press saves a picture of the game to the screenshots folder. Cross, then the button for it;\n"
+					"Square takes it off its button. L3 and R3 are free in Dreamcast games."
 			: "Cross, then the DualSense button for it. A button that did something else stops doing it.\n"
 					"L2 and R2 are analog for the triggers. The sticks and the touch pad stay as they are.";
 	text(dl, regular(), 20, px + 56, top + viewH + 14, col::faint, note, pw - 112);
+}
+
+// ---- the Rewind page: the moments of the last minutes, the newest first
+
+std::string agoText(double seconds)
+{
+	const int whole = std::max(1, (int)std::lround(seconds));
+	if (whole < 60)
+		return std::to_string(whole) + (whole == 1 ? " second ago" : " seconds ago");
+	const int minutes = whole / 60, rest = whole % 60;
+	return std::to_string(minutes) + " min" + (rest == 0 ? "" : " " + std::to_string(rest) + " s") + " ago";
+}
+
+void openRewind()
+{
+	qm.rewind = true;
+	qm.rewindFocus = 0;
+	qm.rewindScroll = 0;
+	qm.rewindNote.clear();
+	// The emulator is stopped while the menu is up: the list stays as it is.
+	qm.rewindPoints = ps5::rewind::points();
+}
+
+// True when the game went back and the menu closes.
+bool rewindPage(ImDrawList *dl, float px, float pw, float top)
+{
+	const int rows = (int)qm.rewindPoints.size();
+	bool went = false;
+	if (in.up && qm.rewindFocus > 0) qm.rewindFocus--;
+	if (in.down && qm.rewindFocus < rows - 1) qm.rewindFocus++;
+	if (in.l2) qm.rewindFocus = std::max(0, qm.rewindFocus - 8);
+	if (in.r2) qm.rewindFocus = std::min(std::max(0, rows - 1), qm.rewindFocus + 8);
+	if (in.accept && rows > 0)
+	{
+		using ps5::rewind::Result;
+		switch (ps5::rewind::restore((size_t)qm.rewindFocus))
+		{
+		case Result::Ok:
+			went = true;
+			break;
+		case Result::NoMemory:
+			qm.rewindNote = "Not enough memory to go back now.";
+			break;
+		case Result::LoadFailed:
+			// As a state that did not load: the machine is part one moment and part another.
+			qm.rewindNote = "Going back failed, and the game may no longer run right: load a state, or restart it.";
+			qm.rewindPoints.clear();
+			break;
+		case Result::Unavailable:
+			qm.rewindNote = "This game cannot be rewound now.";
+			break;
+		case Result::Corrupt:
+			qm.rewindNote = "That moment could not be read back. Nothing was changed.";
+			break;
+		case Result::EmulatorRunning:
+			qm.rewindNote = "The game was not stopped. Nothing was changed.";
+			break;
+		default:
+			qm.rewindNote = "That moment is no longer kept.";
+			qm.rewindPoints = ps5::rewind::points();
+			break;
+		}
+		if (!went)
+			ps5::sound::cue(ps5::sound::Cue::Refuse);
+		qm.rewindFocus = std::clamp(qm.rewindFocus, 0, std::max(0, (int)qm.rewindPoints.size() - 1));
+	}
+	if (in.back || in.options)
+		qm.rewind = false;
+
+	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_BACKWARD "   Rewind");
+	const float rowH = 62;
+	const float noteH = 92;
+	const float viewH = H - 96 - noteH - top;
+	const float visible = viewH / rowH;
+	const int count = (int)qm.rewindPoints.size();
+	const float target = std::clamp((float)qm.rewindFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)count - visible));
+	qm.rewindScroll = approach(qm.rewindScroll, target, 18);
+	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	for (int i = 0; i < count; i++)
+	{
+		const float y = top + (i - qm.rewindScroll) * rowH;
+		if (y > top + viewH || y + rowH < top - rowH)
+			continue;
+		const bool on = i == qm.rewindFocus;
+		if (on)
+			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
+		text(dl, regular(), 24, px + 64, y + 17, on ? col::text : col::dim, ICON_FA_CLOCK_ROTATE_LEFT);
+		text(dl, bold(), 24, px + 112, y + 16, on ? col::text : col::dim, agoText(qm.rewindPoints[i].secondsAgo).c_str());
+	}
+	dl->PopClipRect();
+	if (count == 0 && qm.rewindNote.empty())
+		text(dl, regular(), 22, px + 56, top + 24, col::faint,
+				"Nothing to go back to yet: a moment is kept every few seconds of play.", pw - 112);
+	text(dl, regular(), 20, px + 56, top + viewH + 14, qm.rewindNote.empty() ? col::faint : col::warm,
+			!qm.rewindNote.empty() ? qm.rewindNote.c_str()
+			: "The whole machine goes back to that moment, its memory cards too: what the game saved since is undone.\nThe moments after it are forgotten.",
+			pw - 112);
+	return went;
+}
+
+// ---- the Achievements page: the running game's, as the site groups them
+
+void openAchievements()
+{
+	qm.trophies = true;
+	qm.trophyFocus = 0;
+	qm.trophyScroll = 0;
+	qm.trophyGame = achievements::getCurrentGame();
+	qm.trophyList = achievements::getAchievementList();
+}
+
+void achievementsPage(ImDrawList *dl, float px, float pw, float top)
+{
+	const int count = (int)qm.trophyList.size();
+	if (in.up && qm.trophyFocus > 0) qm.trophyFocus--;
+	if (in.down && qm.trophyFocus < count - 1) qm.trophyFocus++;
+	if (in.l2) qm.trophyFocus = std::max(0, qm.trophyFocus - 6);
+	if (in.r2) qm.trophyFocus = std::min(std::max(0, count - 1), qm.trophyFocus + 6);
+	if (in.back || in.options)
+		qm.trophies = false;
+
+	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_TROPHY "   Achievements");
+	{
+		const achievements::Game& game = qm.trophyGame;
+		const std::string sum = std::to_string(game.unlockedAchievements) + " of " + std::to_string(game.totalAchievements)
+				+ ", " + std::to_string(game.points) + " of " + std::to_string(game.totalPoints) + " points";
+		const ImVec2 ss = textSize(regular(), 22, sum.c_str());
+		text(dl, regular(), 22, px + pw - 60 - ss.x, top - 52, col::dim, sum.c_str());
+	}
+	// Each achievement is a row; where the site's group changes, its name is a
+	// line above the row.
+	const float rowH = 92, headH = 46;
+	const float noteH = 92;
+	const float viewH = H - 96 - noteH - top;
+	std::vector<float> at(count + 1, 0.f);
+	float total = 0;
+	for (int i = 0; i < count; i++)
+	{
+		if (i == 0 || qm.trophyList[i].category != qm.trophyList[i - 1].category)
+			total += headH;
+		at[i] = total;
+		total += rowH;
+	}
+	const float focusY = count > 0 ? at[std::clamp(qm.trophyFocus, 0, count - 1)] : 0;
+	const float target = std::clamp(focusY - (viewH - rowH) / 2, 0.f, std::max(0.f, total - viewH));
+	qm.trophyScroll = approach(qm.trophyScroll, target, 18);
+	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	for (int i = 0; i < count; i++)
+	{
+		const achievements::Achievement& one = qm.trophyList[i];
+		const float y = top + at[i] - qm.trophyScroll;
+		if (y > top + viewH || y + rowH < top - headH)
+			continue;
+		if (i == 0 || one.category != qm.trophyList[i - 1].category)
+		{
+			const bool open = one.category.find("Unlocked") != std::string::npos;
+			const std::string head = std::string(open ? ICON_FA_LOCK_OPEN : ICON_FA_LOCK) + "   " + one.category;
+			text(dl, bold(), 20, px + 56, y - headH + 14, col::faint, head.c_str());
+		}
+		const bool on = i == qm.trophyFocus;
+		if (on)
+			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
+		const float side = 68;
+		ImguiFileTexture picture(one.image);
+		const ImTextureID id = picture.getId();
+		if (id != ImTextureID())
+			imageFill(dl, id, px + 48, y + (rowH - 4 - side) / 2, side, side, 8);
+		else
+		{
+			rect(dl, px + 48, y + (rowH - 4 - side) / 2, side, side, on ? alpha(col::text, 0.2f) : col::card, 8);
+			const ImVec2 is = textSize(regular(), 26, ICON_FA_TROPHY);
+			text(dl, regular(), 26, px + 48 + (side - is.x) / 2, y + (rowH - 4 - is.y) / 2, on ? col::text : col::faint, ICON_FA_TROPHY);
+		}
+		const float tx = px + 48 + side + 20;
+		float tw = pw - (tx - px) - 64;
+		if (!one.status.empty())
+		{
+			// How far along it is ("12/50"), on the right.
+			const ImVec2 ps = textSize(regular(), 22, one.status.c_str());
+			text(dl, regular(), 22, px + pw - 60 - ps.x, y + 16, on ? col::text : col::dim, one.status.c_str());
+			tw -= ps.x + 24;
+		}
+		text(dl, bold(), 24, tx, y + 12, on ? col::text : col::dim, fit(bold(), 24, one.title, tw).c_str());
+		text(dl, regular(), 20, tx, y + 48, on ? col::text : col::faint,
+				fit(regular(), 20, one.description, pw - (tx - px) - 64).c_str());
+	}
+	dl->PopClipRect();
+	if (count == 0)
+		text(dl, regular(), 22, px + 56, top + 24, col::faint, "The site has no achievements for this game.", pw - 112);
+	else
+	{
+		// The focused one's description in full, when its row cut it short.
+		const achievements::Achievement& one = qm.trophyList[std::clamp(qm.trophyFocus, 0, count - 1)];
+		if (fit(regular(), 20, one.description, pw - (48 + 68 + 20) - 64) != one.description)
+			text(dl, regular(), 20, px + 56, top + viewH + 14, col::dim, one.description.c_str(), pw - 112);
+	}
 }
 
 } // namespace
@@ -6011,6 +6991,27 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 void quickMenu()
 {
 	ImDrawList *dl = beginScreen("##bp-quick", false);
+	{
+		// Not drawn the frame before: the menu is being opened, whichever way it
+		// was closed. (The touch pad, which is the emulator's own menu button,
+		// resumes the game from any page without the menu hearing of it; its
+		// pages would come back as they were, the Rewind page with a list of
+		// moments that are older by now.)
+		static int lastFrame = -2;
+		const int frame = ImGui::GetFrameCount();
+		if (frame != lastFrame + 1)
+		{
+			if (qm.optionsDirty)
+			{
+				SaveSettings();
+				qm.optionsDirty = false;
+			}
+			if (qm.cheats)
+				ps5::cheats::saveStates();
+			qm.open = 0;
+		}
+		lastFrame = frame;
+	}
 	if (qm.open < 0.01f)
 	{
 		qm.focus = 0;
@@ -6021,6 +7022,23 @@ void quickMenu()
 		qm.controls = false;
 		qm.controlsAnim = 0;
 		qm.listening = -1;
+		qm.rewind = false;
+		qm.rewindAnim = 0;
+		qm.trophies = false;
+		qm.trophiesAnim = 0;
+		// Asked once as the menu opens: every asking has the game's picture
+		// downloaded again while it is missing.
+		qm.trophiesActive = config::EnableAchievements && achievements::isActive();
+		if (qm.trophiesActive)
+		{
+			const achievements::Game game = achievements::getCurrentGame();
+			qm.trophiesDetail = game.totalAchievements == 0 ? "None for this game"
+					: std::to_string(game.unlockedAchievements) + " of " + std::to_string(game.totalAchievements);
+		}
+		else
+			// Signed in and none here: the site has none for this game, or they
+			// are still being fetched, or could not be.
+			qm.trophiesDetail = !config::EnableAchievements ? "" : !achievements::isLoggedOn() ? "Not signed in" : "None loaded";
 	}
 	qm.open = approach(qm.open, 1, 14);
 	const float t = qm.open;
@@ -6050,6 +7068,44 @@ void quickMenu()
 		slot.stays = true;
 		items.push_back(slot);
 	}
+	if (ps5::options().rewind)
+	{
+		// Settings > System > Rewind is on: back to a moment of the last minutes.
+		const bool any = ps5::rewind::available();
+		QuickItem rewind{ ICON_FA_BACKWARD, "Rewind", any ? "" : "Nothing yet", any, [] { openRewind(); } };
+		rewind.stays = true;
+		items.push_back(rewind);
+	}
+	{
+		// Flycast's fast forward: the game is no longer held to its own pace,
+		// and has no sound. On this console it is still held to the display's:
+		// the driver shows every frame for a refresh (twice a 60 fps game's
+		// speed with 120 Hz output, and none gained at 60 Hz). Its rules are the
+		// button's (core/input/gamepad_device.cpp): not in netplay, not on
+		// linked arcade boards. A game that starts has it off.
+		const bool allowed = !::settings.network.online && !::settings.naomi.multiboard;
+		const bool on = ::settings.input.fastForwardMode;
+		QuickItem fast{ ICON_FA_FORWARD, "Fast forward", !allowed ? (::settings.network.online ? "Not while online"
+				: "Not on linked boards") : on ? "On" : "Off", allowed, [on] {
+			::settings.input.fastForwardMode = !on;
+			if (!on)
+			{
+				// Turned on: straight back to the game.
+				GamepadDevice::load_system_mappings();
+				gui_setState(GuiState::Closed);
+			}
+		} };
+		fast.stays = on;
+		items.push_back(fast);
+	}
+	items.push_back({ ICON_FA_CAMERA, "Screenshot", "", true, [] {
+		// Of the game's picture, as the state's own picture is: the frame the
+		// emulator drew last, not the screen with this menu on it. The game goes
+		// on first, so that Flycast says over it where the picture went.
+		GamepadDevice::load_system_mappings();
+		gui_setState(GuiState::Closed);
+		gui_takeScreenshot();
+	} });
 	if (::settings.platform.isConsole())
 		items.push_back({ ICON_FA_COMPACT_DISC, gdr::isOpen() ? "Insert disc" : "Open disc lid", "", true, [] {
 			if (gdr::isOpen())
@@ -6068,6 +7124,12 @@ void quickMenu()
 				: std::to_string(on) + " on", true, [] { openCheats(); } };
 		cheats.stays = true;
 		items.push_back(cheats);
+	}
+	if (config::EnableAchievements)
+	{
+		QuickItem trophies{ ICON_FA_TROPHY, "Achievements", qm.trophiesDetail, qm.trophiesActive, [] { openAchievements(); } };
+		trophies.stays = true;
+		items.push_back(trophies);
 	}
 	{
 		// This game's own options. (The Settings, for every game, are in the
@@ -6099,6 +7161,7 @@ void quickMenu()
 				return;
 			}
 			qm.restartAsked = -10;
+			ps5::net::gameEnding(true);
 			const std::string path = !insertedPath.empty() ? insertedPath : ::settings.content.path;
 			ps5::games::startFresh();
 			for (Game& g : games)
@@ -6114,7 +7177,13 @@ void quickMenu()
 		restart.stays = !asked;
 		items.push_back(restart);
 	}
-	items.push_back({ ICON_FA_RIGHT_FROM_BRACKET, "Quit game", "", true, [] { gui_stop_game(); } });
+	items.push_back({ ICON_FA_RIGHT_FROM_BRACKET, "Quit game", "", true, [] {
+		::settings.input.fastForwardMode = false;
+		// The achievements' pictures still to come are not waited for.
+		ps5::net::gameEnding(true);
+		gui_stop_game();
+		ps5::net::gameEnding(false);
+	} });
 
 	// ---- input
 	const int n = (int)items.size();
@@ -6123,7 +7192,10 @@ void quickMenu()
 	const bool onCheats = qm.cheats;	// the page handles its own input, below
 	const bool onOptions = qm.options;
 	const bool onControls = qm.controls;
-	if (!onCheats && !onOptions && !onControls)
+	const bool onRewind = qm.rewind;
+	const bool onTrophies = qm.trophies;
+	const bool onPage = onCheats || onOptions || onControls || onRewind || onTrophies;
+	if (!onPage)
 	{
 		if (in.up) qm.focus = (qm.focus + n - 1) % n;
 		if (in.down) qm.focus = (qm.focus + 1) % n;
@@ -6147,12 +7219,15 @@ void quickMenu()
 	qm.cheatsAnim = approach(qm.cheatsAnim, qm.cheats ? 1.f : 0.f, 16);
 	qm.optionsAnim = approach(qm.optionsAnim, qm.options ? 1.f : 0.f, 16);
 	qm.controlsAnim = approach(qm.controlsAnim, qm.controls ? 1.f : 0.f, 16);
+	qm.rewindAnim = approach(qm.rewindAnim, qm.rewind ? 1.f : 0.f, 16);
+	qm.trophiesAnim = approach(qm.trophiesAnim, qm.trophies ? 1.f : 0.f, 16);
 
 	// ---- the paused game, dimmed
 	dl->AddRectFilled(V(0, 0), V(W, H), col::rgba(0, 0, 0, (int)(140 * t)));
 
 	// ---- the panel, sliding in from the right
-	const float pw = 640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.controlsAnim });	// the pages are wider
+	// The pages are wider; the Rewind page, a short list, is not.
+	const float pw = 640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.controlsAnim, qm.trophiesAnim });
 	const float px = W - pw * (0.15f + 0.85f * t) + (1 - t) * 0;
 	gradientH(dl, px - 120, 0, 120, H, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, (int)(120 * t)));
 	rect(dl, px, 0, pw, H, alpha(col::sheet, 0.97f * t));
@@ -6175,13 +7250,26 @@ void quickMenu()
 	text(dl, regular(), 22, gx + 176, 156, col::good, ICON_FA_PAUSE "  Paused");
 
 	// The items, or the Cheats page in their place.
-	const float itemsTop = 250, ih = n > 9 ? 70.f : 78.f;
+	// A row is 78 high, and lower when that many would not fit above the hints.
+	const float itemsTop = 250, ih = std::min(78.f, std::floor((H - 100 - itemsTop) / n));
 	if (onCheats)
 		cheatsPage(dl, px, pw, itemsTop + 70);
 	else if (onOptions)
 		optionsPage(dl, px, pw, itemsTop + 70);
 	else if (onControls)
 		controlsPage(dl, px, pw, itemsTop + 70);
+	else if (onRewind)
+	{
+		if (rewindPage(dl, px, pw, itemsTop + 70))
+		{
+			// As "Load state": the game goes on from where it now is.
+			GamepadDevice::load_system_mappings();
+			gui_setState(GuiState::Closed);
+			qm.open = 0;
+		}
+	}
+	else if (onTrophies)
+		achievementsPage(dl, px, pw, itemsTop + 70);
 	else
 	{
 	qm.focusAnim = approach(qm.focusAnim, (float)qm.focus, 22);
@@ -6213,7 +7301,7 @@ void quickMenu()
 	}
 
 	// The state in the slot: a card beside the panel while a state row is focused.
-	if (!onCheats && !onOptions && !onControls && (cur.label == "Save state" || cur.label == "Load state" || cur.side))
+	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.side))
 	{
 		const float cw = 432, chh = 320;
 		const float cx = px - 32 - cw;
@@ -6269,11 +7357,30 @@ void quickMenu()
 			hint(Glyph::Square, "As in Settings");
 			hint(Glyph::Circle, "Back");
 		}
+		else if (onRewind)
+		{
+			if (!qm.rewindPoints.empty())
+				hint(Glyph::Cross, "Go back to it");
+			hint(Glyph::Circle, "Back");
+		}
+		else if (onTrophies)
+		{
+			hint(Glyph::DPadUD, "Move");
+			hint(Glyph::Circle, "Back");
+		}
 		else if (onControls && qm.listening >= 0)
 			hint(Glyph::TouchPad, "Cancel");
 		else if (onControls)
 		{
+			// As controlsPage has it: Square takes one of the emulator's own
+			// controls off its button.
+			const std::shared_ptr<GamepadDevice> pad = pad1();
+			const std::vector<PadControl> controls = controlsShown();
+			const int row = qm.controlFocus - 1;
 			hint(Glyph::Cross, qm.controlFocus == 0 ? "As for every game" : "Change");
+			if (pad != nullptr && row >= 0 && row < (int)controls.size() && controls[row].emulator
+					&& boundTo(*pad, controls[row].key) != "Not set")
+				hint(Glyph::Square, "No button");
 			hint(Glyph::Circle, "Back");
 		}
 		else

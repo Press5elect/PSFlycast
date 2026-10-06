@@ -25,8 +25,16 @@ extern config::Option<bool> SyncToDisplay;
 
 // "Upscaling": how the game's picture is stretched to the screen when it is
 // rendered smaller: the emulator's own filter, or FSR 1 at one of three
-// sharpnesses (ps5_fsr.cpp). A setting, and a game can have its own.
-enum { UpscalingOff, UpscalingFsr, UpscalingFsrSharp, UpscalingFsrSoft };
+// sharpnesses (ps5_fsr.cpp). A setting, and a game can have its own. The
+// last two are picture filters instead: the picture is not upscaled by FSR
+// but drawn through a filter (ps5_crt.glsl.h), at any size. The values are
+// saved in users' settings: they keep their meaning.
+enum
+{
+	UpscalingOff, UpscalingFsr, UpscalingFsrSharp, UpscalingFsrSoft,
+	UpscalingScanlines,		// 4: the game's 240 or 480 lines, as a tube draws them
+	UpscalingCrt,			// 5: and the tube's mask, glow and darker corners
+};
 extern config::Option<int> Upscaling;
 
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
@@ -41,6 +49,8 @@ struct Options
 	int source = 0;			// the library tab last open: 0 internal, 1 USB, 2 network
 	bool hz120 = true;		// take the display's 119.88 Hz mode where it has one
 	bool groupDiscs = true;	// the discs of one game are one entry in the library
+	bool showHidden = false;	// hidden games are listed after all, dimmed
+	bool rewind = false;		// a game's last minutes are kept, to go back into (ps5_rewind.cpp)
 	bool splash = true;		// the start-up animation, before the library
 	bool splashSound = true;	// and its sound
 	bool menuSounds = true;		// a sound for moving, choosing and going back
@@ -61,7 +71,8 @@ struct Options
 	// Which of the port's own defaults were already written over the settings
 	// an earlier build saved: 1 native depth interpolation on (build 18), 2 a
 	// rumble pack in the controller's second slot (build 19), 3 UPnP off
-	// (build 40), 4 the Dreamcast's language from the console's (build 41).
+	// (build 40), 4 the Dreamcast's language from the console's (build 41),
+	// 5 build 42's new options written to emu.cfg.
 	int defaults = 0;
 };
 Options& options();
@@ -70,6 +81,9 @@ void saveOptions();
 
 // The root as the user reaches it over FTP.
 std::string shownRoot();
+// A path saved under another run's root (/app0 in the sandbox, the title's real
+// folder outside it), under this run's.
+std::string underRoot(const std::string& path);
 
 // Looks for game folders on the USB drives again and sets the folders the
 // library scans (a drive plugged in after the start). The scanner must not be
@@ -131,6 +145,15 @@ int download(const std::string& url, const std::string& file, const std::functio
 int lastError();
 // This console's address on its network ("192.168.1.23"), or empty.
 std::string localAddress();
+// What every request says it comes from: "PSFlyCast/1.1.0 (PlayStation 5)
+// Flycast/2.5".
+std::string userAgent();
+// A game is being unloaded (true, until false): the pictures its achievements
+// still wait for are refused at once. Flycast's achievements wait for every
+// request they have queued before a game is let go, on the interface's
+// thread, and each picture may take seconds on a slow link. What matters,
+// an achievement earned, is posted, not fetched, and still goes out.
+void gameEnding(bool ending);
 }
 
 namespace update
@@ -213,9 +236,18 @@ namespace ime
 // it stands, and once Accepted or Cancelled (then Idle again); text is what
 // was last accepted.
 enum class State { Idle, Open, Accepted, Cancelled, Failed };
-bool open(const std::string& title, const std::string& placeholder, const std::string& value, size_t maxLength);
+// What is typed: any text; a name (no capital put at its start, nothing
+// learned from it); or a password (shown as dots too).
+enum class Kind { Text, Name, Password };
+bool open(const std::string& title, const std::string& placeholder, const std::string& value, size_t maxLength,
+		Kind kind = Kind::Text);
 State poll();
 const std::string& text();
+// The keyboard opened last was asked for a password, and the console only
+// opened its plain one: what is typed can be read on the screen.
+bool plain();
+// A password that was accepted is not kept here once it has been taken.
+void forget();
 }
 
 // Variable refresh was asked for and the output took it (vulkan_context.cpp
@@ -229,10 +261,85 @@ namespace covers
 {
 // Asks for <root>/covers/<base>.png to be downloaded if it is missing.
 void request(const std::string& base);
-// Bumped whenever a cover arrives, so cached look-ups are redone.
+// Bumped whenever a cover arrives or is changed, so cached look-ups are redone.
 unsigned generation();
 // "Downloading covers (3 left)" or empty.
 std::string status();
+
+// Another cover for a game ("Change cover" in its details). The collection
+// keeps three pictures under a game's name: its box art, its title screen and
+// a moment of play. Each is downloaded once, into <root>/covers/.choices.
+enum { Boxart, Title, Snap, PictureCount };
+struct Alternatives
+{
+	enum State
+	{
+		None,		// not asked for
+		Waiting,	// asked for: its download is to come, or is running
+		Found,		// file is the picture
+		Missing,	// the collection has none under this name
+		Failed,		// it could not be asked: error says why
+	};
+	State state[PictureCount] = { None, None, None };
+	std::string file[PictureCount];
+	std::string error;		// "Could not download: the console is not connected to a network"
+};
+// Asks for the three, on the worker the covers are downloaded on; returns at
+// once. Those already there are not asked for again, those that failed are.
+void fetchAlternatives(const std::string& base);
+// How that stands.
+Alternatives alternatives(const std::string& base);
+// What a game's cover is: the one PSFlyCast finds by itself, one of the three
+// that was chosen, or a picture the user put in <root>/covers.
+enum { Automatic = PictureCount, Own, ChoiceCount };
+int current(const std::string& base);
+// The user's own picture for a game, where it is now (in <root>/covers, or
+// put aside in covers/.yours while another choice has its place); empty when
+// there is none.
+std::string ownFile(const std::string& base);
+// Makes a choice the game's cover: the picture is written to
+// <root>/covers/<base>.png, where the library looks. `from` is the game whose
+// downloaded pictures are used (a set's discs share one disc's). The user's
+// own picture is never deleted: it is put aside, and Own puts it back. False
+// when the picture is not there or a file could not be written.
+bool choose(const std::string& base, int choice, const std::string& from);
+}
+
+namespace library
+{
+// What the library keeps about each game beside the game itself
+// (ps5_library.cpp, <root>/data/library.txt), by the game's path.
+struct Entry
+{
+	bool favourite = false;
+	bool hidden = false;
+	uint64_t seconds = 0;		// played, the emulator running
+	int64_t lastPlayed = 0;		// Unix time; 0 for never
+};
+Entry entry(const std::string& path);
+// For every path given: a game on several discs is one game.
+void setFavourite(const std::vector<std::string>& paths, bool on);
+void setHidden(const std::vector<std::string>& paths, bool on);
+// Bumped whenever a favourite or a hidden game changes, so the lists are made again.
+unsigned generation();
+
+// The play clock. playing() names the game being started; tick(), once a
+// frame, counts the time the emulator runs (not the quick menu's, nor the
+// Settings') to it. It is kept when the game is paused or stopped and every
+// minute meanwhile, for a title closed from the console's home screen.
+void playing(const std::string& path);
+void tick();
+void flush();
+// Adds to a game's time played, and says when it was last played.
+void played(const std::string& path, uint64_t seconds, int64_t when);
+
+// The covers PSFlyCast itself put in <root>/covers. coverPut says the file
+// now there for a game is one of them (which: "auto" for a download, or the
+// picture chosen); coverGone that it no longer is. coverOurs is which it is,
+// and empty when the file there is not the one that was put: the user's own.
+void coverPut(const std::string& base, const std::string& which);
+void coverGone(const std::string& base);
+std::string coverOurs(const std::string& base);
 }
 
 namespace games

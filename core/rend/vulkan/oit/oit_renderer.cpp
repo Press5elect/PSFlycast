@@ -67,6 +67,13 @@ public:
 	void Process(TA_context* ctx) override
 	{
 		try {
+#ifdef USE_PS5
+			// PSFlyCast: the software renderer's frames (BaseVulkanRenderer::softwareProcess)
+			if (rend_software_frame() != softwareFrame)
+				screenDrawer.EndFrame();
+			if (softwareProcess(ctx))
+				return;
+#endif
 			if (emulateFramebuffer != config::EmulateFramebuffer)
 			{
 				screenDrawer.EndFrame();
@@ -92,6 +99,10 @@ public:
 	bool Render() override
 	{
 		try {
+#ifdef USE_PS5
+			if (softwareFrame)
+				return softwareRender();
+#endif
 			OITDrawer *drawer;
 			if (rendContext->isRTT)
 				drawer = &textureDrawer;
@@ -121,6 +132,11 @@ public:
 		if (clearLastFrame)
 			return false;
 		try {
+#ifdef USE_PS5
+			// PSFlyCast: the software renderer's frames are in VRAM
+			if (softwareFrame)
+				return presentFramebuffer();
+#endif
 			if (config::EmulateFramebuffer || framebufferRendered)
 				return presentFramebuffer();
 			else

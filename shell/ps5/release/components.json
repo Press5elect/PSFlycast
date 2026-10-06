@@ -56,11 +56,11 @@
    ],
    "source": {
     "kind": "fixed",
-    "revision": "f83fda7069ee7a32e206cb5092c38fd0216d80af",
+    "revision": "4dca1988dab56f603c2309e8882e264252fa7c8f",
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
    },
-   "modifications": "Changed for the console, behind __PROSPERO__ or FLYCAST_PS5: CMakeLists.txt, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp. 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "modifications": "Changed for the console, behind __PROSPERO__, FLYCAST_PS5 or USE_PS5: CMakeLists.txt, core/achievements/achievements.cpp, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/hw/pvr/Renderer_if.cpp, core/hw/pvr/Renderer_if.h, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/transform_matrix.cpp, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/oit/oit_renderer.cpp, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/rend/vulkan/vulkan_renderer.cpp, core/rend/vulkan/vulkan_renderer.h, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp; and added: core/rend/soft (the Software renderer setting, listed below). 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
     "eboot.bin"
    ]
@@ -567,6 +567,28 @@
    ]
   },
   {
+   "id": "refsw",
+   "name": "REFSW, the software model of the Dreamcast's graphics chip (the Software renderer setting)",
+   "kind": "code",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2025 emudev-org (nullDC-rust; REFSW is by Stefanos Kornilios Mitsis Poiitidis)"
+   ],
+   "texts": [
+    {
+     "from": "core/rend/soft/LICENSE-refsw.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Derived from crates/refsw2-cpp/ffi of https://github.com/skmp/nullDC-rust at 6b76ff00ebd7bdab06ac864612839708f595c714 (refsw_tile, refsw_lists, core_structs, gentable, TexUtils; their own headers say they are part of libswirl): in core/rend/soft/refsw_*.{h,cpp}, changed to render tiles on several threads from Flycast's parsed frame and to write Flycast's frame buffer. soft_renderer.{h,cpp}, which feeds it, is this port's own (GPL-2.0-or-later).",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
    "id": "glm",
    "name": "OpenGL Mathematics (GLM)",
    "kind": "code",
@@ -802,7 +824,7 @@
     "file": "${VULKAN}/.deps/native/radv-release/PROVENANCE.txt",
     "path": "${MESA}",
     "url": "https://github.com/mihawk-99/PS5_Mesa",
-    "base": "0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8",
+    "base": "7b59ef27c1b09b9671bc4153c41940c3155c3af2",
     "where": "PS5_Mesa at the base revision, plus this repository's shell/ps5/mesa/*.patch; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
    },
    "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI), and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
@@ -835,7 +857,7 @@
     "path": "${VULKAN}",
     "url": "https://github.com/mihawk-99/PS5_Vulkan",
     "localnote": "with tools/build-radv.sh's mesa_revision set to the RADV revision above",
-    "base": "3f3ee69607013b345d2baa6d6a37c86745649a08",
+    "base": "fde9e3798c2ec1d8fccc90d5067cd6060490607f",
     "where": "PS5_Vulkan at the base revision with one line changed; the tree as built is the archive PS5_Vulkan-<revision>.tar.xz attached to the release"
    },
    "modifications": "Unmodified but for the Mesa revision its build-radv.sh names.",

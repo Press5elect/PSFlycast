@@ -14,8 +14,8 @@
 	ones ProsperoStore and ProsperoTV (BlackBearReloaded, GPL-3.0-or-later)
 	use on the console. The payload SDK has no import for
 	sceCommonDialogInitialize: ps5-link.sh makes one (runtime/stubs).
-	Nothing here has run on a console yet: every failure is a line of
-	flycast-boot.log ("keyboard: ...") and leaves the interface as it was.
+	Every failure is a line of flycast-boot.log ("keyboard: ...") and leaves
+	the interface as it was.
 */
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
@@ -73,7 +73,8 @@ struct Result
 	int8_t reserved[12];
 };
 
-bool ready, active;
+bool ready, active, secret;
+bool openedPlain;		// the keyboard now up was asked for a password and shows what is typed
 int closing;		// frames the dialog has refused to be closed for
 std::vector<uint16_t> buffer, titleText, placeholderText;
 std::string accepted;
@@ -137,7 +138,7 @@ std::string narrow(const std::vector<uint16_t>& text)
 
 } // namespace
 
-bool open(const std::string& title, const std::string& placeholder, const std::string& value, size_t maxLength)
+bool open(const std::string& title, const std::string& placeholder, const std::string& value, size_t maxLength, Kind kind)
 {
 	if (active)
 		return false;
@@ -175,7 +176,26 @@ bool open(const std::string& title, const std::string& placeholder, const std::s
 	param.horizontalAlignment = param.verticalAlignment = 1;	// the middle of the screen
 	param.placeholder = placeholderText.data();
 	param.title = titleText.data();
-	const int rc = sceImeDialogInit(&param, nullptr);
+	// The dialog's options, as the PS4's library names them: 2 no capital
+	// put at the start, 4 a password (shown as dots), 0x20 nothing learned
+	// from what is typed. Should this console refuse a combination, the next
+	// plainer one is tried: a password's dots matter most.
+	const uint32_t tries[3] = { kind == Kind::Password ? 0x26u : kind == Kind::Name ? 0x22u : 0u,
+			kind == Kind::Password ? 0x04u : 0u, 0u };
+	int rc = -1;
+	for (int i = 0; i < 3 && rc != 0; i++)
+	{
+		if (i > 0 && tries[i] == tries[i - 1])
+			continue;
+		param.option = tries[i];
+		rc = sceImeDialogInit(&param, nullptr);
+		if (rc != 0 && tries[i] != 0)
+			diag::mark("keyboard: it did not open with the options %x (%x)", tries[i], (unsigned)rc);
+	}
+	openedPlain = rc == 0 && kind == Kind::Password && (param.option & 4) == 0;
+	if (openedPlain)
+		diag::mark("keyboard: opened without the password option");
+	secret = kind == Kind::Password;
 	if (rc != 0)
 	{
 		diag::mark("keyboard: it did not open (%x; its module: %x)", (unsigned)rc, (unsigned)usb::dialogModule());
@@ -220,12 +240,31 @@ State poll()
 	}
 	closing = 0;
 	active = false;
+	if (secret)
+	{
+		// What was typed stays only in what text() gives, until forget().
+		std::fill(buffer.begin(), buffer.end(), 0);
+		secret = false;
+	}
 	return state;
 }
 
 const std::string& text()
 {
 	return accepted;
+}
+
+bool plain()
+{
+	return openedPlain;
+}
+
+void forget()
+{
+	std::fill(accepted.begin(), accepted.end(), '\0');
+	accepted.clear();
+	if (!active)
+		std::fill(buffer.begin(), buffer.end(), 0);
 }
 
 } // namespace ps5::ime

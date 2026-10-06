@@ -66,6 +66,11 @@ protected:
 	void CheckFogTexture();
 	void CheckPaletteTexture();
 	bool presentFramebuffer();
+#ifdef USE_PS5
+	// PSFlyCast: the software renderer (rend/soft). See vulkan_renderer.cpp.
+	bool softwareProcess(TA_context *ctx);
+	bool softwareRender();
+#endif
 
 	ShaderManager shaderManager;
 	std::unique_ptr<Texture> fogTexture;
@@ -81,4 +86,8 @@ protected:
 	CommandPool fbCommandPool;
 	bool framebufferRendered = false;
 	rend_context *rendContext = nullptr;
+#ifdef USE_PS5
+	// PSFlyCast: the frame in hand is the software renderer's
+	bool softwareFrame = false;
+#endif
 };

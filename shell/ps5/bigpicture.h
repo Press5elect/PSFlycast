@@ -43,7 +43,8 @@ std::string loadFailed(const char *why);
 void applyTheme();
 // Gives ImGui's keyboard-less navigation the DualSense, for those dialogs.
 void feedNav(ImGuiIO& io);
-// Called when a game starts, to keep the recently played list.
+// Called when a game starts, to keep the recently played list and to count
+// the time it is played to it.
 void gameStarted(const std::string& path);
 
 // Provided by core/ui/gui.cpp.

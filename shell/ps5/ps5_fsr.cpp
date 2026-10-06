@@ -1,5 +1,5 @@
 /*
-	PSFlyCast - FSR 1 upscaling of the game's picture.
+	PSFlyCast - FSR 1 upscaling of the game's picture, and its picture filters.
 
 	Copyright 2026 the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
@@ -18,12 +18,18 @@
 	emulator's quad in the swapchain's (present). When anything here fails,
 	the emulator's own stretch is used: a failure is a line in the log, not a
 	black screen.
+
+	The same setting has two picture filters, "Scanlines" and "CRT"
+	(ps5_crt.glsl.h): one draw each, in the swapchain's render pass, straight
+	from the game's picture, so that nothing is upscaled before it (present
+	alone does it). They fail the same way, and separately from FSR.
 */
 #include "ps5_fsr.h"
 #include "ps5_fsr_constants.h"
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
 #include "cfg/option.h"
+#include "hw/pvr/pvr_regs.h"
 #include "rend/vulkan/compiler.h"
 #include "rend/vulkan/texture.h"
 #include "rend/vulkan/utils.h"
@@ -44,6 +50,10 @@ config::Option<int> Upscaling("Upscaling", UpscalingOff, "ps5");
 
 namespace ps5::fsr
 {
+// The filters' two values go on from where ps5_frontend.h's enum ends.
+static_assert((int)UpscalingScanlines == (int)UpscalingFsrSoft + 1 && (int)UpscalingCrt == (int)UpscalingScanlines + 1,
+		"the picture filters continue ps5::Upscaling's values");
+
 namespace
 {
 
@@ -123,6 +133,25 @@ void main()
 }
 )";
 
+// The picture filters' shader: built with CRT_TUBE 0 for Scanlines, 1 for CRT.
+const char CrtSource[] =
+#include "ps5_crt.glsl.h"
+;
+
+// The setting asks for one of the picture filters, not for FSR.
+bool isFilter(int mode)
+{
+	return mode == UpscalingScanlines || mode == UpscalingCrt;
+}
+
+// How many lines the game's video mode makes a picture of: 240 when it is not
+// interlaced at 15 kHz (as getPvrFramebufferSize has it), 480 when it is
+// interlaced or VGA.
+float gameLines()
+{
+	return FB_R_CTRL.vclk_div == 0 && SPG_CONTROL.interlace == 0 ? 240.f : 480.f;
+}
+
 // The sharpening, in stops: 0 is the sharpest.
 float sharpnessStops()
 {
@@ -143,17 +172,24 @@ struct State
 	vk::UniqueDescriptorSetLayout setLayout;
 	vk::UniquePipelineLayout easuLayout;
 	vk::UniquePipelineLayout rcasLayout;
+	vk::UniquePipelineLayout crtLayout;
 	vk::UniqueShaderModule vertexShader;
 	vk::UniqueShaderModule easuShader;
 	vk::UniqueShaderModule rcasShader;
+	vk::UniqueShaderModule crtShader[2];		// Scanlines, CRT
 	vk::UniquePipeline easuPipeline;
 	vk::UniquePipeline rcasPipeline;
 	vk::RenderPass rcasRenderPass;		// the one rcasPipeline was made for
+	vk::UniquePipeline crtPipeline[2];
+	vk::RenderPass crtRenderPass[2];	// the one each was made for
 	vk::UniqueSampler sampler;
 	std::unique_ptr<FramebufferAttachment> target;
 	vk::UniqueFramebuffer framebuffer;
 	std::vector<vk::UniqueDescriptorSet> easuSets;
 	std::vector<vk::UniqueDescriptorSet> rcasSets;
+	std::vector<vk::UniqueDescriptorSet> crtSets;
+	// The filter last reported in the log: its kind, lines and height.
+	int crtLogged[3] = { -1, 0, 0 };
 	// What the target holds, upscaled.
 	bool ready = false;
 	vk::ImageView source;
@@ -162,6 +198,7 @@ struct State
 
 std::unique_ptr<State> state;
 bool failed;		// until the next reset(): the emulator's own stretch is used
+bool crtFailed;		// the same, for the picture filters
 
 VulkanContext *context()
 {
@@ -195,7 +232,7 @@ vk::UniquePipeline makePipeline(vk::ShaderModule vertex, vk::ShaderModule fragme
 	return context()->GetDevice().createGraphicsPipelineUnique(context()->GetPipelineCache(), info).value;
 }
 
-// What does not depend on the picture's size. Throws when the driver or the
+// What FSR and the picture filters share. Throws when the driver or the
 // shader compiler refuses something.
 void makeState()
 {
@@ -203,6 +240,30 @@ void makeState()
 		return;
 	const vk::Device device = context()->GetDevice();
 	auto s = std::make_unique<State>();
+
+	vk::DescriptorSetLayoutBinding binding(0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment);
+	s->setLayout = device.createDescriptorSetLayoutUnique(
+			vk::DescriptorSetLayoutCreateInfo(vk::DescriptorSetLayoutCreateFlags(), binding));
+	s->sampler = device.createSamplerUnique(vk::SamplerCreateInfo(vk::SamplerCreateFlags(), vk::Filter::eLinear,
+			vk::Filter::eLinear, vk::SamplerMipmapMode::eNearest, vk::SamplerAddressMode::eClampToEdge,
+			vk::SamplerAddressMode::eClampToEdge, vk::SamplerAddressMode::eClampToEdge, 0.f, false, 1.f, false,
+			vk::CompareOp::eNever, 0.f, 0.f, vk::BorderColor::eFloatOpaqueBlack));
+	s->vertexShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eVertex,
+			VulkanSource().addSource(VertexSource).generate());
+	if (!s->vertexShader)
+		throw std::runtime_error("a shader did not compile");
+	state = std::move(s);
+}
+
+// FSR's own part of the state, which does not depend on the picture's size.
+// Throws as makeState does.
+void makeFsr()
+{
+	makeState();
+	State& s = *state;
+	if (s.easuPipeline)
+		return;
+	const vk::Device device = context()->GetDevice();
 
 	// The upscale's render pass: one colour attachment, read as a texture afterwards.
 	vk::AttachmentDescription attachment(vk::AttachmentDescriptionFlags(), vk::Format::eR8G8B8A8Unorm,
@@ -222,35 +283,51 @@ void makeState()
 					vk::PipelineStageFlagBits::eFragmentShader, vk::AccessFlagBits::eColorAttachmentWrite,
 					vk::AccessFlagBits::eShaderRead),
 	};
-	s->easuPass = device.createRenderPassUnique(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachment, subpass,
+	s.easuPass = device.createRenderPassUnique(vk::RenderPassCreateInfo(vk::RenderPassCreateFlags(), attachment, subpass,
 			dependencies));
 
-	vk::DescriptorSetLayoutBinding binding(0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment);
-	s->setLayout = device.createDescriptorSetLayoutUnique(
-			vk::DescriptorSetLayoutCreateInfo(vk::DescriptorSetLayoutCreateFlags(), binding));
 	vk::PushConstantRange easuRange(vk::ShaderStageFlagBits::eFragment, 0, sizeof(EasuConstants));
-	s->easuLayout = device.createPipelineLayoutUnique(
-			vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s->setLayout.get(), easuRange));
+	s.easuLayout = device.createPipelineLayoutUnique(
+			vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s.setLayout.get(), easuRange));
 	vk::PushConstantRange rcasRange(vk::ShaderStageFlagBits::eFragment, 0, sizeof(RcasConstants));
-	s->rcasLayout = device.createPipelineLayoutUnique(
-			vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s->setLayout.get(), rcasRange));
+	s.rcasLayout = device.createPipelineLayoutUnique(
+			vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s.setLayout.get(), rcasRange));
 
-	s->sampler = device.createSamplerUnique(vk::SamplerCreateInfo(vk::SamplerCreateFlags(), vk::Filter::eLinear,
-			vk::Filter::eLinear, vk::SamplerMipmapMode::eNearest, vk::SamplerAddressMode::eClampToEdge,
-			vk::SamplerAddressMode::eClampToEdge, vk::SamplerAddressMode::eClampToEdge, 0.f, false, 1.f, false,
-			vk::CompareOp::eNever, 0.f, 0.f, vk::BorderColor::eFloatOpaqueBlack));
-
-	s->vertexShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eVertex,
-			VulkanSource().addSource(VertexSource).generate());
-	s->easuShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
+	s.easuShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
 			VulkanSource().addSource(EasuTop).addSource(FfxA).addSource(EasuMain).addSource(FfxFsr1).addSource(EasuBottom).generate());
-	s->rcasShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
+	s.rcasShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
 			VulkanSource().addSource(RcasTop).addSource(FfxA).addSource(RcasMain).addSource(FfxFsr1).addSource(RcasBottom).generate());
-	if (!s->vertexShader || !s->easuShader || !s->rcasShader)
+	if (!s.easuShader || !s.rcasShader)
 		throw std::runtime_error("a shader did not compile");
-	s->easuPipeline = makePipeline(*s->vertexShader, *s->easuShader, *s->easuLayout, *s->easuPass);
-	state = std::move(s);
+	s.easuPipeline = makePipeline(*s.vertexShader, *s.easuShader, *s.easuLayout, *s.easuPass);
 	ps5::diag::mark("fsr: ready");
+}
+
+// A picture filter's pipeline for this render pass (tube: 0 Scanlines, 1 CRT),
+// made the first time it is asked for. Throws as makeState does.
+vk::Pipeline filterPipeline(int tube, vk::RenderPass renderPass)
+{
+	makeState();
+	State& s = *state;
+	if (!s.crtLayout)
+	{
+		vk::PushConstantRange range(vk::ShaderStageFlagBits::eFragment, 0, sizeof(CrtConstants));
+		s.crtLayout = context()->GetDevice().createPipelineLayoutUnique(
+				vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s.setLayout.get(), range));
+	}
+	if (!s.crtShader[tube])
+	{
+		s.crtShader[tube] = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
+				VulkanSource().addConstant("CRT_TUBE", tube).addSource(CrtSource).generate());
+		if (!s.crtShader[tube])
+			throw std::runtime_error("a shader did not compile");
+	}
+	if (!s.crtPipeline[tube] || s.crtRenderPass[tube] != renderPass)
+	{
+		s.crtPipeline[tube] = makePipeline(*s.vertexShader, *s.crtShader[tube], *s.crtLayout, renderPass);
+		s.crtRenderPass[tube] = renderPass;
+	}
+	return *s.crtPipeline[tube];
 }
 
 // The image the picture is upscaled into, of the size it has on the screen.
@@ -301,12 +378,57 @@ void fail(const char *where, const char *what)
 	WARN_LOG(RENDERER, "FSR: %s failed: %s", where, what);
 }
 
+// The picture through one of the two filters: present, for them.
+bool presentFiltered(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass renderPass, const vk::Rect2D& region,
+		int shiftX, int shiftY)
+{
+	// A picture turned on its side is left to the emulator's own stretch, as with FSR.
+	if (crtFailed || config::Rotate90 || !view || region.extent.width == 0 || region.extent.height == 0)
+		return false;
+	const int tube = ps5::Upscaling == UpscalingCrt ? 1 : 0;
+	// The picture, moved by the game's own shift, inside its part of the screen.
+	const int left = region.offset.x + shiftX, top = region.offset.y + shiftY;
+	const int width = (int)region.extent.width, height = (int)region.extent.height;
+	const int x0 = std::max(left, region.offset.x), y0 = std::max(top, region.offset.y);
+	const int x1 = std::min(left, region.offset.x) + width, y1 = std::min(top, region.offset.y) + height;
+	if (x1 <= x0 || y1 <= y0)
+		return true;		// shifted out of sight
+	vk::Pipeline pipeline;
+	vk::DescriptorSet set;
+	try {
+		pipeline = filterPipeline(tube, renderPass);
+		set = descriptorSet(state->crtSets, view);
+	} catch (const std::exception& e) {
+		crtFailed = true;
+		ps5::diag::mark("filter: failed (%s): the picture is stretched the usual way", e.what());
+		WARN_LOG(RENDERER, "Picture filter failed: %s", e.what());
+		return false;
+	}
+	State& s = *state;
+	const CrtConstants constants = crtConstants(tube != 0, (float)left, (float)top, (float)width, (float)height, gameLines());
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	commandBuffer.setViewport(0, vk::Viewport((float)left, (float)top, (float)width, (float)height, 0.f, 1.f));
+	commandBuffer.setScissor(0, vk::Rect2D({ x0, y0 }, { (u32)(x1 - x0), (u32)(y1 - y0) }));
+	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *s.crtLayout, 0, set, nullptr);
+	commandBuffer.pushConstants(*s.crtLayout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants), &constants);
+	commandBuffer.draw(3, 1, 0, 0);
+	if (s.crtLogged[0] != tube || s.crtLogged[1] != (int)constants.beam[0] || s.crtLogged[2] != height)
+	{
+		s.crtLogged[0] = tube;
+		s.crtLogged[1] = (int)constants.beam[0];
+		s.crtLogged[2] = height;
+		ps5::diag::mark("filter: %s, %d lines over %d x %d", tube ? "CRT" : "scanlines", (int)constants.beam[0], width, height);
+	}
+	return true;
+}
+
 } // namespace
 
 void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, const vk::Extent2D& extent,
 		const vk::Rect2D& region)
 {
-	const bool wanted = ps5::Upscaling != UpscalingOff && !failed && !config::Rotate90 && view
+	// (The picture filters read the picture itself, in present.)
+	const bool wanted = ps5::Upscaling != UpscalingOff && !isFilter(ps5::Upscaling) && !failed && !config::Rotate90 && view
 			&& extent.width > 0 && extent.height > 0
 			&& extent.width < region.extent.width && extent.height < region.extent.height;
 	if (!wanted)
@@ -317,7 +439,7 @@ void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, co
 	}
 	vk::DescriptorSet set;
 	try {
-		makeState();
+		makeFsr();
 		makeTarget(region.extent);
 		State& s = *state;
 		if (!fresh && s.ready && s.source == view && s.sourceExtent == extent)
@@ -349,6 +471,8 @@ void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, co
 bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass renderPass, const vk::Rect2D& region,
 		int shiftX, int shiftY)
 {
+	if (isFilter(ps5::Upscaling))
+		return presentFiltered(commandBuffer, view, renderPass, region, shiftX, shiftY);
 	if (!state || !state->ready || failed || ps5::Upscaling == UpscalingOff || state->source != view
 			|| !state->target || state->target->getExtent() != region.extent)
 		return false;
@@ -386,6 +510,7 @@ void reset()
 {
 	state.reset();
 	failed = false;
+	crtFailed = false;
 }
 
 } // namespace ps5::fsr
