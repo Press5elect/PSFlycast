@@ -8,19 +8,20 @@
 # OUT_DIR/PPSA99247 (default: build-ps5/dist), ready to copy to
 # /data/homebrew/PPSA99247 on the console.
 #
-# PS5_VULKAN_DIR names a PS5_Vulkan checkout (default: ../PS5_Vulkan next to
-# this repository) prepared with:
-#   tools/setup-native-dependencies.sh
-#   tools/build-radv.sh release       # RADV, linked into the eboot
-#   tools/rebuild-libc.sh             # sce_module/libc.prx and the host tool
+# The title is built on PS5_VulkanTemplate's stack, the projects beside this
+# repository that its ps5/tools/bootstrap.sh checks out and builds:
+#   ../PS5_Vulkan          the RADV release archive (tools/build-radv.sh release),
+#                          the link recipe, libc.prx and the host tool (make)
+#   ../PS5_Mesa            RADV's source, with shell/ps5/mesa/*.patch applied
+#   ../PS5_VulkanTemplate  its payload SDK pin (ps5/tools/setup-sdk.sh)
+# PS5_VULKAN_DIR and PS5_PAYLOAD_SDK name other places.
 set -euo pipefail
 src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 vk=$(cd -- "${PS5_VULKAN_DIR:-$src/../PS5_Vulkan}" && pwd)
 export PS5_VULKAN_DIR="$vk"
-# The payload SDK fork at cd3b239 or later (PS5 RetroArch v0.5.6-alpha.5's):
-# its heap clears what calloc promises is zero, which earlier revisions did
-# not. PS5_PAYLOAD_SDK names it; PS5 RetroArch's dependency tree has it.
-export PS5_PAYLOAD_SDK=${PS5_PAYLOAD_SDK:-$src/../PS5_RetroArch/.deps/native/ps5-payload-sdk}
+# The payload SDK fork at PS5_VulkanTemplate's pin (611893f or later: the
+# platform layer's localeconv, readlink and mkstemp, which the link binds).
+export PS5_PAYLOAD_SDK=${PS5_PAYLOAD_SDK:-$src/../PS5_VulkanTemplate/.deps/native/ps5-payload-sdk}
 export PS5_CLANG=${PS5_CLANG:-$(command -v clang-18 || command -v clang)}
 build="$src/build-ps5"
 out=${1:-$build/dist}
@@ -29,18 +30,18 @@ title=PPSA99247
 missing=0
 for file in "$PS5_PAYLOAD_SDK/bin/prospero-clang++" \
         "$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a" \
-        "$vk/runtime/libc.prx" "$vk/build/runtime-shim/ps5-native-tool"; do
+        "$vk/runtime/libc.prx" "$vk/build/host/ps5-native-tool"; do
     [[ -e $file ]] || { echo "missing: $file" >&2; missing=1; }
 done
 if (( missing )); then
-    echo "Prepare $vk first: tools/setup-native-dependencies.sh," >&2
-    echo "tools/build-radv.sh release and tools/rebuild-libc.sh." >&2
+    echo "Prepare the stack first: PS5_VulkanTemplate's ps5/tools/bootstrap.sh," >&2
+    echo "with PS5_Mesa at this repository's patches (README, Building)." >&2
     exit 2
 fi
 (cd "$vk/runtime" && sha256sum --check --strict --quiet libc.prx.sha256)
 platform_symbols=$("$PS5_PAYLOAD_SDK/bin/prospero-nm" "$PS5_PAYLOAD_SDK/target/lib/libps5platform.a" 2>/dev/null || true)
-if [[ $platform_symbols != *" T ps5p_run_thread_destructors"* ]]; then
-    echo "The payload SDK at $PS5_PAYLOAD_SDK is older than cd3b239; set PS5_PAYLOAD_SDK." >&2
+if [[ $platform_symbols != *" T ps5_localeconv"* || $platform_symbols != *" T ps5_readlink"* ]]; then
+    echo "The payload SDK at $PS5_PAYLOAD_SDK is older than PS5_VulkanTemplate's pin; set PS5_PAYLOAD_SDK." >&2
     exit 2
 fi
 

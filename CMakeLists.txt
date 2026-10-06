@@ -604,8 +604,9 @@ if(NOT LIBRETRO)
 	endif()
 endif()
 
-# http
-if((UNIX AND NOT APPLE AND NOT ANDROID) OR NINTENDO_SWITCH)
+# http (the PS5's is the console's own client: shell/ps5/ps5_covers.cpp)
+if(FLYCAST_PS5)
+elseif((UNIX AND NOT APPLE AND NOT ANDROID) OR NINTENDO_SWITCH)
 	find_package(CURL REQUIRED)
 	target_link_libraries(${PROJECT_NAME} PRIVATE CURL::libcurl)
 elseif(LIBRETRO AND ANDROID)

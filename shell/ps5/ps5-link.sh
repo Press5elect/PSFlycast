@@ -38,7 +38,7 @@ vk=$(cd -- "$PS5_VULKAN_DIR" && pwd)
 # The payload SDK fork: PS5_PAYLOAD_SDK (shell/ps5/build.sh), else PS5_Vulkan's.
 sdk_root=${PS5_PAYLOAD_SDK:-$vk/.deps/native/ps5-payload-sdk}
 native="$vk/tooling/native"
-tool="$vk/build/runtime-shim/ps5-native-tool"
+tool="$vk/build/host/ps5-native-tool"
 archive=${RADV_ARCHIVE:-$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a}
 for file in "$archive" "$tool" "$sdk_root/bin/prospero-lld"; do
     [[ -e $file ]] || { echo "ps5-link: missing $file" >&2; exit 2; }
@@ -116,12 +116,31 @@ radv_link_flags+=(--wrap=fgetpos --wrap=fsetpos)
 
 # Imports a title cannot use as they are (only libkernel_sys exports them, the
 # SDK lists them but the console lacks them, or a title is refused them):
-# bound to shell/ps5/ps5_libc.cpp's versions, kept local.
+# bound to shell/ps5/ps5_libc.cpp's versions, kept local. What the link recipe
+# already binds to the platform layer (readlink, link, symlink, mkstemp and
+# localeconv, from the SDK revision this title pins) is the platform's.
+# getaddrinfo and freeaddrinfo are the exception, and are the title's: they
+# ask the console's own resolver, which the platform's did not reach from a
+# title (shell/ps5/ps5_libc.cpp).
+title_overrides=" getaddrinfo freeaddrinfo "
+filtered=()
+for flag in "${radv_link_flags[@]}"; do
+    name=${flag#--defsym=}
+    name=${name%%=*}
+    if [[ $flag == --defsym=* && $title_overrides == *" $name "* ]]; then
+        continue
+    fi
+    filtered+=("$flag")
+done
+radv_link_flags=("${filtered[@]}")
 title_defsyms=()
 {
     printf '{\n    local:\n'
     for name in fork link symlink readlink pathconf isatty getcwd realpath mkstemp \
             gai_strerror gethostbyname getnameinfo getaddrinfo freeaddrinfo in6addr_any localeconv; do
+        if [[ " ${radv_link_flags[*]} " == *" --defsym=$name="* ]]; then
+            continue
+        fi
         title_defsyms+=("--defsym=$name=ps5_flycast_$name")
         printf '        %s;\n' "$name"
     done
@@ -143,6 +162,23 @@ title_defsyms=()
     "${title_stubs[@]}" \
     "${radv_link_inputs[@]}" \
     --as-needed "$sdk_root"/target/lib/*.so
+
+# A title loads neither libkernel_sys's exports nor libScePosixForWebKit's: an
+# import only their stubs define links, and is null at run time, so its first
+# call jumps to address 0. Refused here rather than found on the console
+# (PS5_VulkanTemplate's link check).
+null_imports=$(comm -23 \
+    <("$sdk_root/bin/llvm-nm" -D --undefined-only "$work/llvm-pie.elf" |
+        awk '$1 == "U" { sub(/@.*/, "", $2); print $2 }' | sort -u) \
+    <(for library in "$sdk_root"/target/lib/*.so "${title_stubs[@]}"; do
+        case ${library##*/} in libkernel_sys.so | libScePosixForWebKit.so) continue ;; esac
+        "$sdk_root/bin/llvm-nm" -D --defined-only "$library" 2>/dev/null | awk '{ print $NF }'
+    done | sort -u))
+if [[ -n $null_imports ]]; then
+    echo "ps5-link: imports that no module a title loads exports (null at run time): ${null_imports//$'\n'/ }" >&2
+    echo "ps5-link: bind them in shell/ps5/ps5_libc.cpp (title_defsyms above) or in the platform layer" >&2
+    exit 1
+fi
 
 "$tool" link --in "$work/llvm-pie.elf" --out "$work/eboot.elf" \
     --stub-dir "$sdk_root/target/lib" "${stub_options[@]}" --module-sdk 0x02000009 \

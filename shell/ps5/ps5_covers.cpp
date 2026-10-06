@@ -65,6 +65,7 @@ int sceHttp2CreateTemplate(int context, const char *userAgent, int httpVersion, 
 int sceHttp2CreateRequestWithURL(int templateId, const char *method, const char *url, uint64_t contentLength);
 int sceHttp2DeleteRequest(int request);
 int sceHttp2SendRequest(int request, const void *data, size_t size);
+int sceHttp2AddRequestHeader(int request, const char *name, const char *value, uint32_t mode);
 int sceHttp2GetStatusCode(int request, int *status);
 int sceHttp2ReadData(int request, void *data, size_t size);
 int sceHttp2SetResolveTimeOut(int id, uint32_t usec);
@@ -143,11 +144,21 @@ struct Http
 
 	int get(const std::string& url, std::vector<uint8_t>& out, unsigned seconds = 20)
 	{
+		return request("GET", url, {}, nullptr, 0, out, seconds, false);
+	}
+
+	// Any request: its method, the headers to send with it, and for a POST
+	// what is posted. The answer's body is read for a 2xx status, and with
+	// anyStatus for every status (a service that says what was wrong there).
+	int request(const char *method, const std::string& url,
+			const std::vector<std::pair<std::string, std::string>>& headers, const void *body, size_t bodySize,
+			std::vector<uint8_t>& out, unsigned seconds, bool anyStatus)
+	{
 		out.clear();
 		lastError = 0;
 		if (!init())
 			return -1;
-		const int request = sceHttp2CreateRequestWithURL(templateId, "GET", url.c_str(), 0);
+		const int request = sceHttp2CreateRequestWithURL(templateId, method, url.c_str(), bodySize);
 		if (request < 0)
 		{
 			lastError = request;
@@ -160,8 +171,15 @@ struct Http
 		sceHttp2SetRecvTimeOut(request, phase);
 		sceHttp2SetTimeOut(request, seconds * 1000 * 1000);
 		sceHttp2SetAutoRedirect(request, 1);
+		for (const auto& [name, value] : headers)
+		{
+			// 0: in place of the template's header of that name.
+			const int added = sceHttp2AddRequestHeader(request, name.c_str(), value.c_str(), 0);
+			if (added < 0 && reported++ < 6)
+				diag::mark("covers: the header %s was not taken: %#x", name.c_str(), (unsigned)added);
+		}
 		int status = -1;
-		const int sent = sceHttp2SendRequest(request, nullptr, 0);
+		const int sent = sceHttp2SendRequest(request, bodySize != 0 ? body : nullptr, bodySize);
 		const int got = sent == 0 ? sceHttp2GetStatusCode(request, &status) : -1;
 		if (sent != 0 || got != 0)
 		{
@@ -172,7 +190,7 @@ struct Http
 						url.substr(0, 48).c_str());
 			status = -1;
 		}
-		else if (status >= 200 && status < 300)
+		else if ((status >= 200 && status < 300) || anyStatus)
 		{
 			std::vector<uint8_t> chunk(64 * 1024);
 			for (;;)
@@ -182,7 +200,8 @@ struct Http
 				{
 					if (reported++ < 4)
 						diag::mark("covers: reading the answer failed: %#x", (unsigned)n);
-					status = -1;
+					if (status >= 200 && status < 300)
+						status = -1;
 					break;
 				}
 				if (n == 0)
@@ -582,8 +601,14 @@ namespace http
 
 int get(const std::string& url, std::vector<u8>& content, const Headers *reqHeaders, Headers *respHeaders)
 {
-	(void)reqHeaders;
-	const int status = ps5::covers::get(url, content);
+	int status;
+	if (reqHeaders != nullptr && !reqHeaders->empty())
+	{
+		std::lock_guard<std::mutex> lock(ps5::covers::httpMutex);
+		status = ps5::covers::client.request("GET", url, *reqHeaders, nullptr, 0, content, 20, false);
+	}
+	else
+		status = ps5::covers::get(url, content);
 	if (status < 0)
 	{
 		content.clear();
@@ -610,6 +635,38 @@ int get(const std::string& url, std::vector<u8>& content, const Headers *reqHead
 		respHeaders->emplace_back("content-type", type);
 	}
 	return status;
+}
+
+// What is posted, and the answer whatever its status: a service's own error
+// is in it (the achievements' server).
+int post(const std::string& url, const char *payload, const char *contentType, std::vector<u8>& reply)
+{
+	const size_t size = payload != nullptr ? strlen(payload) : 0;
+	Headers headers{ { "Content-Type", contentType != nullptr ? contentType : "application/x-www-form-urlencoded" },
+			{ "User-Agent", getUserAgent() } };
+	std::lock_guard<std::mutex> lock(ps5::covers::httpMutex);
+	const int status = ps5::covers::client.request("POST", url, headers, payload, size, reply, 30, true);
+	if (status < 0)
+	{
+		reply.clear();
+		return 503;
+	}
+	return status;
+}
+
+// A form: its fields as name=value pairs. A field that is a file (a
+// screenshot sent with a report) is not sent from the console.
+int post(const std::string& url, const std::vector<PostField>& fields)
+{
+	std::string body;
+	for (const PostField& field : fields)
+	{
+		if (!field.contentType.empty())
+			return 501;
+		body += (body.empty() ? "" : "&") + urlEncode(field.name) + "=" + urlEncode(field.value);
+	}
+	std::vector<u8> reply;
+	return post(url, body.c_str(), "application/x-www-form-urlencoded", reply);
 }
 
 } // namespace http
