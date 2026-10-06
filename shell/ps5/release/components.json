@@ -60,7 +60,7 @@
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
    },
-   "modifications": "Changed for the console, behind __PROSPERO__, FLYCAST_PS5 or USE_PS5: CMakeLists.txt, core/achievements/achievements.cpp, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/hw/pvr/Renderer_if.cpp, core/hw/pvr/Renderer_if.h, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/transform_matrix.cpp, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/oit/oit_renderer.cpp, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/rend/vulkan/vulkan_renderer.cpp, core/rend/vulkan/vulkan_renderer.h, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp; and added: core/rend/soft (the Software renderer setting, listed below). 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
+   "modifications": "Changed for the console, behind __PROSPERO__, FLYCAST_PS5 or USE_PS5, or with a fix from one of Flycast's open pull requests (#2213, #2384, #2414, #2415, #2416, #2513, #2519, #2520, #2521, #2528, #2531; each is named where it is applied or in shell/ps5/README.md): CMakeLists.txt, core/achievements/achievements.cpp, core/archive/rzip.cpp, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/hw/naomi/naomi_cart.cpp, core/hw/pvr/Renderer_if.cpp, core/hw/pvr/Renderer_if.h, core/hw/sh4/sh4_core_regs.cpp, core/imgread/chd.cpp, core/imgread/isofs.cpp, core/input/gamepad_device.cpp, core/input/gamepad_device.h, core/input/mouse.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/network/dns.cpp, core/network/ggpo.cpp, core/network/picoppp.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/transform_matrix.cpp, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/oit/oit_renderer.cpp, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/rend/vulkan/vulkan_renderer.cpp, core/rend/vulkan/vulkan_renderer.h, core/stdclass.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp; and added: core/rend/soft (the Software renderer setting, listed below). 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
     "eboot.bin"
    ]
@@ -700,7 +700,7 @@
    "source": {
     "kind": "in-tree"
    },
-   "modifications": "Unmodified, as Flycast carries it.",
+   "modifications": "As Flycast carries it, with one change: network/udp_proto.cpp checks an input packet before decoding it (flyinghead/flycast#2519).",
    "files": [
     "eboot.bin"
    ]
@@ -857,7 +857,7 @@
     "path": "${VULKAN}",
     "url": "https://github.com/mihawk-99/PS5_Vulkan",
     "localnote": "with tools/build-radv.sh's mesa_revision set to the RADV revision above",
-    "base": "fde9e3798c2ec1d8fccc90d5067cd6060490607f",
+    "base": "5b5e4fc2d80fdb67a4f61ba9e6a8a424026bb8a5",
     "where": "PS5_Vulkan at the base revision with one line changed; the tree as built is the archive PS5_Vulkan-<revision>.tar.xz attached to the release"
    },
    "modifications": "Unmodified but for the Mesa revision its build-radv.sh names.",

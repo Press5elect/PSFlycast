@@ -147,6 +147,10 @@ void CHDDisc::tryOpen(const char* file)
 
 	for(;;)
 	{
+		// The formats below are libchdr's (CDROM_TRACK_METADATA2_FORMAT and its
+		// kin) with each text field held to these buffers' 15 characters: the
+		// metadata is the image's own, and a longer field wrote past them
+		// (flyinghead/flycast#2384)
 		char type[16], subtype[16], pgtype[16], pgsub[16];
 		int tkid=-1, frames=0, pregap=0, postgap=0, padframes=0;
 		strcpy(subtype, "NONE");
@@ -157,14 +161,15 @@ void CHDDisc::tryOpen(const char* file)
 		if (err == CHDERR_NONE)
 		{
 			//"TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
-			sscanf(temp, CDROM_TRACK_METADATA2_FORMAT, &tkid, type, subtype, &frames, &pregap, pgtype, pgsub, &postgap);
+			sscanf(temp, "TRACK:%d TYPE:%15s SUBTYPE:%15s FRAMES:%d PREGAP:%d PGTYPE:%15s PGSUB:%15s POSTGAP:%d",
+					&tkid, type, subtype, &frames, &pregap, pgtype, pgsub, &postgap);
 			// CD-Rom audio tracks are always stored big-endian
 			needAudioSwap = true;
 		}
 		else if (CHDERR_NONE== (err = chd_get_metadata(chd, CDROM_TRACK_METADATA_TAG, (u32)tracks.size(), temp, sizeof(temp), &temp_len, &tag, &flags)) )
 		{
 			//CDROM_TRACK_METADATA_FORMAT	"TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d"
-			sscanf(temp, CDROM_TRACK_METADATA_FORMAT, &tkid, type, subtype, &frames);
+			sscanf(temp, "TRACK:%d TYPE:%15s SUBTYPE:%15s FRAMES:%d", &tkid, type, subtype, &frames);
 			// CD-Rom audio tracks are always stored big-endian
 			needAudioSwap = true;
 		}
@@ -181,7 +186,8 @@ void CHDDisc::tryOpen(const char* file)
 			if (err != CHDERR_NONE)
 				break;
 			//GDROM_TRACK_METADATA_FORMAT	"TRACK:%d TYPE:%s SUBTYPE:%s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%s PGSUB:%s POSTGAP:%d"
-			sscanf(temp, GDROM_TRACK_METADATA_FORMAT, &tkid, type, subtype, &frames, &padframes, &pregap, pgtype, pgsub, &postgap);
+			sscanf(temp, "TRACK:%d TYPE:%15s SUBTYPE:%15s FRAMES:%d PAD:%d PREGAP:%d PGTYPE:%15s PGSUB:%15s POSTGAP:%d",
+					&tkid, type, subtype, &frames, &padframes, &pregap, pgtype, pgsub, &postgap);
 			isGdrom = true;
 		}
 

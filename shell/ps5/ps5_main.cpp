@@ -197,7 +197,7 @@ void makeDirs(const std::string& root)
 	// Open to everyone, so the console's FTP server can add and remove files in
 	// them (as PS5 RetroArch does for its folders).
 	for (const char *sub : { "", "bios", "games", "covers", "cheats", "data", "logs", "data/savestates", "data/mappings",
-			"data/cheats", "data/pipelines", "screenshots", "vmu" })
+			"data/cheats", "data/pipelines", "vmu" })
 	{
 		const std::string dir = root + sub;
 		mkdir(dir.c_str(), 0777);
@@ -474,14 +474,6 @@ int main(int argc, char *argv[])
 		setenv("PS5_VIDEOOUT_PARAM_JSON", (ps5::rootDir + "sce_sys/param.json").c_str(), 1);
 	// RADV's shader cache, in the root whichever path that is this run.
 	setenv("MESA_SHADER_CACHE_DIR", (ps5::rootDir + "radv-shader-cache").c_str(), 1);
-	// Screenshots: Flycast saves them where a desktop keeps its pictures, which
-	// it asks a command for (none runs in a title: popen fails) and then takes
-	// to be $HOME (core/oslib/oslib.cpp, hostfs::saveScreenshot). So HOME is
-	// <root>/screenshots. The rest of this build reads HOME in two places that
-	// do not come up here: Flycast's own log file when emu.cfg asks for one and
-	// it cannot be made where the title runs, and its folder browser, which
-	// this interface does not show.
-	setenv("HOME", (ps5::rootDir + "screenshots").c_str(), 1);
 	if (ps5::options().usb)
 	{
 		findUsbDirs();

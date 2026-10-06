@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 #include <functional>
+#include <type_traits>
 #include <cassert>
 #include <ctime>
 
@@ -195,6 +196,10 @@ std::string strprintf(const char *format, Args ... args)
 	return out;
 }
 
+namespace hostfs {
+class File;
+}
+
 class MD5Sum
 {
 	MD5_CTX ctx;
@@ -218,8 +223,13 @@ public:
 		return *this;
 	}
 
+	// The whole file's content (flyinghead/flycast#2513: a hostfs::File pointer
+	// used to fall to the template below, which hashed the pointer's value)
+	MD5Sum& add(hostfs::File *file);
+
 	template<typename T>
 	MD5Sum& add(const T& v) {
+		static_assert(!std::is_pointer<T>::value, "MD5Sum::add() would hash the pointer value, not the data it points to");
 		MD5_Update(&ctx, &v, (unsigned long)sizeof(T));
 		return *this;
 	}

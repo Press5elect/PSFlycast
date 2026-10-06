@@ -29,8 +29,8 @@
 	place. The start-up animation (drawSplash) draws that line and ends with
 	the mark and the name where the top bar has them.
 	The quick menu slides in from the right over the paused game; its Cheats
-	page lists the game's cheats (shell/ps5/ps5_cheats.cpp). Fast forward and
-	screenshots are Flycast's own, from the quick menu or a button of the pad.
+	page lists the game's cheats (shell/ps5/ps5_cheats.cpp). Fast forward is
+	Flycast's own, from the quick menu or a button of the pad.
 */
 #include "bigpicture.h"
 #include "ps5_pad.h"
@@ -5841,7 +5841,7 @@ std::vector<Category> buildCategories()
 	}
 	for (const auto& [label, sub] : std::vector<std::pair<std::string, std::string>>{
 			{ "Games folder", "games/" }, { "BIOS folder", "bios/" }, { "Covers folder", "covers/" },
-			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" }, { "Screenshots", "screenshots/" },
+			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" },
 			{ "Save files in and out", "vmu/" } })
 	{
 		Row r{ Row::Info, label, "" };
@@ -6584,8 +6584,9 @@ const PadControl padControls[] = {
 	{ "C (six-button pad)", "Button 3", DC_BTN_C }, { "Z (six-button pad)", "Button 6", DC_BTN_Z },
 	{ nullptr, "Insert coin", DC_BTN_D }, { nullptr, "Service", DC_DPAD2_UP },
 	// Flycast's own (core/input/gamepad_device.cpp): a press turns fast forward
-	// on and the next one off; a press saves a screenshot.
-	{ "Fast forward", "Fast forward", EMU_BTN_FFORWARD, true }, { "Screenshot", "Screenshot", EMU_BTN_SCREENSHOT, true },
+	// on and the next one off. (Its screenshot control is not offered: the
+	// console's Create button takes them.)
+	{ "Fast forward", "Fast forward", EMU_BTN_FFORWARD, true },
 };
 
 std::vector<PadControl> controlsShown()
@@ -6780,10 +6781,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	const char *note = qm.listening >= 0 ? "Press the DualSense button for it. The touch pad leaves it as it is."
 			: qm.controlFocus == 0 ? (own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 					: "This game uses the layout every game has. Changing a button below gives it one of its own.")
-			: emulators && controls[qm.controlFocus - 1].key == EMU_BTN_FFORWARD
-				? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"
-					"Square takes it off its button. L3 and R3 are free in Dreamcast games."
-			: emulators ? "A press saves a picture of the game to the screenshots folder. Cross, then the button for it;\n"
+			: emulators ? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"
 					"Square takes it off its button. L3 and R3 are free in Dreamcast games."
 			: "Cross, then the DualSense button for it. A button that did something else stops doing it.\n"
 					"L2 and R2 are analog for the triggers. The sticks and the touch pad stay as they are.";
@@ -7098,14 +7096,6 @@ void quickMenu()
 		fast.stays = on;
 		items.push_back(fast);
 	}
-	items.push_back({ ICON_FA_CAMERA, "Screenshot", "", true, [] {
-		// Of the game's picture, as the state's own picture is: the frame the
-		// emulator drew last, not the screen with this menu on it. The game goes
-		// on first, so that Flycast says over it where the picture went.
-		GamepadDevice::load_system_mappings();
-		gui_setState(GuiState::Closed);
-		gui_takeScreenshot();
-	} });
 	if (::settings.platform.isConsole())
 		items.push_back({ ICON_FA_COMPACT_DISC, gdr::isOpen() ? "Insert disc" : "Open disc lid", "", true, [] {
 			if (gdr::isOpen())

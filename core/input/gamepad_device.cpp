@@ -140,8 +140,13 @@ bool GamepadDevice::handleButtonInput(int port, DreamcastKey key, bool pressed)
 				gui_saveState(false, true);
 			break;
 		case EMU_BTN_SCREENSHOT:
+#ifndef USE_PS5
+			// PSFlyCast: not on the console, whose own Create button takes
+			// screenshots (a layout that still has this control on a button
+			// does nothing with it)
 			if (pressed)
 				gui_takeScreenshot();
+#endif
 			break;
 		case DC_AXIS_LT:
 			if (port >= 0)
@@ -355,6 +360,7 @@ bool GamepadDevice::detectAxis(u32 code, int value)
 //
 bool GamepadDevice::gamepad_axis_input(u32 code, int value)
 {
+	lastRawAxisValues[code] = value;
 	if (detectAxis(code, value))
 		return true;
 
@@ -770,6 +776,8 @@ void GamepadDevice::detectInput(bool combo, input_detected_cb input_changed)
 	_detection_start_time = getTimeMs() + 200;
 	detectionInputs.clear();
 	detectingAxes.clear();
+	for (const auto& [code, value] : lastRawAxisValues)
+		detectingAxes.emplace(code, value);
 }
 
 #ifdef TEST_AUTOMATION

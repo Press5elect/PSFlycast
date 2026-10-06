@@ -3,11 +3,11 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.1.0 (build 42). What is new in it has not been run on
-a console yet: achievements, rewind, the memory card manager, favourites
-and hidden games, time played, Change cover, fast forward, screenshots, the
-Scanlines and CRT filters, the software renderer, the memory card's screen
-and Stretch to fill. The README's Status says what has been played on one.
+This manual is for v1.1.0-rc1 (build 44), the first release candidate of
+v1.1.0. Of what is new in it, these have not
+been run on a console yet: achievements, rewind, fast forward, the memory
+card's screen and Stretch to fill. The README's Status says what has been
+played on one.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped
@@ -218,7 +218,6 @@ Circle or the touch pad again resumes.
 | State slot | Chooses one of 10 slots; each shows a picture of what it holds |
 | Rewind | Goes back to a moment of the last minutes (see [Rewind](#9-rewind)). Only there when Settings > System > Rewind is on |
 | Fast forward | Lets the game run faster than its own pace, without sound |
-| Screenshot | Saves a picture of the game |
 | Open disc lid / Insert disc | Changes the disc (see [Games on several discs](#11-games-on-several-discs)). Dreamcast games only |
 | Cheats | Switches cheats on and off |
 | Achievements | Lists the game's achievements (see [Achievements](#17-achievements)). Only there when they are turned on |
@@ -239,14 +238,11 @@ about twice as fast, and with 60 Hz output it goes no faster. It is off again
 when the game is quit, and cannot be used in netplay or while a game is
 online ("Not while online").
 
-**Screenshot.** Cross goes back to the game and saves its picture, without
-the menu, as a PNG file in `screenshots/` in PSFlyCast's folder
-(`/data/homebrew/PPSA99247/screenshots/`). A line over the game says
-"Screenshot saved" and the file's name, which starts with `Flycast-` and
-the date and time.
+Fast forward can be put on a button of the controller: see
+[Changing the controls](#14-changing-the-controls).
 
-Fast forward and Screenshot can each be put on a button of the controller:
-see [Changing the controls](#14-changing-the-controls).
+**Screenshots** are the console's own: its Create button takes them, of a
+game here as of anything else.
 
 ## 8. Saving
 
@@ -450,13 +446,13 @@ game starts. The **Layout** row at the top puts the game back on the layout
 every game has. Settings > Controls > **Restore the default layout** resets
 that shared one.
 
-**Fast forward and Screenshot on a button.** The last two rows of the list
-are not the Dreamcast's controls but PSFlyCast's: **Fast forward** (one
-press turns it on, the next turns it off) and **Screenshot** (a press saves
-a picture). They start as **Not set**. Give one a button as you would any
-control: Cross, then the button. L3 and R3 do nothing in Dreamcast games
-and are free for this. **Square** on the row takes it off its button
-again. Like every change on this page, it is for the running game.
+**Fast forward on a button.** The last row of the list is not one of the
+Dreamcast's controls but PSFlyCast's: **Fast forward** (one press turns it
+on, the next turns it off). It starts as **Not set**. Give it a button as
+you would any control: Cross, then the button. L3 and R3 do nothing in
+Dreamcast games and are free for this. **Square** on the row takes it off
+its button again. Like every change on this page, it is for the running
+game.
 
 **Rumble** needs the rumble pack, which is in the controller's second slot by
 default. Settings > Controls > Controller slot 2 swaps it for a second memory
@@ -754,6 +750,11 @@ A released version also looks for a newer one when it starts, and offers it
 once: **Update now**, **Later**, or **Skip this version**. Settings > About >
 **Look for updates at start-up** turns that off.
 
+A version whose name ends in `-rc` and a number (`v1.1.0-rc1`) is a
+**release candidate**: the version as it will be released unless it shows a
+fault. A released version is offered released versions only. A candidate is
+offered the next candidate, and the release when it is out.
+
 With **USB drives** turned on, the check and the download may not reach the
 internet. If they fail, turn USB drives off (Settings > Library), start
 PSFlyCast again, update, and turn them back on.
@@ -794,7 +795,6 @@ Everything is in `/data/homebrew/PPSA99247/`:
 | `cheats/` | Cheat files |
 | `patches/` | Your own `patches.txt`, if you made one |
 | `data/` | Memory cards, save states, your favourites, hidden games and time played |
-| `screenshots/` | The pictures you take with Screenshot |
 | `vmu/` | Memory card saves as files: the ones you export, and the ones you want to add to a card |
 | `network.cfg` | The network shares |
 | `sounds/` | The start-up sound |

@@ -162,7 +162,13 @@ std::string sha256Of(const std::string& path)
 
 // ---- versions
 
-// "v1.0.2" or "1.0.2" as numbers; missing parts are 0.
+// "v1.0.2" or "1.0.2" as numbers; missing parts are 0. A fifth number ranks
+// what follows them: a version with nothing after its numbers is the release
+// itself and ranks above every candidate of it ("v1.1.0-rc2" is over
+// "v1.1.0-rc1" and under "v1.1.0"); a candidate's rank is the number its
+// suffix ends with.
+constexpr int FinalRank = 1000000;
+
 std::vector<int> versionParts(const std::string& text)
 {
 	std::vector<int> parts;
@@ -180,8 +186,27 @@ std::vector<int> versionParts(const std::string& text)
 		else
 			break;
 	}
+	const bool numbered = !parts.empty();
 	parts.resize(4, 0);
+	int rank = FinalRank;
+	if (numbered && at < text.size())
+	{
+		// "-rc1", "-rc.2", "-beta": the digits it ends with, 0 when it has none.
+		size_t digits = text.size();
+		while (digits > at && text[digits - 1] >= '0' && text[digits - 1] <= '9')
+			digits--;
+		rank = 0;
+		for (size_t i = digits; i < text.size(); i++)
+			rank = std::min(rank * 10 + (text[i] - '0'), FinalRank - 1);
+	}
+	parts.push_back(rank);
 	return parts;
+}
+
+// A candidate of a release ("v1.1.0-rc1"), not the release itself.
+bool isCandidate(const std::string& tag)
+{
+	return versionParts(tag)[4] != FinalRank;
 }
 
 // Under 0, 0 or over 0 as a is older than, the same as or newer than b.
@@ -333,8 +358,9 @@ bool readRelease(const nlohmann::json& entry, Release& release, std::string& why
 }
 
 // The release with the highest version in GitHub's answer (a list of
-// releases, or one).
-bool parseRelease(const std::string& text, Release& release, std::string& why)
+// releases, or one). Candidates are for those who run one: a release's build
+// is offered releases only (candidates: whether they are looked at).
+bool parseRelease(const std::string& text, Release& release, std::string& why, bool candidates = true)
 {
 	try {
 		const nlohmann::json answer = nlohmann::json::parse(text);
@@ -352,6 +378,8 @@ bool parseRelease(const std::string& text, Release& release, std::string& why)
 					why = reason;
 				continue;
 			}
+			if (!candidates && isCandidate(one.tag))
+				continue;
 			if (!any || compareVersions(one.tag, release.tag) > 0)
 				release = one;
 			any = true;
@@ -688,7 +716,7 @@ bool doCheck()
 	}
 	Release release;
 	std::string why;
-	if (!parseRelease(std::string(answer.begin(), answer.end()), release, why))
+	if (!parseRelease(std::string(answer.begin(), answer.end()), release, why, isCandidate(baseVersion())))
 	{
 		fail(why);
 		return false;
@@ -938,6 +966,12 @@ namespace ps5::update::test
 {
 std::string sha256(const std::string& path) { return sha256Of(path); }
 int compare(const std::string& a, const std::string& b) { return compareVersions(a, b); }
+std::string newestTag(const std::string& json, bool candidates)
+{
+	Release r;
+	std::string why;
+	return parseRelease(json, r, why, candidates) ? r.tag : "none: " + why;
+}
 bool release(const std::string& json, std::string& tag, std::string& asset, std::string& url, uint64_t& size, std::string& sum,
 		std::vector<std::string>& notes, std::string& why)
 {
