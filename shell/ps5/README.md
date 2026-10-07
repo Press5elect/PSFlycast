@@ -42,8 +42,7 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.1.0-rc2** (build 46), the second release candidate of
-v1.1.0: what v1.1.0 will be unless the candidate shows a fault. It is built
+Latest release: **v1.1.0** (build 47). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
 Played on a PS5 over the builds that led to v1.0.2: Dreamcast games from the
@@ -76,16 +75,18 @@ the new start-up sound; frame generation as that build had it, with which
 three games played for two to seven minutes each ran at 99% to 100% of full
 speed - two that draw about 30 pictures a second, with 76 to 81 more a
 second made in between, and one that draws 60, with 60 made; and the speed
-readout those numbers are from.
+readout those numbers are from. And on the second candidate (build 46),
+which the release (build 47) differs from in its name and number only: the
+start-up animations start as they should; Per-pixel layers; and frame
+generation as the release has it, with which fast games smear little
+enough to be acceptable and the delay it adds is not noticeable. No speed
+was written down on build 46.
 
 New in v1.1.0 and not confirmed on a console: RetroAchievements; rewind;
 fast forward; the memory card's screen in a corner of the picture, and
-Stretch to fill; 120 Hz output with USB drives on; what the first candidate
-adds to build 42; and from the second candidate, the four start-up
-animations, Per-pixel layers, and frame generation as build 46 has it:
-Light and Full, and the way it finds motion, which was written again after
-build 45 and has run on the build machine's software driver only.
-[New in v1.1.0](#new-in-v110) says what each is.
+Stretch to fill; 120 Hz output with USB drives on; and what the first
+candidate adds to build 42. [New in v1.1.0](#new-in-v110) says what each
+is.
 
 From v1.0.2 and still not confirmed on a console: the Dreamcast's language
 set from the console's; and variable refresh rate, which is off until it is
@@ -202,7 +203,8 @@ Changed:
   taken out again: the console's Create button takes screenshots.
 - In the second candidate (build 46) and not in the first: frame
   generation, the four start-up animations and their sound, the speed in
-  Show frame rate, and Per-pixel layers.
+  Show frame rate, and Per-pixel layers. The release (build 47) is the
+  second candidate with its name and number changed.
 - `flycast-boot.log` has a line starting `storage:` for each of the folders
   a title may be given (`/app0`, `/download0`, `/data`, `/data/homebrew`,
   `/user/data`): whether it is there, and whether a file can be made in it.
@@ -1097,7 +1099,7 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
-v1.1.0-rc1 and -rc2 are made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
+v1.1.0 and its two candidates are made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
 two patches, the payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; RADV's
 archive is compiled with the SDK at `b83202b`. (PS5_Mesa's two commits after
 `7b59ef2` change its OpenGL-on-Vulkan driver, which is not in the title:

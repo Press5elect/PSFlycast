@@ -3,8 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.1.0-rc1 (build 44), the first release candidate of
-v1.1.0. Of what is new in it, these have not
+This manual is for v1.1.0 (build 47). Of what is new in it, these have not
 been run on a console yet: achievements, rewind, fast forward, the memory
 card's screen and Stretch to fill. The README's Status says what has been
 played on one.
