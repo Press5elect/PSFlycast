@@ -4624,28 +4624,39 @@ void addressDialog(ImDrawList *dl, const Input& given)
 // The start-up animations. Each start shows one: the one chosen in Settings >
 // Interface, or one of the four by chance, never the one shown the last time.
 // The start-up sound goes with it (ps5::sound, ps5_audio.cpp): its hit comes
-// 2.49 s in, a beat every 0.6 s after it, and every animation has its mark
-// whole on the hit and in the top bar on the beat at 6.09 s. Any button ends
-// it. With "Less" motion it is the mark and the name, still, for a second.
+// 2.49 s in, a beat every 0.6 s after it and a pulse four times a beat, and
+// every animation has its mark whole on the hit and in the top bar on a beat.
+// Any button ends it. With "Less" motion it is the mark and the name, still,
+// for a second.
 //
 // The first, the birds, a little over seven seconds:
-//   0.3 s  one line winds in to the middle of the screen and out again;
-//   2.2 s  its loops are a disc's grooves, and on the hit the app's name comes
-//          in under it;
-//   3.45 s the line lets its turns out until it is straight, and leaves to the left;
-//   3.47 s the letters lift off as birds, one after another, for the top left;
-//   4.75 s the line comes in again in the top bar, coils up there as the mark
-//          and starts turning;
-//   5.4 s  the birds land in a row and are the name in the top bar, the last
-//          on the beat;
-//   6.3 s  the library comes in under them.
+//   0.3 s  one line winds in to the middle of the screen and out again, and
+//          is whole on the hit;
+//   2.49 s the hit: its loops are a disc's grooves, and the app's name comes
+//          up under it;
+//   3.54 s the line lets its turns out until it is straight, and leaves to the left;
+//   3.69 s the letters lift off as birds for the top left, one on each pulse,
+//          the first on a beat and the last on a beat;
+//   4.89 s on the beat the line comes in again in the top bar and coils up
+//          there as the mark;
+//   5.49 s on the next beat the first bird lands and the mark starts turning;
+//          a bird lands on each pulse and they are the name in the top bar,
+//          the last on the beat at 6.69 s;
+//   6.4 s  the library comes in under them.
 // The other three are in bigpicture_splash.inc.
 
 namespace splashAt
 {
-constexpr float Lift = 3.47f, Gap = 0.09f, Flight = 1.9f;	// the birds: the first leaves, the next ones, how long they fly
-constexpr float Spin = 5.2f;								// the mark in the top bar starts turning
-constexpr float Library = 6.3f, Over = 7.4f;				// the library comes in
+// The sound: its hit, its beat, the pulse within a beat, and the beat three
+// of the animations land their mark on in the top bar.
+constexpr float Hit = 2.49f, Beat = 0.6f, Pulse = Beat / 4, Land = Hit + 6 * Beat;
+constexpr float BarHeight = 96;
+// The birds: the first leaves, the next ones, and how long one flies (it is
+// there twelve pulses after it left).
+constexpr float Lift = Hit + 2 * Beat, Gap = Pulse, Flight = 12 * Pulse - 0.12f;
+constexpr float Loose = Lift - Pulse;						// the line starts letting its turns out
+constexpr float Coil = Hit + 4 * Beat, Spin = Hit + 5 * Beat;	// the mark in the top bar coils up, and starts turning
+constexpr float Library = 6.4f, Over = 7.4f;				// the library comes in
 constexpr float Still = 1.2f;								// with less motion
 constexpr float DiscX = 0, DiscY = 410, DiscRadius = 232;	// the disc: on the screen's middle line
 constexpr float NameSize = 126, NameTop = 692;				// the name under it
@@ -4672,6 +4683,8 @@ float swell(float t)
 	return t < 0.5f ? 4 * t * t * t : 1 - std::pow(-2 * t + 2, 3.f) / 2;
 }
 
+#include "bigpicture_splash.inc"
+
 // A bird as a child draws one: two wings from where they meet. flap is how
 // far up the wings are, 0 to 1.
 void bird(ImDrawList *dl, float x, float y, float size, float flap, float tilt, ImU32 colour)
@@ -4696,20 +4709,25 @@ void drawSplashBirds(ImDrawList *dl, float t)
 	static ImVec2 points[SpiralLine::Count];
 
 	// Light where the disc is.
-	const float lit = between(t, 0.2f, 1.4f) * (1 - between(t, 3.6f, 4.6f));
+	const float lit = between(t, 0.2f, 1.4f) * (1 - between(t, Lift, Lift + 1));
 	if (lit > 0)
 		softDisc(dl, cx, cy, 760, alpha(col::accent, 0.17f * lit), 64);
+	// The sound's hit, and the beat after it.
+	if (t < Loose)
+		splashHit(dl, t, cx, cy, Loose);
 
-	// The line: drawn, then the disc's grooves, then let out straight, then
-	// gone to the left.
-	const float drawn = swell(between(t, 0.3f, 2.49f));
-	const float body = between(t, 2.2f, 2.9f) * (1 - between(t, 3.3f, 3.55f));
-	const float loose = swell(between(t, 3.45f, 4.25f));
-	const float gone = easeIn(between(t, 4.15f, 4.8f));
+	// The line: drawn, whole on the hit, then the disc's grooves, then let out
+	// straight, then gone to the left.
+	const float sinceHit = t - Hit;
+	const float drawn = swell(between(t, 0.3f, Hit));
+	const float body = between(sinceHit, 0, 0.3f) * (1 - between(t, Loose - 0.15f, Loose + 0.1f));
+	const float loose = swell(between(t, Loose, Loose + 0.8f));
+	const float gone = easeIn(between(t, Loose + 0.7f, Coil));
 	if (drawn > 0 && gone < 1)
 	{
 		const float x = cx - gone * 3900;
-		const float radius = DiscRadius * (1 + 0.03f * std::sin(between(t, 2.3f, 3.1f) * IM_PI));
+		const float bump = sinceHit < 0 ? 0 : 0.05f * (sinceHit < 0.04f ? sinceHit / 0.04f : std::exp(-(sinceHit - 0.04f) / 0.13f));
+		const float radius = DiscRadius * (1 + bump + 0.012f * splashBeat(t, Loose));
 		discBody(dl, x, cy, radius, col::text, col::accent, body);
 		const ImVec2 *line = spiralLine().at;
 		if (loose > 0)
@@ -4724,20 +4742,20 @@ void drawSplashBirds(ImDrawList *dl, float t)
 	}
 
 	// The mark in the top bar: the line comes in straight, coils up, and turns.
-	const float coil = swell(between(t, 4.75f, 5.6f));
+	const float coil = swell(between(t, Coil, Coil + 0.85f));
 	if (coil > 0)
 	{
 		// A picture of the user's own takes the mark's place as the library comes in.
 		const float own = customLogo() != ImTextureID() ? between(t, Library, Library + 0.6f) : 0;
 		const float angle = markAngle();
-		discBody(dl, MarkX, MarkY, MarkRadius, col::text, col::accent, between(t, 5.4f, 5.8f) * (1 - own));
+		discBody(dl, MarkX, MarkY, MarkRadius, col::text, col::accent, between(t, Spin + 0.05f, Spin + 0.45f) * (1 - own));
 		const ImVec2 *line = spiralLine().at;
 		if (coil < 1)
 		{
 			uncoil(1 - coil, points);
 			line = points;
 		}
-		strokeSpiral(dl, line, MarkX, MarkY, MarkRadius, angle, 1, alpha(col::text, between(t, 4.75f, 4.95f) * (1 - own)),
+		strokeSpiral(dl, line, MarkX, MarkY, MarkRadius, angle, 1, alpha(col::text, between(t, Coil, Coil + 0.2f) * (1 - own)),
 				markWidth(MarkRadius));
 		if (own > 0)
 			spinMark(dl, MarkX, MarkY, MarkRadius, own);
@@ -4751,7 +4769,7 @@ void drawSplashBirds(ImDrawList *dl, float t)
 	{
 		const std::string before(name, i), letter(1, name[i]);
 		const float start = Lift + i * Gap;
-		const float shown = easeOut(between(t, 2.49f + i * 0.04f, 2.84f + i * 0.04f));
+		const float shown = easeOut(between(t, Hit + i * 0.03f, Hit + 0.3f + i * 0.03f));
 		const float morph = between(t, start, start + 0.3f);
 		const float fly = swell(between(t, start + 0.12f, start + 0.12f + Flight));
 		const float land = between(t, start + Flight - 0.05f, start + Flight + 0.25f);
@@ -4783,9 +4801,9 @@ void drawSplashBirds(ImDrawList *dl, float t)
 		if (land > 0)
 			text(dl, bold(), BarSize, barLeft, BarTop, alpha(col::text, land), letter.c_str());
 	}
+	// The last one is down: the name is whole.
+	splashRing(dl, MarkX, MarkY, 27, 70, t - (Lift + 8 * Gap + 12 * Pulse), 0.5f, 0.5f, 2.5f, col::text);
 }
-
-#include "bigpicture_splash.inc"
 
 // For each animation: when the library begins to be drawn under it, when it
 // is over, and when the top bar's mark starts turning.

@@ -21,16 +21,10 @@
 	            from behind its own line. The splash then lifts like a
 	            shutter, and what is left of it is the top bar.
 
-	They are made to the start-up sound's moments (splashAt::Hit, Beat, Land).
-	The designs are PSFlyCast's own.
+	They are made to the start-up sound's moments (splashAt::Hit, Beat, Land),
+	and what they share (the hit's light and rings, a ring that widens) the
+	first animation, the birds, uses too. The designs are PSFlyCast's own.
 */
-
-namespace splashAt
-{
-// The sound: its hit, its beat, and the beat the mark lands on in the top bar.
-constexpr float Hit = 2.49f, Beat = 0.6f, Land = Hit + 6 * Beat;
-constexpr float BarHeight = 96;
-}
 
 namespace
 {
