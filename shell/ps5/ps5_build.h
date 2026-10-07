@@ -9,7 +9,7 @@
 	handed out.
 */
 #pragma once
-#define PS5_BUILD_NUMBER 45
+#define PS5_BUILD_NUMBER 46
 // The release this source is, or, between releases, the one it follows. The
 // update check (ps5_update.cpp) compares the project's newest release with it.
 #define PS5_VERSION "1.1.0"

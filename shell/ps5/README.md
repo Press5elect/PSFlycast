@@ -42,7 +42,7 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.1.0-rc1** (build 44), the first release candidate of
+Latest release: **v1.1.0-rc2** (build 46), the second release candidate of
 v1.1.0: what v1.1.0 will be unless the candidate shows a fault. It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
@@ -68,16 +68,28 @@ lists the library and runs games as v1.0.2 did, with the saves and settings
 v1.0.2 left; the memory card manager; favourites, hidden games and time
 played; Change cover; the Scanlines and CRT picture filters; the software
 renderer; a USB keyboard and mouse as the Dreamcast's; the left stick as
-the joystick in arcade games. No frame rates or audio were measured.
+the joystick in arcade games. No frame rates or audio were measured. On the
+first candidate (build 44): v1.0.2 found it, installed it and restarted into
+it when asked. And on a test build made between the two candidates
+(build 45), on a 3840x2160 display at 119.88 Hz: the title starts and plays
+the new start-up sound; frame generation as that build had it, with which
+three games played for two to seven minutes each ran at 99% to 100% of full
+speed - two that draw about 30 pictures a second, with 76 to 81 more a
+second made in between, and one that draws 60, with 60 made; and the speed
+readout those numbers are from.
 
 New in v1.1.0 and not confirmed on a console: RetroAchievements; rewind;
 fast forward; the memory card's screen in a corner of the picture, and
-Stretch to fill; 120 Hz output with USB drives on; and what the candidate
-adds to build 42. [New in v1.1.0](#new-in-v110) says what each is.
+Stretch to fill; 120 Hz output with USB drives on; what the first candidate
+adds to build 42; and from the second candidate, the four start-up
+animations, Per-pixel layers, and frame generation as build 46 has it:
+Light and Full, and the way it finds motion, which was written again after
+build 45 and has run on the build machine's software driver only.
+[New in v1.1.0](#new-in-v110) says what each is.
 
-From v1.0.2 and still not confirmed on a console: restarting into a new
-version after an update; the Dreamcast's language set from the console's;
-and variable refresh rate, which is off until it is turned on.
+From v1.0.2 and still not confirmed on a console: the Dreamcast's language
+set from the console's; and variable refresh rate, which is off until it is
+turned on.
 
 In earlier builds and still not confirmed on a console: a second, third and
 fourth player joining while the title runs; names looked up for the games'
@@ -125,6 +137,22 @@ Added:
   the picture computed on the CPU by a software model of the Dreamcast's
   graphics chip.
 - **Memory card screen** and **Stretch to fill** in Settings > Video.
+- **Frame generation** (Settings > Video, or for one game; experimental, off
+  by default): pictures made in between the game's own, for the presents
+  that would show a picture again - a 30 fps game on any TV, a 60 fps game
+  at 120 Hz. Light makes one between two of the game's, Full as many as the
+  TV shows. PSFlyCast's own: it finds how each part of the picture moved,
+  from the last frame to this one and back, and where it cannot it shows
+  the game's picture as it is. See the manual for what it costs.
+- **Four start-up animations**, one each start, made to a new start-up
+  sound: see [Skins, backgrounds and motion](#skins-backgrounds-and-motion).
+- **Show frame rate** also says how fast the game really runs, as a
+  percentage of full speed, and how many of the pictures shown were made by
+  frame generation; the same goes to `flycast-boot.log`, with the slowest
+  ten seconds.
+- **Per-pixel layers** (Settings > Video, 8 to 128) is an option of its own,
+  and Transparency sorting has its three choices in one row: per-triangle,
+  per-strip, per-pixel.
 - A folder, `vmu/`, for memory card saves as files.
 
 Changed:
@@ -172,6 +200,9 @@ Changed:
   updater's candidates, a newer payload SDK and libsmb2
   ([Building](#building)), and the quick menu's Screenshot row and control
   taken out again: the console's Create button takes screenshots.
+- In the second candidate (build 46) and not in the first: frame
+  generation, the four start-up animations and their sound, the speed in
+  Show frame rate, and Per-pixel layers.
 - `flycast-boot.log` has a line starting `storage:` for each of the folders
   a title may be given (`/app0`, `/download0`, `/data`, `/data/homebrew`,
   `/user/data`): whether it is there, and whether a file can be made in it.
@@ -910,6 +941,17 @@ On the build machine, without a console:
   and its speed on the console.
 - The Scanlines and CRT shader compiles with the compiler the title uses for
   its shaders, and was drawn on a PC from test pictures.
+- Frame generation (`shell/ps5/ps5_framegen.cpp`), the file itself in a
+  test of its own, on a software Vulkan driver with the validation layer
+  on, which had nothing to say. Test pictures with the true in-between
+  picture known: a pan with something crossing it and a score that stands
+  still (the made picture is 32 dB from the true one, where a plain mix of
+  the two frames is 18.5 dB and build 45's was 27), a turn with a zoom, a
+  fast turn behind something held still in front, a ground rushing at the
+  camera, a run of six frames, three cuts to another scene (all of the made
+  picture is the new scene), Light and Full with two, three and four
+  presents, and two picture shapes. Not covered: a real game's pictures,
+  and what it costs the console.
 
 On a console: see Status, at the top.
 
@@ -939,7 +981,8 @@ On a console: see Status, at the top.
 - `shell/ps5/ps5_crt.glsl.h` - the Scanlines and CRT picture filters: one
   fragment shader, drawn by `ps5_fsr.cpp` in place of the emulator's stretch.
 - `shell/ps5/ps5_framegen.cpp` - frame generation: the way the picture moved
-  between the game's last two frames is estimated in a few draws, and the
+  between the game's last two frames is estimated, both ways round, in
+  under thirty small draws, and the
   presents that would repeat a frame show a picture made in between
   (`vulkan_context.cpp` asks it what to show in each present). PSFlyCast's
   own; the comment at its top says how it works.
@@ -1054,7 +1097,7 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
-v1.1.0-rc1 is made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
+v1.1.0-rc1 and -rc2 are made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
 two patches, the payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; RADV's
 archive is compiled with the SDK at `b83202b`. (PS5_Mesa's two commits after
 `7b59ef2` change its OpenGL-on-Vulkan driver, which is not in the title:

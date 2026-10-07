@@ -547,20 +547,30 @@ what you see, most useful first:
   the way to a sharp 4K picture when a high internal resolution is too heavy
   - with per-pixel sorting above all: try 3x or 4x with FSR 1. It does
   nothing at 5x and up, where the picture is already larger than the screen.
-- **Frame generation** (experimental, off by default). A game that draws 30
-  pictures a second is shown each one twice on a 60 Hz TV, and four times at
-  120 Hz; a 60 fps game twice at 120 Hz. With this on, the repeats show
-  pictures made in between instead: PSFlyCast works out how each part of the
-  picture moved from the last frame to this one and draws it part of the way.
-  Motion looks smoother. What it costs: the game's own picture reaches the
-  screen half a game frame later (three quarters at 120 Hz), so the controls
-  feel a little later; and where the motion is not found - something very
-  fast, or what comes out from behind something else - that part of the
-  picture moves as it did without it, which can show as a flicker round a
-  moving thing. A score or a map that stands still is left alone. It does
-  nothing for a 60 fps game on a 60 Hz TV, with Variable refresh rate on, or
-  while fast forward is held. It is heavier at high internal resolutions:
-  try 2x to 4x.
+- **Frame generation** (experimental): Off, Light or Full; off by default. A
+  game that draws 30 pictures a second is shown each one twice on a 60 Hz
+  TV, and four times at 120 Hz; a 60 fps game twice at 120 Hz. With this on,
+  repeats show pictures made in between instead: PSFlyCast works out how
+  each part of the picture moved from the last frame to this one and draws
+  it part of the way. Motion looks smoother.
+  - **Light** makes one picture between two of the game's, whatever the TV.
+    It is the lighter one for the console, and the game's own picture
+    reaches the screen half a game frame later than without.
+  - **Full** makes one for every repeat: the same as Light for a 30 fps game
+    at 60 Hz and for a 60 fps game at 120 Hz, and three in between for a
+    30 fps game at 120 Hz, which is the smoothest and three quarters of a
+    game frame later.
+
+  What it costs: the controls feel that little later; and where the motion
+  is not found - something very fast, the edge of the picture in a quick
+  turn, what comes out from behind something else - that part of the
+  picture is shown as the game drew it and moves no more smoothly than
+  without. Where a wrong motion is taken for a right one it shows as a
+  smear. A score or a map that stands still is left alone, and a cut to
+  another scene is shown as it is. It does nothing for a 60 fps game on a
+  60 Hz TV, with Variable refresh rate on, or while fast forward is held.
+  It is heavier at high internal resolutions: try 2x to 4x, and watch the
+  speed with Show frame rate.
 - **Show frame rate** shows four numbers in the corner while a game runs:
   how fast the game really runs (100% is full speed, whatever the picture
   count says), the pictures a second the game draws, the pictures a second

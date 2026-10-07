@@ -2708,7 +2708,7 @@ const std::vector<GameOption>& gameOptions()
 				"config.rend.RenderToTextureBuffer", config::RenderToTextureBuffer, G::Video),
 		onOff("Delay frame swapping", "Avoids a flashing screen and glitchy videos in some games",
 				"config.rend.DelayFrameSwapping", config::DelayFrameSwapping, G::Video),
-		onOff("Show frame rate", "The FPS counter in the corner", "config.rend.ShowFPS", config::ShowFPS, G::Video),
+		onOff("Show frame rate", "How fast the game runs and its pictures a second, in the corner", "config.rend.ShowFPS", config::ShowFPS, G::Video),
 		// Flycast's overlay (core/rend/vulkan/overlay.cpp): each memory card's
 		// 48 x 32 dots at 288 x 192 pixels of a 4K screen, three quarters opaque,
 		// 24 pixels from its corner. The first controller's card has the top
@@ -2725,9 +2725,10 @@ const std::vector<GameOption>& gameOptions()
 						ps5::UpscalingCrt },
 				ps5::Upscaling, G::Video),
 		// Pictures made in between the game's own (ps5_framegen.cpp).
-		onOff("Frame generation",
-				"Experimental: pictures made in between the game's own. Smoother, a little later, and it can smear",
-				"ps5.FrameGeneration", ps5::FrameGeneration, G::Video),
+		// Light makes one between two of the game's; Full one for every present that would repeat a picture.
+		pick("Frame generation",
+				"Experimental: pictures made in between the game's own. Light makes one, Full as many as fit",
+				"ps5.FrameGeneration", { "Off", "Light", "Full" }, { 0, 1, 2 }, ps5::FrameGeneration, G::Video),
 		// The software model of the Dreamcast's graphics chip (core/rend/soft):
 		// it takes the place of the graphics processor from the next frame.
 		onOff("Software renderer",

@@ -37,7 +37,8 @@ enum
 };
 extern config::Option<int> Upscaling;
 // "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
-extern config::Option<bool> FrameGeneration;
+// 0 off, 1 light, 2 full.
+extern config::Option<int> FrameGeneration;
 
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
 
