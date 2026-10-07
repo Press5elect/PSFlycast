@@ -110,7 +110,9 @@ void loadOptions(const std::string& dir)
 		else if (!strcmp(key, "rewind"))
 			currentOptions.rewind = value != 0;
 		else if (!strcmp(key, "splash"))
-			currentOptions.splash = value != 0;
+			currentOptions.splash = std::clamp(value, 0, 5);
+		else if (!strcmp(key, "splash_last"))
+			currentOptions.splashLast = value;
 		else if (!strcmp(key, "splash_sound"))
 			currentOptions.splashSound = value != 0;
 		else if (!strcmp(key, "update_check"))
@@ -147,14 +149,14 @@ void saveOptions()
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
-			"show_hidden = %d\nrewind = %d\n",
+			"show_hidden = %d\nrewind = %d\nsplash_last = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
 			(int)currentOptions.splash, (int)currentOptions.splashSound, (int)currentOptions.updateCheck,
 			(int)currentOptions.menuSounds, (int)currentOptions.lightBar, (int)currentOptions.usbInput,
 			(int)currentOptions.vrr, (int)currentOptions.notifications, (int)currentOptions.showHidden,
-			(int)currentOptions.rewind);
+			(int)currentOptions.rewind, currentOptions.splashLast);
 	fclose(f);
 }
 

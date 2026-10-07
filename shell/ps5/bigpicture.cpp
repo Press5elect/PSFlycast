@@ -26,7 +26,7 @@
 	played (ps5_library.cpp keeps these, in data/library.txt).
 	The mark in the top bar is a disc made of one spiral line, turning
 	clockwise; a picture of the user's own, <root>/logo.png, is shown in its
-	place. The start-up animation (drawSplash) draws that line and ends with
+	place. The start-up animations (drawSplash; four, one each start) end with
 	the mark and the name where the top bar has them.
 	The quick menu slides in from the right over the paused game; its Cheats
 	page lists the game's cheats (shell/ps5/ps5_cheats.cpp). Fast forward is
@@ -300,12 +300,17 @@ float easeInOut(float t)
 }
 
 // The start-up animation (drawSplash, shown by the library the first time it
-// is on): not begun, showing, leaving, over. It ends with its mark and name
-// where the top bar has them, and the top bar leaves its own out until then:
-// flight is under 1 while the animation still draws them.
+// is on): not begun, showing, leaving, over. There are four, and each start
+// shows one of them: the one chosen in the settings, or one by chance. Each
+// ends with its mark and name where the top bar has them, and the top bar
+// leaves its own out until then: flight is under 1 while the animation still
+// draws them.
+enum SplashKind { SplashBirds, SplashDock, SplashComet, SplashShutter, SplashKinds };
+
 struct SplashState
 {
 	enum { NotBegun, Showing, Leaving, Over } state = NotBegun;
+	int kind = SplashBirds;
 	double began = 0, leaving = 0;
 	int frames = 0;
 	bool sounded = false;	// its sound was started, with its clock
@@ -4616,22 +4621,29 @@ void addressDialog(ImDrawList *dl, const Input& given)
 
 // ------------------------------------------------------------- the splash
 //
-// The start-up animation, a little over seven seconds:
+// The start-up animations. Each start shows one: the one chosen in Settings >
+// Interface, or one of the four by chance, never the one shown the last time.
+// The start-up sound goes with it (ps5::sound, ps5_audio.cpp): its hit comes
+// 2.49 s in, a beat every 0.6 s after it, and every animation has its mark
+// whole on the hit and in the top bar on the beat at 6.09 s. Any button ends
+// it. With "Less" motion it is the mark and the name, still, for a second.
+//
+// The first, the birds, a little over seven seconds:
 //   0.3 s  one line winds in to the middle of the screen and out again;
-//   2.0 s  its loops are a disc's grooves, and the app's name comes in under it;
+//   2.2 s  its loops are a disc's grooves, and on the hit the app's name comes
+//          in under it;
 //   3.45 s the line lets its turns out until it is straight, and leaves to the left;
-//   3.6 s  the letters lift off as birds, one after another, for the top left;
+//   3.47 s the letters lift off as birds, one after another, for the top left;
 //   4.75 s the line comes in again in the top bar, coils up there as the mark
 //          and starts turning;
-//   5.5 s  the birds land in a row and are the name in the top bar;
+//   5.4 s  the birds land in a row and are the name in the top bar, the last
+//          on the beat;
 //   6.3 s  the library comes in under them.
-// A sound goes with it (ps5::sound, ps5_audio.cpp), made to these times. Any
-// button ends it. With "Less" motion it is the mark and the name, still, for
-// a second.
+// The other three are in bigpicture_splash.inc.
 
 namespace splashAt
 {
-constexpr float Lift = 3.6f, Gap = 0.09f, Flight = 1.9f;	// the birds: the first leaves, the next ones, how long they fly
+constexpr float Lift = 3.47f, Gap = 0.09f, Flight = 1.9f;	// the birds: the first leaves, the next ones, how long they fly
 constexpr float Spin = 5.2f;								// the mark in the top bar starts turning
 constexpr float Library = 6.3f, Over = 7.4f;				// the library comes in
 constexpr float Still = 1.2f;								// with less motion
@@ -4676,8 +4688,8 @@ void bird(ImDrawList *dl, float x, float y, float size, float flap, float tilt, 
 	dl->PathStroke(colour, 0, std::max(1.6f, size * 0.17f) * S);
 }
 
-// The animation at the moment t, without what is behind it.
-void drawSplash(ImDrawList *dl, float t)
+// The birds at the moment t, without what is behind them.
+void drawSplashBirds(ImDrawList *dl, float t)
 {
 	using namespace splashAt;
 	const float cx = W / 2 + DiscX, cy = DiscY;
@@ -4690,14 +4702,14 @@ void drawSplash(ImDrawList *dl, float t)
 
 	// The line: drawn, then the disc's grooves, then let out straight, then
 	// gone to the left.
-	const float drawn = swell(between(t, 0.3f, 2.3f));
-	const float body = between(t, 2.0f, 2.7f) * (1 - between(t, 3.3f, 3.55f));
+	const float drawn = swell(between(t, 0.3f, 2.49f));
+	const float body = between(t, 2.2f, 2.9f) * (1 - between(t, 3.3f, 3.55f));
 	const float loose = swell(between(t, 3.45f, 4.25f));
 	const float gone = easeIn(between(t, 4.15f, 4.8f));
 	if (drawn > 0 && gone < 1)
 	{
 		const float x = cx - gone * 3900;
-		const float radius = DiscRadius * (1 + 0.03f * std::sin(between(t, 2.1f, 2.9f) * IM_PI));
+		const float radius = DiscRadius * (1 + 0.03f * std::sin(between(t, 2.3f, 3.1f) * IM_PI));
 		discBody(dl, x, cy, radius, col::text, col::accent, body);
 		const ImVec2 *line = spiralLine().at;
 		if (loose > 0)
@@ -4739,7 +4751,7 @@ void drawSplash(ImDrawList *dl, float t)
 	{
 		const std::string before(name, i), letter(1, name[i]);
 		const float start = Lift + i * Gap;
-		const float shown = easeOut(between(t, 2.3f + i * 0.05f, 2.65f + i * 0.05f));
+		const float shown = easeOut(between(t, 2.49f + i * 0.04f, 2.84f + i * 0.04f));
 		const float morph = between(t, start, start + 0.3f);
 		const float fly = swell(between(t, start + 0.12f, start + 0.12f + Flight));
 		const float land = between(t, start + Flight - 0.05f, start + Flight + 0.25f);
@@ -4773,6 +4785,75 @@ void drawSplash(ImDrawList *dl, float t)
 	}
 }
 
+#include "bigpicture_splash.inc"
+
+// For each animation: when the library begins to be drawn under it, when it
+// is over, and when the top bar's mark starts turning.
+struct SplashTimes
+{
+	float library, over, spin;
+};
+const SplashTimes splashTimes[SplashKinds] = {
+	{ splashAt::Library, splashAt::Over, splashAt::Spin },
+	{ 5.62f, 6.75f, splashAt::Hit },
+	{ 5.85f, 7.0f, splashAt::Land },
+	{ splashAt::Hit + 4 * splashAt::Beat, 6.75f, splashAt::Hit },
+};
+// As Settings > Interface > Start-up animation names its choices (Options::splash).
+const char *const splashChoices[] = { "Off", "Random", "Birds", "Spin up", "Comet", "Sound line" };
+
+// The animation shown at the moment t, without what is behind it.
+void drawSplash(ImDrawList *dl, float t)
+{
+	switch (splash.kind)
+	{
+	case SplashDock: drawSplashDock(dl, t); break;
+	case SplashComet: drawSplashComet(dl, t); break;
+	case SplashShutter: drawSplashShutter(dl, t); break;
+	default: drawSplashBirds(dl, t); break;
+	}
+}
+
+// What is behind it at the moment t, over the library: the splash's own
+// backdrop, which fades, or for the sound line what the shutter still covers.
+void splashCover(ImDrawList *fg, float t)
+{
+	const SplashTimes& times = splashTimes[splash.kind];
+	if (splash.kind == SplashShutter)
+	{
+		fg->PushClipRect(V(0, 0), V(W, shutterEdge(t)), true);
+		const Layer cover = beginLayer(fg);
+		drawBackdrop(fg);
+		endLayer(cover, 1 - easeInOut(between(t, 5.8f, 6.4f)));
+		fg->PopClipRect();
+		return;
+	}
+	const float u = between(t, times.library, splash.kind == SplashBirds ? times.over : times.over - 0.15f);
+	const Layer cover = beginLayer(fg);
+	drawBackdrop(fg);
+	endLayer(cover, 1 - (splash.kind == SplashBirds ? easeOut(u) : easeInOut(u)));
+}
+
+// Which one this start shows: the one chosen, or one by chance that is not
+// the one shown the last time.
+int chooseSplash()
+{
+	const int chosen = ps5::options().splash;
+	if (chosen >= 2)
+		return std::min(chosen - 2, (int)SplashKinds - 1);
+	uint64_t seed = (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count() ^ ((uint64_t)time(nullptr) << 20);
+	seed = (seed ^ (seed >> 30)) * 0xbf58476d1ce4e5b9ull;
+	seed = (seed ^ (seed >> 27)) * 0x94d049bb133111ebull;
+	seed ^= seed >> 31;
+	const int last = ps5::options().splashLast;
+	int kind = (int)(seed % SplashKinds);
+	if (last >= 0 && last < SplashKinds)
+		kind = (last + 1 + (int)(seed % (SplashKinds - 1))) % SplashKinds;
+	ps5::options().splashLast = kind;
+	ps5::saveOptions();
+	return kind;
+}
+
 // With less motion: the mark and the name, where the animation has them.
 void drawSplashStill(ImDrawList *dl)
 {
@@ -4794,14 +4875,19 @@ void library(bool selectDisk)
 {
 	// The first time the library is on, the start-up animation is, before it.
 	if (splash.state == SplashState::NotBegun)
-		splash.state = !selectDisk && ps5::options().splash && motion() != MotionOff
-				? SplashState::Showing : SplashState::Over;
+	{
+		const bool shown = !selectDisk && ps5::options().splash != 0 && motion() != MotionOff;
+		if (shown)
+			splash.kind = chooseSplash();
+		splash.state = shown ? SplashState::Showing : SplashState::Over;
+	}
 	if (splash.state == SplashState::Over)
 	{
 		libraryScreen(selectDisk);
 		return;
 	}
 	const bool lively = motion() == MotionFull;
+	const SplashTimes& times = splashTimes[splash.kind];
 	if (splash.state == SplashState::Showing)
 	{
 		ImDrawList *dl = beginScreen("##bp-splash", true);
@@ -4813,15 +4899,18 @@ void library(bool selectDisk)
 		{
 			splash.sounded = true;
 			if (lively)
-				spinMarkUpAt(splash.began + splashAt::Spin);
+				spinMarkUpAt(splash.began + times.spin);
 			if (ps5::options().splashSound)
 			{
-				// All of it, or with less motion its last chord, quieter.
+				// All of it, or with less motion the end of it, quieter.
 				if (lively)
 					ps5::sound::playStartup(0.05f, 0.6f);
 				else
-					ps5::sound::playStartup(6.47f, 0.4f);
+					ps5::sound::playStartup(6.4f, 0.4f);
 			}
+			else if (lively && splash.kind == SplashShutter)
+				// The sound line draws the sound, heard or not.
+				ps5::sound::prepareStartup();
 		}
 		const float t = (float)(timeNow - splash.began);
 		// The games are looked for meanwhile.
@@ -4833,7 +4922,7 @@ void library(bool selectDisk)
 			drawSplashStill(dl);
 		endScreen();
 		const bool skipped = splash.skip && t > 0.25f;
-		if (t >= (lively ? splashAt::Library : splashAt::Still) || skipped)
+		if (t >= (lively ? times.library : splashAt::Still) || skipped)
 		{
 			splash.state = SplashState::Leaving;
 			splash.leaving = timeNow;
@@ -4848,30 +4937,24 @@ void library(bool selectDisk)
 		}
 		return;
 	}
-	// Leaving: the library comes in under the splash's own backdrop, which
-	// fades. The animation goes on over it to its end, where its mark and
-	// name are the top bar's; cut short, or with less motion, it fades where
-	// it is instead.
+	// Leaving: the library comes in under what the splash still covers
+	// (splashCover). The animation goes on over it to its end, where its mark
+	// and name are the top bar's; cut short, or with less motion, it fades
+	// where it is instead.
 	const double now = ImGui::GetTime();
+	const float t = splash.cut ? (lively ? splash.cutAt : 0) : (float)(now - splash.began);
 	const float u = splash.cut ? std::clamp((float)((now - splash.leaving) / 0.35), 0.f, 1.f)
-			: between((float)(now - splash.began), splashAt::Library, splashAt::Over);
+			: between(t, times.library, times.over);
 	splash.flight = splash.cut ? 1.f : std::min(u, 0.99f);
 	libraryScreen(selectDisk);
 	ImDrawList *fg = ImGui::GetForegroundDrawList();
-	const Layer cover = beginLayer(fg);
-	drawBackdrop(fg);
-	endLayer(cover, 1 - easeOut(u));
-	if (splash.cut)
-	{
-		const Layer rest = beginLayer(fg);
-		if (lively)
-			drawSplash(fg, splash.cutAt);
-		else
-			drawSplashStill(fg);
-		endLayer(rest, 1 - u);
-	}
+	const Layer all = beginLayer(fg);
+	splashCover(fg, t);
+	if (lively)
+		drawSplash(fg, t);
 	else
-		drawSplash(fg, (float)(now - splash.began));
+		drawSplashStill(fg);
+	endLayer(all, splash.cut ? 1 - u : 1);
 	if (u >= 1)
 	{
 		splash.state = SplashState::Over;
@@ -5728,11 +5811,9 @@ std::vector<Category> buildCategories()
 		look.rows.push_back(option("Motion",
 				"All: living background, screens that slide, cards that rise. Less: fades only. None: everything is at once",
 				{ "All", "Less", "None" }, ps5::options().motion));
-		Row r{ Row::Toggle, "Start-up animation",
-				"One line draws the disc, and the name's letters fly to the top bar as birds. Any button ends it early" };
-		r.get = [] { return ps5::options().splash ? 1 : 0; };
-		r.set = [](int v) { ps5::options().splash = v != 0; ps5::saveOptions(); };
-		look.rows.push_back(r);
+		look.rows.push_back(option("Start-up animation",
+				"Random: one of the four each time PSFlyCast starts, never the same twice running. Any button ends it",
+				std::vector<std::string>(std::begin(splashChoices), std::end(splashChoices)), ps5::options().splash));
 		Row sound{ Row::Toggle, "Start-up sound",
 				"The sound that goes with it: sounds/startup.wav in the title's folder, or a WAV file of your own there" };
 		sound.get = [] { return ps5::options().splashSound ? 1 : 0; };

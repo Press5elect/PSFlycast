@@ -32,8 +32,9 @@ everything in it.
 | | |
 |---|---|
 | ![Game details](screenshots/02-details.png) | ![The quick menu](screenshots/45-quick-menu-restart.png) |
-| ![The start-up animation](screenshots/47-splash.png) | ![The Ember skin](screenshots/31-skin-ember.png) |
-| ![The letters fly to the top bar as birds](screenshots/48-splash-leaving.png) | ![Settings > Online](screenshots/50-settings-online.png) |
+| ![A start-up animation](screenshots/47-splash.png) | ![The Ember skin](screenshots/31-skin-ember.png) |
+| ![Birds: the letters fly to the top bar](screenshots/48-splash-leaving.png) | ![Settings > Online](screenshots/50-settings-online.png) |
+| ![Comet: a light writes the name](screenshots/98-splash-comet.png) | ![Sound line: the start-up sound winds up into the disc](screenshots/99-splash-sound-line.png) |
 | ![The library searched from the console's keyboard](screenshots/62-search.png) | ![Leaving from the library](screenshots/61-quit.png) |
 | ![The Favourites shelf](screenshots/70-favourites-shelf.png) | ![Game details > Manage](screenshots/71b-details-manage.png) |
 | ![Change cover](screenshots/72-change-cover.png) | ![The memory card manager](screenshots/82b-cards-saves.png) |
@@ -49,7 +50,7 @@ Played on a PS5 over the builds that led to v1.0.2: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; save states made
 by v1.0.0; cover downloads; the quick menu and the per-game options; games on
 several discs, grouped and swapped from the quick menu; the library; the
-mark made of one spiral line, with the start-up animation and its sound;
+mark made of one spiral line, with the start-up animations and their sound;
 PSFlyCast updating itself from a release, whose files replaced the ones in
 the title's folder; 119.88 Hz output on a display that takes it, and
 60 frames a second on one that shows fewer than its mode says; the three
@@ -660,35 +661,47 @@ once.
   art breathes and a band of light crosses the focused cover now and then.
   Less keeps short fades and a still background. None shows everything at
   once.
-- **Start-up animation:** when PSFlyCast starts, one line winds in to the
-  middle of the screen and out again and is a disc, the app's mark, with
-  its name under it. The letters lift off as birds, one after another, and
-  fly to the top left; the line lets its turns out until it is straight,
-  leaves the screen, coils up again in the top bar and starts turning; the
-  birds land beside it and are the name, and the library comes in under
-  them. A little over seven seconds; any button ends it; the games are
-  looked for meanwhile. With Motion on Less it is the mark and the name,
-  still, for a second; with None, or with this option off, the library is
-  there at once. While the title loads the console shows the animation's
-  first frame (`sce_sys/pic1.dds`), so it starts from that picture.
-- **Start-up sound:** the sound made for the animation, which follows it:
-  a tone down and up with the line, a chord for the disc, a chirp and
-  wings for each bird, a note for each landing. It is `sounds/startup.wav`
-  in the title's folder; a 16-bit WAV file of your own with that name plays
-  in its place. With Motion on Less only its last chord plays, quieter.
+- **Start-up animation:** Random (one of the four each time PSFlyCast
+  starts, never the same twice running), one of them by name, or Off. Each
+  shows the app's mark, a disc made of one line, and its name in the middle
+  of the screen, and then takes them to the top left, where they are the top
+  bar's, while the library comes in:
+  - **Birds:** one line winds in and out again and is the disc. The name's
+    letters lift off as birds and fly to the top left; the line lets its
+    turns out, leaves, and coils up again in the top bar.
+  - **Spin up:** the disc spins up out of the dark and stops on the sound's
+    hit, and the name lands under it. The whole sign glides to the top left
+    in one arc, the name swinging from under the mark round to its right.
+  - **Comet:** a light winds in from the edge and strikes the middle: the
+    mark springs out of it and a glint writes the name. Name and mark then
+    fall back into the light, which loops away to the top left and strikes
+    there.
+  - **Sound line:** the start-up sound itself is a line across the screen,
+    which winds up into the disc's grooves; the name rises from behind its
+    own line. The splash then lifts like a shutter, and what is left of it
+    is the top bar.
 
-The mark and the sound are PSFlyCast's own. The disc is one line that starts
-at its left edge, winds in to the centre and out again to the right edge;
-`sounds/make-startup-sound.html` in the source makes the sound from
-oscillators and noise, with nothing sampled or recorded.
+  Six to seven seconds; any button ends it; the games are looked for
+  meanwhile. With Motion on Less it is the mark and the name, still, for a
+  second; with None, or with this option Off, the library is there at once.
+  While the title loads the console shows the animations' first frame
+  (`sce_sys/pic1.dds`), so they start from that picture.
+- **Start-up sound:** on or off. The animations are made to its moments. It
+  is `sounds/startup.wav` in the title's folder; a 16-bit WAV file of your
+  own with that name plays in its place, and is what Sound line draws. With
+  Motion on Less only its end plays, quieter.
+
+The mark, the animations and the sound are PSFlyCast's own; the sound is by
+Press5elect. The disc is one line that starts at its left edge, winds in to
+the centre and out again to the right edge.
 
 ## Sounds
 
 The menus have a soft note for moving, choosing, going back and changing
-tab, made from the start-up sound's scale; Settings > Interface > **Menu
+tab; Settings > Interface > **Menu
 sounds** turns them off. On the console's home screen the title has a sound
-of its own while it is selected (`sce_sys/snd0.at9`): a 24-second loop from
-the same notes, which `sounds/make-home-sound.py` in the source makes from
+of its own while it is selected (`sce_sys/snd0.at9`): a 24-second loop in
+the same scale, which `sounds/make-home-sound.py` in the source makes from
 sine waves. The console's own setting for home-screen music governs it.
 
 ## Settings
@@ -933,8 +946,9 @@ On a console: see Status, at the top.
   through the PS5 payload SDK fork's platform layer (`ps5platform/shm.h`,
   `ps5platform/exec.h`), with fastmem.
 - `shell/ps5/bigpicture.cpp` - the interface, with the memory card
-  manager's screen (`bigpicture_cards.inc`) and the achievements' account
-  (`bigpicture_achievements.inc`).
+  manager's screen (`bigpicture_cards.inc`), the achievements' account
+  (`bigpicture_achievements.inc`) and three of the four start-up animations
+  (`bigpicture_splash.inc`).
 - `shell/ps5/ps5_library.cpp` - what the library keeps about each game
   (`data/library.txt`): favourite, hidden, time played, last played, and
   which covers PSFlyCast put in `covers/` itself.
@@ -1058,7 +1072,7 @@ What is in this build, and whose it is:
 | The software renderer's model of the Dreamcast's graphics chip (`core/rend/soft/refsw_*`) | REFSW, by Stefanos Kornilios Mitsis Poiitidis (skmp), from [nullDC-rust](https://github.com/skmp/nullDC-rust) | MIT |
 | Achievements | [rcheevos](https://github.com/RetroAchievements/rcheevos), by RetroAchievements.org, as Flycast carries it | MIT |
 | The cheat files | [libretro-database](https://github.com/libretro/libretro-database), `cht/Sega - Dreamcast` | CC BY-SA 4.0 |
-| The mark, the icon, the start-up animation and its sound, the menu sounds and the home-screen sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/make-startup-sound.html`, `shell/ps5/sounds/make-home-sound.py` | GPL-3.0-or-later |
+| The mark, the icon, the start-up animations and their sound, the menu sounds and the home-screen sound | PSFlyCast's own: `shell/ps5/bigpicture.cpp`, `shell/ps5/bigpicture_splash.inc`, `shell/ps5/sce_sys/make-icon.py`, `shell/ps5/sounds/startup.wav` (by Press5elect), `shell/ps5/sounds/make-home-sound.py` | GPL-3.0-or-later |
 | Covers, downloaded when PSFlyCast runs | [libretro-thumbnails](https://github.com/libretro-thumbnails/Sega_-_Dreamcast) | |
 | Descriptions and release dates, downloaded when PSFlyCast runs | [TheGamesDB](https://thegamesdb.net), with Flycast's own scraper and its key | |
 

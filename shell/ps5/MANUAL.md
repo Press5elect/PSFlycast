@@ -768,8 +768,10 @@ Settings > Interface. A change shows at once.
 - **Background:** the skin's own, or Still, Aurora, Waves, Sparks, Horizon,
   Dot matrix, Cover colours.
 - **Motion:** All, Less (short fades, still background) or None.
-- **Start-up animation:** one line draws the disc, and the name's letters
-  fly to the top bar as birds. On or off; any button skips it.
+- **Start-up animation:** Random, Birds, Spin up, Comet, Sound line or Off.
+  Random shows one of the four each time PSFlyCast starts, never the same
+  twice running. Each shows the mark and the name, then takes them to the
+  top left in its own way. Any button skips it.
 - **Start-up sound:** on or off. To use your own, save a 16-bit WAV file as
   `sounds/startup.wav` in PSFlyCast's folder.
 - **Menu sounds:** a soft note for moving, choosing, going back and changing

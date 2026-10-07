@@ -51,7 +51,8 @@ struct Options
 	bool groupDiscs = true;	// the discs of one game are one entry in the library
 	bool showHidden = false;	// hidden games are listed after all, dimmed
 	bool rewind = false;		// a game's last minutes are kept, to go back into (ps5_rewind.cpp)
-	bool splash = true;		// the start-up animation, before the library
+	int splash = 1;			// the start-up animation, before the library: 0 none, 1 one by chance, 2 and up that one
+	int splashLast = -1;	// the one shown the last time: chance does not show it again
 	bool splashSound = true;	// and its sound
 	bool menuSounds = true;		// a sound for moving, choosing and going back
 	bool lightBar = true;		// each pad's light bar in its player's colour
@@ -207,6 +208,13 @@ namespace sound
 // without the file. stopStartup ends it within a few hundredths of a second.
 void playStartup(float fromSeconds, float gain);
 void stopStartup();
+// The start-up sound's shape, for the animation that draws it: `count` values
+// (-1 to 1) from the moment `seconds` of it, each the mean of four samples,
+// begun where the sound next rises through zero so that the shape stands
+// still. Zeros, and false, while the file is not read; prepareStartup reads
+// it without playing it (playStartup reads it too). Returns at once.
+void prepareStartup();
+bool startupWave(double seconds, float *out, int count);
 // The menu's sounds, when they are on (Options::menuSounds).
 enum class Cue { Move, Select, Back, Tab, Open, Refuse, Count };
 void cue(Cue which);

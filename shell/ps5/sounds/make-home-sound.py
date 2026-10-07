@@ -7,9 +7,8 @@ Copyright 2026 the PSFlyCast contributors
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Writes a 24-second loop as a WAV file: 48 kHz, stereo, 16-bit. It is made of
-the start-up sound's material (make-startup-sound.html): its scale, D major
-pentatonic, a soft chord that breathes in and out twice, and a few bell notes
-over it. Everything in it wraps around its end, so the last sample runs into
+the menu sounds' scale, D major pentatonic: a soft chord that breathes in and
+out twice, and a few bell notes over it. Everything in it wraps around its end, so the last sample runs into
 the first: the loop has no seam.
 
     python3 make-home-sound.py home.wav

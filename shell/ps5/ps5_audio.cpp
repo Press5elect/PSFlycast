@@ -406,8 +406,8 @@ void play(Voice voice)
 	mixThread = std::thread(mixRun);
 }
 
-// ---- the menu's sounds, made here: a few sine notes each, from the scale of
-// the start-up sound (D major pentatonic).
+// ---- the menu's sounds, made here: a few sine notes each, in D major
+// pentatonic.
 
 struct Note
 {
@@ -459,7 +459,11 @@ std::shared_ptr<const std::vector<s16>> cueSound(ps5::sound::Cue cue)
 	return sounds[(int)cue];
 }
 
-void loadStartup(float fromSeconds, float gain)
+// The start-up sound as it was last read, for the animation that draws it.
+std::mutex shapeMutex;
+std::shared_ptr<const std::vector<s16>> startupShape;
+
+void loadStartup(float fromSeconds, float gain, bool heard)
 {
 	const auto began = std::chrono::steady_clock::now();
 	auto samples = std::make_shared<std::vector<s16>>();
@@ -470,6 +474,12 @@ void loadStartup(float fromSeconds, float gain)
 		ps5::diag::mark("sound: no start-up sound, %s: %s", path.c_str(), why.c_str());
 		return;
 	}
+	{
+		std::lock_guard<std::mutex> lock(shapeMutex);
+		startupShape = samples;
+	}
+	if (!heard)
+		return;
 	// The animation went on while the file was read: the sound starts where
 	// the animation is.
 	const double late = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
@@ -487,7 +497,54 @@ void ps5::sound::playStartup(float fromSeconds, float gain)
 {
 	if (loadThread.joinable())
 		loadThread.join();
-	loadThread = std::thread(loadStartup, fromSeconds, gain);
+	loadThread = std::thread(loadStartup, fromSeconds, gain, true);
+}
+
+void ps5::sound::prepareStartup()
+{
+	if (loadThread.joinable())
+		loadThread.join();
+	loadThread = std::thread(loadStartup, 0.f, 0.f, false);
+}
+
+bool ps5::sound::startupWave(double seconds, float *out, int count)
+{
+	std::fill(out, out + count, 0.f);
+	std::shared_ptr<const std::vector<s16>> pcm;
+	{
+		std::lock_guard<std::mutex> lock(shapeMutex);
+		pcm = startupShape;
+	}
+	if (pcm == nullptr || seconds < 0)
+		return false;
+	const size_t frames = pcm->size() / 2, each = 4, smooth = 48, look = 400;
+	const size_t need = (size_t)count * each;
+	size_t from = (size_t)(seconds * OutRate);
+	if (frames < need + look + smooth || from + need + look + smooth >= frames)
+		return false;
+	auto mono = [&](size_t i) { return ((*pcm)[i * 2] + (*pcm)[i * 2 + 1]) * (0.5f / 32768.f); };
+	// The shape starts where the sound, smoothed, next rises through zero.
+	float sum = 0;
+	for (size_t i = 0; i < smooth; i++)
+		sum += mono(from + i);
+	for (size_t i = 0; i < look; i++)
+	{
+		const float next = sum - mono(from + i) + mono(from + i + smooth);
+		if (sum <= 0 && next > 0)
+		{
+			from += i + smooth / 2;
+			break;
+		}
+		sum = next;
+	}
+	for (int i = 0; i < count; i++)
+	{
+		float mean = 0;
+		for (size_t j = 0; j < each; j++)
+			mean += mono(from + (size_t)i * each + j);
+		out[i] = mean / each;
+	}
+	return true;
 }
 
 void ps5::sound::stopStartup()
