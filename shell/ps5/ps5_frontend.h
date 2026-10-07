@@ -36,6 +36,8 @@ enum
 	UpscalingCrt,			// 5: and the tube's mask, glow and darker corners
 };
 extern config::Option<int> Upscaling;
+// "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
+extern config::Option<bool> FrameGeneration;
 
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
 
@@ -220,6 +222,17 @@ enum class Cue { Move, Select, Back, Tab, Open, Refuse, Count };
 void cue(Cue which);
 // Everything ends and the port is closed; returns when it is.
 void close();
+}
+
+namespace perf
+{
+// How fast a game really runs (ps5_perf.cpp). One of a game's presents:
+// `fresh` when it is a new picture of the game's, `made` when what it shows
+// was made by frame generation.
+void present(bool fresh, bool made);
+// For the frame-rate overlay: the emulated machine's speed, the pictures a
+// second the game drew, and those shown. Empty until a second was counted.
+std::string text();
 }
 
 namespace usb

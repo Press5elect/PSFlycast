@@ -286,6 +286,9 @@ private:
 	std::string driverName;
 	std::string driverVersion;
 	int gameSwapInterval = 1;
+	// PSFlyCast, frame generation: which of the current game frame's presents this is, of how many.
+	int generatedSlot = 0;
+	int generatedSlots = 1;
 #ifdef VK_DEBUG
 #ifndef __ANDROID__
 	vk::UniqueDebugUtilsMessengerEXT debugUtilsMessenger;

@@ -706,10 +706,10 @@ sine waves. The console's own setting for home-screen music governs it.
 
 ## Settings
 
-Interface (above), Video (per-triangle, per-strip or per-pixel transparency with 32 to 128 layers, internal resolution up to 10x,
+Interface (above), Video (per-triangle, per-strip or per-pixel transparency with 8 to 128 layers, internal resolution up to 10x,
 widescreen and widescreen patches, stretch to fill, filtering, texture upscaling and custom textures, scaling,
-FSR 1 upscaling and the Scanlines and CRT picture filters, the software renderer, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
-the memory card's screen, frame pacing, FPS counter, 120 Hz output, variable refresh rate), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
+FSR 1 upscaling and the Scanlines and CRT picture filters, frame generation (experimental), the software renderer, frame skipping, mipmaps, native depth interpolation, framebuffer emulation,
+the memory card's screen, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate), Audio, Controls (vibration, dead zone, left stick as D-pad, the controller's
 second slot, light-gun aiming and crosshair, default layout, which ports have a pad, the light bar, a USB keyboard and mouse), System (region, language, TV standard, cable, built-in BIOS,
 auto save/load states, fast loading, CPU recompiler, rewind, the memory card manager), Online (below), Achievements (below), Library
 (with the hidden games) and About (the
@@ -938,6 +938,14 @@ On a console: see Status, at the top.
   between the game's picture and the swapchain.
 - `shell/ps5/ps5_crt.glsl.h` - the Scanlines and CRT picture filters: one
   fragment shader, drawn by `ps5_fsr.cpp` in place of the emulator's stretch.
+- `shell/ps5/ps5_framegen.cpp` - frame generation: the way the picture moved
+  between the game's last two frames is estimated in a few draws, and the
+  presents that would repeat a frame show a picture made in between
+  (`vulkan_context.cpp` asks it what to show in each present). PSFlyCast's
+  own; the comment at its top says how it works.
+- `shell/ps5/ps5_perf.cpp` - how fast a game really runs: the emulated
+  clock against the console's, the pictures drawn, shown and made, for the
+  frame-rate overlay and the boot log.
 - `core/rend/soft/` - the software renderer: REFSW's tiles
   (`refsw_tile.cpp`), fed from Flycast's parsed frame by `soft_renderer.cpp`
   and writing the emulated video memory, which is shown as full framebuffer

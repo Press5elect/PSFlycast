@@ -2649,15 +2649,18 @@ const std::vector<GameOption>& gameOptions()
 				"ps5.drawdist", { "Off", "1.5x", "2x", "3x", "5x" }, { 100, 150, 200, 300, 500 }),
 
 		combined("Transparency sorting",
-				"Per-triangle suits most games. Per-pixel is the most accurate, and heavier with more layers",
-				{ "Per-triangle", "Per-strip", "Per-pixel (32 layers)", "Per-pixel (64 layers)", "Per-pixel (96 layers)",
-						"Per-pixel (128 layers)" },
-				{ part("config.pvr.rend", config::RendererType), part("config.rend.PerStripSorting", config::PerStripSorting),
-						part("config.rend.PerPixelLayers", config::PerPixelLayers) },
-				{ { (int)RenderType::Vulkan, 0, G::Any }, { (int)RenderType::Vulkan, 1, G::Any },
-						{ (int)RenderType::Vulkan_OIT, G::Any, 32 }, { (int)RenderType::Vulkan_OIT, G::Any, 64 },
-						{ (int)RenderType::Vulkan_OIT, G::Any, 96 }, { (int)RenderType::Vulkan_OIT, G::Any, 128 } },
+				"Per-triangle suits most games. Per-pixel is the most accurate, and the heaviest",
+				{ "Per-triangle", "Per-strip", "Per-pixel" },
+				{ part("config.pvr.rend", config::RendererType), part("config.rend.PerStripSorting", config::PerStripSorting) },
+				{ { (int)RenderType::Vulkan, 0 }, { (int)RenderType::Vulkan, 1 }, { (int)RenderType::Vulkan_OIT, G::Any } },
 				G::Video),
+		// Flycast's own "Maximum Layers", 8 to 128. For some games Flycast
+		// itself sets a number that is none of these (core/emulator.cpp): it
+		// is shown as that number (oddValue).
+		pick("Per-pixel layers",
+				"For per-pixel sorting: the see-through surfaces it orders at a pixel. More is slower; 32 suits most",
+				"config.rend.PerPixelLayers", { "8", "16", "32", "64", "96", "128" }, { 8, 16, 32, 64, 96, 128 },
+				config::PerPixelLayers, G::Video),
 		pick("Internal resolution", "The Dreamcast renders 640 x 480; higher looks sharper on a 4K TV",
 				"config.rend.Resolution",
 				{ "Native (480p)", "2x (960p)", "3x (1440p)", "4x (1920p)", "5x (2400p)", "6x (2880p)", "7x (3360p)",
@@ -2721,6 +2724,10 @@ const std::vector<GameOption>& gameOptions()
 				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp, ps5::UpscalingScanlines,
 						ps5::UpscalingCrt },
 				ps5::Upscaling, G::Video),
+		// Pictures made in between the game's own (ps5_framegen.cpp).
+		onOff("Frame generation",
+				"Experimental: pictures made in between the game's own. Smoother, a little later, and it can smear",
+				"ps5.FrameGeneration", ps5::FrameGeneration, G::Video),
 		// The software model of the Dreamcast's graphics chip (core/rend/soft):
 		// it takes the place of the graphics processor from the next frame.
 		onOff("Software renderer",
@@ -2876,6 +2883,15 @@ int choiceOf(const GameOption& option, int value)
 		return nearest;
 	}
 	return -1;
+}
+
+// What is shown for a value that is none of an option's choices: the number,
+// and for the per-pixel layers whose number it is.
+std::string oddValue(const GameOption& option, int value)
+{
+	if (option.key != nullptr && !strcmp(option.key, "config.rend.PerPixelLayers"))
+		return std::to_string(value) + " (Flycast's, for this game)";
+	return std::to_string(value);
 }
 
 // Which choice a game has for an option; -1 when it follows the Settings.
@@ -6628,7 +6644,7 @@ void optionsPage(ImDrawList *dl, float px, float pw, float top)
 			dl->AddCircleFilled(V(px + 54, cy), 5 * S, on ? col::text : col::accent);
 		text(dl, bold(), 24, px + 72, y + 16, on || own ? col::text : col::dim, option.label);
 		const int choice = choiceOf(option, value);
-		const std::string label = fit(regular(), 24, choice < 0 ? std::to_string(value) : option.names[choice], pw * 0.42f);
+		const std::string label = fit(regular(), 24, choice < 0 ? oddValue(option, value) : option.names[choice], pw * 0.42f);
 		const ImVec2 ls = textSize(regular(), 24, label.c_str());
 		text(dl, regular(), 24, right - 22 - ls.x, cy - ls.y / 2, on || own ? col::text : col::faint, label.c_str());
 		if (on)

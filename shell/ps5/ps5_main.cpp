@@ -606,6 +606,14 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 5;
 		ps5::saveOptions();
 	}
+	if (ps5::options().defaults < 6)
+	{
+		// The same for frame generation and for the per-pixel layers, which
+		// are an option of their own from this build on.
+		SaveSettings();
+		ps5::options().defaults = 6;
+		ps5::saveOptions();
+	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();

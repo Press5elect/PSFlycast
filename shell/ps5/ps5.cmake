@@ -20,6 +20,9 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_cheats.cpp
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_drawdist.cpp
+	shell/ps5/ps5_framegen.cpp
+	shell/ps5/ps5_perf.cpp
+	shell/ps5/ps5_framegen.h
 	shell/ps5/ps5_fsr.cpp
 	shell/ps5/ps5_update.cpp
 	shell/ps5/ps5_rewind.cpp

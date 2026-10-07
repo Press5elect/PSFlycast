@@ -509,7 +509,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting, widescreen, stretch to fill, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen, upscaling (FSR 1) and the Scanlines and CRT filters, the software renderer, frame pacing, the FPS counter, 120 Hz output, variable refresh rate |
+| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting and its per-pixel layers, widescreen, stretch to fill, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, the memory card manager |
@@ -535,15 +535,38 @@ what you see, most useful first:
   every see-through layer of the picture in memory. That memory grows with
   the internal resolution (up to 3 GB); when it runs out, what a game draws
   last - its HUD, its menus - is missing, and a lower resolution brings it
-  back. The layers in its name (32 to 128) are how many see-through surfaces
-  it can order at one pixel: 32 is enough for most games, and more is slower.
-  Per-strip is per-triangle made coarser: faster, and wrong in more games.
+  back. Per-strip is per-triangle made coarser: faster, and wrong in more
+  games.
+- **Per-pixel layers** (8 to 128) are how many see-through surfaces per-pixel
+  sorting can order at one pixel: 32 is enough for most games, and more is
+  slower. For a few games Flycast sets a number of its own, which is shown
+  as that number with "Flycast's, for this game".
 - **Upscaling.** With FSR 1 a picture rendered below the screen's resolution
   is stretched to it by AMD's FidelityFX Super Resolution 1.0, which keeps
   edges clean and sharpens the result, instead of the plain stretch. It is
   the way to a sharp 4K picture when a high internal resolution is too heavy
   - with per-pixel sorting above all: try 3x or 4x with FSR 1. It does
   nothing at 5x and up, where the picture is already larger than the screen.
+- **Frame generation** (experimental, off by default). A game that draws 30
+  pictures a second is shown each one twice on a 60 Hz TV, and four times at
+  120 Hz; a 60 fps game twice at 120 Hz. With this on, the repeats show
+  pictures made in between instead: PSFlyCast works out how each part of the
+  picture moved from the last frame to this one and draws it part of the way.
+  Motion looks smoother. What it costs: the game's own picture reaches the
+  screen half a game frame later (three quarters at 120 Hz), so the controls
+  feel a little later; and where the motion is not found - something very
+  fast, or what comes out from behind something else - that part of the
+  picture moves as it did without it, which can show as a flicker round a
+  moving thing. A score or a map that stands still is left alone. It does
+  nothing for a 60 fps game on a 60 Hz TV, with Variable refresh rate on, or
+  while fast forward is held. It is heavier at high internal resolutions:
+  try 2x to 4x.
+- **Show frame rate** shows four numbers in the corner while a game runs:
+  how fast the game really runs (100% is full speed, whatever the picture
+  count says), the pictures a second the game draws, the pictures a second
+  shown, and how many of those frame generation made. The same numbers go to
+  `flycast-boot.log` twenty seconds into a game, every five minutes, and when
+  the game ends, with the slowest ten seconds.
 - **Frame pacing.** Sync to display: the TV's refresh paces the game, and the
   sound follows it by playing a hair faster or slower, which nobody hears:
   the smoothest. VSync: the sound keeps its exact speed, and when the game

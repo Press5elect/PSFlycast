@@ -147,6 +147,7 @@ static void CheckImGuiResult(VkResult err)
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
 #include "ps5_fsr.h"
+#include "ps5_framegen.h"
 #include <cerrno>
 #define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
 
@@ -908,6 +909,7 @@ void VulkanContext::CreateSwapChain()
 		device->waitIdle();
 #ifdef USE_PS5
 		ps5::fsr::reset();
+		ps5::framegen::reset();
 		ps5display::reset();
 #endif
 
@@ -1343,9 +1345,13 @@ void VulkanContext::Present() noexcept
 #if defined(USE_PS5)
 			// The display's own factor always (see the swap interval), the
 			// game's (a 30 fps game) only with "Duplicate frames" on, as before.
+			// With frame generation (ps5_framegen.cpp) every one of a game
+			// frame's presents is there, whatever "Duplicate frames" says:
+			// the others show pictures made in between, this frame's own last.
 			const int perFrame = ps5display::perFrame(swapInterval);
-			const bool duplicate = perFrame > 1 || config::DupeFrames;
-			const int presents = config::DupeFrames ? perFrame * gameSwapInterval : perFrame;
+			const bool generating = generatedSlots > 1;
+			const bool duplicate = perFrame > 1 || config::DupeFrames || generating;
+			const int presents = generating ? generatedSlots : config::DupeFrames ? perFrame * gameSwapInterval : perFrame;
 			int flipsNow = 1;
 #else
 			const bool duplicate = config::DupeFrames;
@@ -1357,6 +1363,9 @@ void VulkanContext::Present() noexcept
 				const int interval = presents;
 				for (int i = 1; i < interval; i++)
 				{
+#if defined(USE_PS5)
+					generatedSlot = i;
+#endif
 					PresentFrame(vk::Image(), lastFrameView, lastFrameExtent, lastFrameAR);
 					res = presentQueue.presentKHR(vk::PresentInfoKHR(1, &(*renderCompleteSemaphores[currentSemaphore]), 1, &(*swapChain), &currentImage));
 					currentSemaphore = (currentSemaphore + 1) % renderCompleteSemaphores.size();
@@ -1374,6 +1383,8 @@ void VulkanContext::Present() noexcept
 				}
 			}
 #if defined(USE_PS5)
+			generatedSlot = 0;
+			generatedSlots = 1;
 			ps5display::frame(flipsNow, !gui_is_open() && swapOnVSync && swapInterval > 1 && !ps5display::once
 					&& !ps5::variableRefresh,
 					settings.display.refreshRate);
@@ -1500,19 +1511,35 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 				);
 			}
 #ifdef USE_PS5
+			// What this present shows: the game's picture, or with frame
+			// generation one made between the last and this (ps5_framegen.cpp).
+			vk::ImageView shown = imageView;
 			if (lastFrameView)
 			{
+				if (image)
+				{
+					// A new picture of the game's: how many presents it has, as Present() counts them.
+					generatedSlot = 0;
+					generatedSlots = ps5::framegen::wanted() && !gui_is_open() && swapOnVSync && !ps5::variableRefresh
+							? ps5display::perFrame(swapInterval) * gameSwapInterval : 1;
+				}
+				shown = ps5::framegen::show(GetCurrentCommandBuffer(), (bool)image, imageView, extent, generatedSlot,
+						generatedSlots);
+				if (!gui_is_open())
+					ps5::perf::present((bool)image, shown != imageView);
 				// FSR upscales the picture in a render pass of its own, before this one.
 				int dx = 0, dy = 0;
 				getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
-				ps5::fsr::upscale(GetCurrentCommandBuffer(), (bool)image, imageView, extent,
+				ps5::fsr::upscale(GetCurrentCommandBuffer(), (bool)image || shown != imageView, shown, extent,
 						vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
 			}
+#else
+			const vk::ImageView shown = imageView;
 #endif
 			BeginRenderPass();
 
 			if (lastFrameView) // Might have been nullified if swap chain recreated
-				DrawFrame(imageView, extent, aspectRatio);
+				DrawFrame(shown, extent, aspectRatio);
 
 			DrawOverlay(settings.display.uiScale, config::FloatVMUs, true);
 			imguiDriver->renderDrawData(ImGui::GetDrawData(), false);
@@ -1566,6 +1593,7 @@ void VulkanContext::term()
 	overlay.reset();
 #ifdef USE_PS5
 	ps5::fsr::reset();
+	ps5::framegen::reset();
 #endif
 	ShaderCompiler::Term();
 	swapChain.reset();

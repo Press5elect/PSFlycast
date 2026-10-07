@@ -64,6 +64,7 @@ using namespace i18n;
 #include <algorithm>
 #ifdef FLYCAST_BIGPICTURE
 #include "../../shell/ps5/bigpicture.h"
+#include "../../shell/ps5/ps5_frontend.h"
 #endif
 
 bool game_started;
@@ -1602,6 +1603,14 @@ static std::string getFPSNotification()
 			LastFPSTime = now;
 			lastFrameCount = MainFrameCount;
 		}
+#ifdef FLYCAST_BIGPICTURE
+		// PSFlyCast: how fast the game really runs, the pictures it draws and those shown (ps5_perf.cpp)
+		{
+			const std::string speed = ps5::perf::text();
+			if (!speed.empty())
+				return speed + (settings.input.fastForwardMode ? " >>" : "");
+		}
+#endif
 		if (fps >= 0.f && fps < 9999.f) {
 			char text[32];
 			snprintf(text, sizeof(text), "F:%4.1f%s", fps, settings.input.fastForwardMode ? " >>" : "");
