@@ -177,6 +177,7 @@ static InStream *curInput = &netIn;
 static OutStream *curOutput = &netOut;
 
 static V42Protocol v42Proto { netIn, netOut };
+static HdlcSyncAsync hdlcProto { netIn, netOut };
 
 static bool v8bis;
 static V8bisProtocol v8bisProto;
@@ -207,9 +208,16 @@ static void configureStreams()
 		curInput = &v8bisProto;
 		curOutput = &v8bisProto;
 	}
-	else if (modem_regs.reg08.ASYN == 0 && !peer2peerRawMode) {
-		curInput = &v42Proto;
-		curOutput = &v42Proto;
+	else if (modem_regs.reg08.ASYN == 0)
+	{
+		if (peer2peerRawMode) {
+			curInput = &hdlcProto;
+			curOutput = &hdlcProto;
+		}
+		else {
+			curInput = &v42Proto;
+			curOutput = &v42Proto;
+		}
 	}
 	else {
 		curInput = &netIn;
@@ -343,6 +351,16 @@ static bool setModemSpeedFromCONF()
 	}
 	NOTICE_LOG(MODEM, "MODEM Connected %s %d/%d bps", modem_regs.reg08.ASYN ? "ASYNC" : "SYNC", rxSpeed, speed);
 	return speed != 0;
+}
+
+static void hangUp()
+{
+	INFO_LOG(MODEM, "Hanging up modem");
+	modem_regs.ABCODE = 0x96;
+	modem_regs.reg1f.NEWS = 1;
+	modem_regs.CONF = 0xC0;
+	dspram[0x2e4] = 0;
+	connect_state = DISCONNECTED;
 }
 
 static int modem_sched_func(int tag, int cycles, int jitter, void *arg)
@@ -514,6 +532,8 @@ static int modem_sched_func(int tag, int cycles, int jitter, void *arg)
 			callback_cycles = 238_sh4us;
 			v42Proto.reset();
 			v42Proto.setOriginator(modem_regs.reg09.ORG);
+			hdlcProto.reset();
+			hdlcProto.setOriginator(modem_regs.reg09.ORG);
 
 			break;
 
@@ -538,10 +558,14 @@ static int modem_sched_func(int tag, int cycles, int jitter, void *arg)
 			}
 			if (rxFifo.size() < 16)
 			{
-				int c = curInput->read();
-				if (c >= 0) {
-					rxFifo.push_back(c);
-					updateRxFifoStatus();
+				try {
+					int c = curInput->read();
+					if (c >= 0) {
+						rxFifo.push_back(c);
+						updateRxFifoStatus();
+					}
+				} catch (const net::modbba::ConnectionClosed& e) {
+					hangUp();
 				}
 			}
 			break;
@@ -836,7 +860,12 @@ static void ModemNormalWrite(u32 reg, u32 data)
 #ifndef NDEBUG
 			sent_bytes++;
 #endif
-			curOutput->write(data);
+			try {
+				curOutput->write(data);
+			} catch (const net::modbba::ConnectionClosed& e) {
+				hangUp();
+				break;
+			}
 
 			modem_regs.reg1e.TDBE = 0;
 			txFifoSize += 1.f;
@@ -1133,6 +1162,7 @@ void ModemDeserialize(Deserializer& deser)
 
 	rxFifo.clear();
 	v42Proto.reset();
+	hdlcProto.reset();
 	v8bis = false;
 	v8bisProto.reset();
 	configureStreams();
