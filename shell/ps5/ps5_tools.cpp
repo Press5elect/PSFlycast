@@ -39,6 +39,7 @@
 #include "imgui/imgui.h"
 #include "oslib/oslib.h"
 #include "ps5_diag.h"
+#include "ps5_clock.h"
 #include "stdclass.h"
 
 #include <algorithm>
@@ -648,6 +649,13 @@ void unload()
 
 void init()
 {
+	// What the clock found, for the boot log, when a game closes.
+	EventManager::listen(Event::Terminate, [](Event, void *) {
+		char line[256];
+		ps5px_clock_line(line, sizeof(line));
+		if (line[0] != '\0')
+			ps5::diag::mark("%s", line);
+	});
 	EventManager::listen(Event::Start, [](Event, void *) { loadFor(settings.content.gameId, settings.content.title); });
 	EventManager::listen(Event::VBlank, vblank);
 	EventManager::listen(Event::Terminate, [](Event, void *) {

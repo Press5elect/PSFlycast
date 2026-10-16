@@ -21,6 +21,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_mods.cpp
 	shell/ps5/ps5_tools.cpp
+	shell/ps5/ps5_clock.c
+	shell/ps5/ps5_clock.h
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_framegen.cpp
 	shell/ps5/ps5_perf.cpp
@@ -101,3 +103,6 @@ target_compile_definitions(smb2ps5 PRIVATE HAVE_CONFIG_H "_U_=__attribute__((unu
 target_compile_options(smb2ps5 PRIVATE -w)
 target_include_directories(${PROJECT_NAME} PRIVATE "${LIBSMB2_DIR}/include")
 target_link_libraries(${PROJECT_NAME} PRIVATE smb2ps5)
+
+# The title's monotonic clock from the processor's counter (shell/ps5/ps5_clock.c).
+set_source_files_properties(shell/ps5/ps5_clock.c PROPERTIES COMPILE_OPTIONS "-std=gnu11")
