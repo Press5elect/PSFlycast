@@ -64,6 +64,8 @@ extern config::Option<int> Gamma;
 // "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
 // 0 off, 1 light, 2 full.
 extern config::Option<int> FrameGeneration;
+extern config::Option<int> FrameGenMethod;
+extern config::Option<bool> FrameGenDebug;
 
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
 

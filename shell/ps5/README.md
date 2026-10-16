@@ -119,6 +119,10 @@ and this page say the same.
   Brightness, Contrast, Colour and Gamma, each for one game if wanted.
 - Interface size (100% to 130%), high contrast and colour-blind safe colours.
 - Turbo for the face buttons and the shoulder buttons, per game.
+- Frame generation has two more ways of making the pictures, beside
+  PSFlyCast's own: AMD FSR3's optical flow (through swordpdf's
+  ps5-framegen) and MihawkGen (Mihawk's trained network), as PSSwanStation
+  has them; Settings > Video > Generation method, for one game if wanted.
 - Mods: text files that change a game a feature at a time.
 - Find in memory, and a speedrun timer with splits (L3 and R3 together
   start and split).
@@ -1005,6 +1009,11 @@ On a console: see Status, at the top.
   between the game's picture and the swapchain.
 - `shell/ps5/ps5_crt.glsl.h` - the Scanlines and CRT picture filters: one
   fragment shader, drawn by `ps5_fsr.cpp` in place of the emulator's stretch.
+- `shell/ps5/ps5_framegen_ext.cpp` - frame generation's other two ways (AMD
+  FSR3's optical flow and MihawkGen, in `third_party/`): they work on copies
+  of the game's picture that `ps5_framegen.cpp` makes, and their pictures are
+  copied back into images it keeps. `ps5_vkc.h` is the table their Vulkan
+  calls go through, since the title has no loader.
 - `shell/ps5/ps5_framegen.cpp` - frame generation: the way the picture moved
   between the game's last two frames is estimated, both ways round, in
   under thirty small draws, and the
@@ -1144,6 +1153,8 @@ What is in this build, and whose it is:
 | The title's start-up, link layout and `libc.prx`; the platform layer (heap, guest memory, the libc functions a title lacks) | Mihawk-99's fork of the payload SDK; [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) by John Törnblom and contributors | GPL-3.0-or-later |
 | USB drive access (`sandbox-elevator.elf` and its client) | The sandbox-elevation example of ps5-native-app-boilerplate, by BlackBearReloaded | GPL-3.0 |
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
+| Frame generation, second way: AMD FSR3's optical flow (`shell/ps5/third_party/ps5-framegen`) | [ps5-framegen](https://github.com/Swordpdf/ps5-framegen) by swordpdf, unmodified, with AMD's FidelityFX SDK 2.3.0 shaders | GPL-3.0-or-later; AMD's shaders MIT |
+| Frame generation, third way: MihawkGen (`shell/ps5/third_party/mihawkgen`) | [PS5_MihawkGen](https://github.com/mihawk-99/PS5_MihawkGen) by Mihawk, unmodified, with its trained network | GPL-3.0-or-later |
 | Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |
 | The software renderer's model of the Dreamcast's graphics chip (`core/rend/soft/refsw_*`) | REFSW, by Stefanos Kornilios Mitsis Poiitidis (skmp), from [nullDC-rust](https://github.com/skmp/nullDC-rust) | MIT |
 | Achievements | [rcheevos](https://github.com/RetroAchievements/rcheevos), by RetroAchievements.org, as Flycast carries it | MIT |

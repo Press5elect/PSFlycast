@@ -2850,6 +2850,15 @@ const std::vector<GameOption>& gameOptions()
 		pick("Frame generation",
 				"Experimental: pictures made in between the game's own. Light makes one, Full as many as fit",
 				"ps5.FrameGeneration", { "Off", "Light", "Full" }, { 0, 1, 2 }, ps5::FrameGeneration, G::Video),
+		pick("Generation method",
+				"How those pictures are made. PSFlyCast's own looks for the way each part moved. AMD FSR3's optical flow "
+				"(ps5-framegen) keeps text and the HUD still. MihawkGen is a small trained network that looks at the two pictures",
+				"ps5.FrameGenMethod", { "PSFlyCast's own", "AMD FSR3 optical flow", "MihawkGen" }, { 0, 1, 2 },
+				ps5::FrameGenMethod, G::Video),
+		onOff("Show the movement",
+				"With AMD FSR3's optical flow: the made pictures show what it decided in colours (grey: still, green: moving, "
+				"red and blue: an edge). To see how it works, not to play",
+				"ps5.FrameGenDebug", ps5::FrameGenDebug, G::Video),
 		// The software model of the Dreamcast's graphics chip (core/rend/soft):
 		// it takes the place of the graphics processor from the next frame.
 		onOff("Software renderer",

@@ -25,6 +25,13 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_clock.h
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_framegen.cpp
+	shell/ps5/ps5_framegen_ext.cpp
+	shell/ps5/ps5_mihawkgen_model.cpp
+	shell/ps5/third_party/ps5-framegen/src/ps5_framegen.cpp
+	shell/ps5/third_party/mihawkgen/src/fg_common.cpp
+	shell/ps5/third_party/mihawkgen/src/fg_vulkan.cpp
+	shell/ps5/third_party/mihawkgen/src/fg_neural.cpp
+	shell/ps5/third_party/mihawkgen/src/fg_splat.cpp
 	shell/ps5/ps5_perf.cpp
 	shell/ps5/ps5_framegen.h
 	shell/ps5/ps5_fsr.cpp
@@ -64,6 +71,21 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/p
 # converts and signs the result (the recipe of PS5_Vulkan's RADV title).
 set(CMAKE_CXX_LINK_EXECUTABLE
 	"bash ${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/ps5-link.sh <TARGET> <OBJECTS> -- <LINK_LIBRARIES>")
+
+# The other two frame generators (third_party/, unmodified): their Vulkan calls go through the table of ps5_vkc.h.
+# ps5-framegen has a namespace ps5::framegen like the title's own: it is built with `ps5` renamed ps5fg.
+set_source_files_properties(shell/ps5/third_party/ps5-framegen/src/ps5_framegen.cpp PROPERTIES COMPILE_OPTIONS
+	"-std=c++17;-w;-Dps5=ps5fg;-include;${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/ps5_vkc.h"
+	COMPILE_DEFINITIONS "PS5_FRAMEGEN_VULKAN_HEADER=\"ps5_vkc.h\"")
+set_source_files_properties(
+	shell/ps5/third_party/mihawkgen/src/fg_common.cpp shell/ps5/third_party/mihawkgen/src/fg_vulkan.cpp
+	shell/ps5/third_party/mihawkgen/src/fg_neural.cpp shell/ps5/third_party/mihawkgen/src/fg_splat.cpp
+	PROPERTIES COMPILE_OPTIONS "-std=c++20;-w;-include;${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/ps5_vkc.h")
+target_include_directories(${PROJECT_NAME} PRIVATE shell/ps5/third_party/mihawkgen/src shell/ps5/third_party/mihawkgen/include)
+# MihawkGen's trained network (1.7 MB), assembled into the title.
+set_source_files_properties(shell/ps5/ps5_mihawkgen_model.cpp PROPERTIES
+	COMPILE_DEFINITIONS "MIHAWKGEN_MODEL_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/third_party/mihawkgen/model/network.fgw\""
+	OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/third_party/mihawkgen/model/network.fgw")
 
 # The sandbox elevation client (ps5-native-app-boilerplate's example) is C++20.
 set_source_files_properties(shell/ps5/elevation/elevation.cpp shell/ps5/elevation/ps5_elevate.cpp

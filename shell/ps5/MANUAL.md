@@ -644,6 +644,22 @@ what you see, most useful first:
   smear. A score or a map that stands still is left alone, and a cut to
   another scene is shown as it is. It does nothing for a 60 fps game on a
   60 Hz TV, with Variable refresh rate on, or while fast forward is held.
+  - **Generation method** (Settings > Video, or for one game): how the
+    pictures in between are made. **PSFlyCast's own** is the way described
+    above. **AMD FSR3 optical flow** is AMD's FidelityFX movement search,
+    run on plain Vulkan by swordpdf's ps5-framegen: it tries several
+    movements for every 2 x 2 pixels and keeps what has not changed for
+    eight frames (a score, a map, text) where it is. **MihawkGen** is
+    Mihawk's small trained network (432,308 parameters): it looks at the
+    game's two pictures alone, estimates the movement and a mask at four
+    scales, warps both pictures and mixes them, and leaves what did not
+    move exactly as it was. Light and Full mean the same with all three:
+    how many pictures are made for each of the game's. They make up to
+    three between two of the game's, at even steps, and none ahead.
+    If a method cannot start, the log says why and PSFlyCast's own is used.
+    **Show the movement** puts what AMD's optical flow decided over the
+    picture in colours (grey still, green moving, red and blue an edge); it
+    is for looking at how it works.
   It is heavier at high internal resolutions: try 2x to 4x, and watch the
   speed with Show frame rate.
 - **Show frame rate** shows four numbers in the corner while a game runs:

@@ -55,6 +55,9 @@
 	from where it runs is the few functions of `host`.
 */
 #include "ps5_framegen.h"
+#ifndef FRAMEGEN_TEST
+#include "ps5_framegen_internal.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -77,6 +80,10 @@ namespace ps5
 {
 // 0 off, 1 light (one picture between two of the game's), 2 full (one for every present that would repeat).
 config::Option<int> FrameGeneration("FrameGeneration", 0, "ps5");
+// How the pictures in between are made: 0 the title's own (below), 1 AMD FSR3's optical flow, 2 MihawkGen (ps5_framegen_ext.cpp).
+config::Option<int> FrameGenMethod("FrameGenMethod", 0, "ps5");
+// With AMD FSR3's optical flow: the picture's movement shown in colours over the picture, for looking at what it decided.
+config::Option<bool> FrameGenDebug("FrameGenDebug", false, "ps5");
 }
 #endif
 
@@ -98,6 +105,7 @@ vk::UniqueShaderModule compile(vk::ShaderStageFlagBits stage, const char *source
 	return ShaderCompiler::TryCompile(stage, VulkanSource().addSource(source).generate());
 }
 int strength() { return ps5::FrameGeneration; }
+int method() { return ps5::FrameGenMethod; }
 void mark(const char *line) { ps5::diag::mark("%s", line); }
 #else
 vk::Device device();
@@ -106,6 +114,7 @@ unsigned frameIndex();
 void waitIdle();
 vk::UniqueShaderModule compile(vk::ShaderStageFlagBits stage, const char *source);
 int strength();
+int method();
 void mark(const char *line);
 #endif
 }
@@ -588,6 +597,8 @@ struct State
 	// What does.
 	vk::Extent2D extent;
 	Target kept;							// the picture before
+	Target copies[2];						// the game's pictures for the other generators (ps5_framegen_ext.cpp)
+	Target madePictures[3];					// and what they make
 	Target output;							// the picture in between
 	Target luma[2][Levels];					// brightness: of this frame and of the one before, in turn
 	Target way[2][Levels];					// the way found: [0] from the picture before to this one, [1] back
@@ -741,9 +752,7 @@ Target makeTarget(uint32_t width, uint32_t height, vk::Format format, vk::Render
 	target.image = device.createImageUnique(vk::ImageCreateInfo(vk::ImageCreateFlags(), vk::ImageType::e2D, format,
 			vk::Extent3D(width, height, 1), 1, 1, vk::SampleCountFlagBits::e1, vk::ImageTiling::eOptimal,
 			vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
-#ifdef FRAMEGEN_TEST
-					| vk::ImageUsageFlagBits::eTransferSrc
-#endif
+					| vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst
 			, vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined));
 	const vk::MemoryRequirements needs = device.getImageMemoryRequirements(*target.image);
 	const vk::PhysicalDeviceMemoryProperties memory = host::gpu().getMemoryProperties();
@@ -810,8 +819,13 @@ void makeSized(const vk::Extent2D& extent)
 	if (s.extent == extent)
 		return;
 	if (s.extent.width != 0)
+	{
 		// Frames in flight read the old ones.
 		host::waitIdle();
+#ifndef FRAMEGEN_TEST
+		ext::reset();
+#endif
+	}
 	s.extent = vk::Extent2D();
 	s.hasBefore = s.inBetween = s.toKeep = s.made = false;
 	s.brightnessSets.clear();
@@ -820,6 +834,10 @@ void makeSized(const vk::Extent2D& extent)
 
 	s.kept = makeTarget(extent.width, extent.height, ColourFormat, *s.colourPass);
 	s.output = makeTarget(extent.width, extent.height, ColourFormat, *s.colourPass);
+	for (Target& target : s.copies)
+		target = makeTarget(extent.width, extent.height, ColourFormat, *s.colourPass);
+	for (Target& target : s.madePictures)
+		target = makeTarget(extent.width, extent.height, ColourFormat, *s.colourPass);
 	// The largest level: 384 lines, and as wide as the picture's shape makes
 	// it, both in thirty-twos so that every level halves evenly.
 	uint32_t height = 384;
@@ -945,8 +963,39 @@ bool wanted()
 
 unsigned made()
 {
+#ifndef FRAMEGEN_TEST
+	return madeCount + ext::made();
+#else
 	return madeCount;
+#endif
 }
+
+#ifndef FRAMEGEN_TEST
+namespace internal
+{
+Picture copyFrame(vk::CommandBuffer commandBuffer, vk::ImageView source, int index)
+{
+	State& s = *state;
+	const Target& target = s.copies[index];
+	const vk::DescriptorSet set = frameSet(s.keepSets);
+	writeSet(set, { source });
+	draw(commandBuffer, *s.colourPass, target, *s.keep, set, sizes(target));
+	return Picture{ *target.image, *target.view };
+}
+
+Picture frame(int index)
+{
+	const Target& target = state->copies[index];
+	return Picture{ *target.image, *target.view };
+}
+
+Picture madeFrame(int index)
+{
+	const Target& target = state->madePictures[index];
+	return Picture{ *target.image, *target.view };
+}
+}
+#endif
 
 vk::ImageView show(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, const vk::Extent2D& extent, int slot,
 		int slots)
@@ -956,12 +1005,31 @@ vk::ImageView show(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView vi
 		// Off: when it is on again, there is no picture before.
 		if (state)
 			state->hasBefore = state->inBetween = state->toKeep = state->made = false;
+#ifndef FRAMEGEN_TEST
+		ext::forget();
+#endif
 		return view;
 	}
 	try {
 		makeState();
 		makeSized(extent);
 		State& s = *state;
+#ifndef FRAMEGEN_TEST
+		if (host::method() != 0)
+		{
+			const int pictures = host::strength() >= 2 ? slots : std::min(slots, 2);
+			vk::ImageView shown;
+			if (ext::show(commandBuffer, fresh, view, extent, slot, slots, pictures, host::method(), shown))
+			{
+				// The title's own keeps no picture meanwhile.
+				s.hasBefore = s.inBetween = s.toKeep = s.made = false;
+				return shown;
+			}
+			// (When it cannot be used, the title's own is.)
+		}
+		else
+			ext::forget();
+#endif
 		if (fresh)
 		{
 			// A picture that was not kept (its presents were cut short) is not the one before this.
@@ -1041,6 +1109,9 @@ vk::ImageView show(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView vi
 
 void reset()
 {
+#ifndef FRAMEGEN_TEST
+	ext::reset();
+#endif
 	state.reset();
 	failed = false;
 }

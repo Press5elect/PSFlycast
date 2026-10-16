@@ -616,6 +616,59 @@
    ]
   },
   {
+   "id": "ps5-framegen",
+   "name": "ps5-framegen with AMD FSR3 optical flow (the second way of making frames between the game's)",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later (ps5-framegen); MIT (AMD's shaders)",
+   "copyright": [
+    "Copyright swordpdf (ps5-framegen)",
+    "Copyright (C) Advanced Micro Devices, Inc. (FidelityFX SDK 2.3.0: the optical flow and interpolation shaders)"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/elevation/LICENSE-GPL-3.0.txt",
+     "to": "GPL-3.0.txt"
+    },
+    {
+     "from": "shell/ps5/third_party/ps5-framegen/shaders/LICENSE.txt",
+     "to": "FSR3-LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: github.com/Swordpdf/ps5-framegen at 64362101757cdd6f7df9eeb984cb53f03f1fbfca, in shell/ps5/third_party/ps5-framegen. It is built with its namespace renamed (-Dps5=ps5fg) and its Vulkan calls through shell/ps5/ps5_vkc.h; shell/ps5/ps5_framegen_ext.cpp drives it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "mihawkgen",
+   "name": "MihawkGen (the third way of making frames between the game's: a trained network)",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright (C) 2026 Mihawk"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/elevation/LICENSE-GPL-3.0.txt",
+     "to": "GPL-3.0.txt"
+    },
+    {
+     "from": "shell/ps5/third_party/mihawkgen/LICENSE.md",
+     "to": "MihawkGen-LICENSE.md"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: github.com/mihawk-99/PS5_MihawkGen at bb45cf1c5369 (framegen/, its compute shaders and the network, 432,308 parameters, which holds no image, clip or game), in shell/ps5/third_party/mihawkgen; built with its Vulkan calls through shell/ps5/ps5_vkc.h; shell/ps5/ps5_framegen_ext.cpp drives it.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
    "id": "refsw",
    "name": "REFSW, the software model of the Dreamcast's graphics chip (the Software renderer setting)",
    "kind": "code",
