@@ -15,13 +15,17 @@
    "kind": "code",
    "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline",
    "copyright": [
-    "Copyright 2026 the PSFlyCast contributors",
+    "Copyright 2026 Press5elect and the PSFlyCast contributors",
     "Copyright (C) 2026 BlackBearReloaded and Mihawk (the title's start-up and link layout, shell/ps5/runtime)"
    ],
    "texts": [
     {
      "from": "shell/ps5/elevation/LICENSE-GPL-3.0.txt",
      "to": "GPL-3.0.txt"
+    },
+    {
+     "from": "shell/ps5/release/texts/ADDITIONAL-TERMS.txt",
+     "to": "ADDITIONAL-TERMS.txt"
     }
    ],
    "source": {
@@ -34,6 +38,7 @@
     "eboot.bin",
     "README.md",
     "MANUAL.md",
+    "PRIVACY.md",
     "LEGAL.txt",
     "BUILD.txt",
     "sce_sys/param.json",
@@ -567,6 +572,50 @@
    ]
   },
   {
+   "id": "cas",
+   "name": "FidelityFX Contrast Adaptive Sharpening (the CAS upscaling)",
+   "kind": "code",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved."
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/fsr/CAS-LICENSE.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: ffx_cas.h of https://github.com/GPUOpen-Effects/FidelityFX-CAS at 9fabcc9a2c45f958aff55ddfda337e74ef894b7f, in shell/ps5/fsr, compiled as GLSL by shell/ps5/ps5_fsr.cpp.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "nis",
+   "name": "NVIDIA Image Scaling (the NIS upscaling)",
+   "kind": "code",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved."
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/nis/LICENSE.txt",
+     "to": "LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: NIS_Config.h and NIS_Scaler.h of https://github.com/NVIDIAGameWorks/NVIDIAImageScaling at 35e13ba316c98eeecf16f37eae70ce88019911f6 (v1.0.3), in shell/ps5/nis; the shader is compiled at run time by shell/ps5/ps5_fsr.cpp with its texture reads and two filter tables given as the program's own.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
    "id": "refsw",
    "name": "REFSW, the software model of the Dreamcast's graphics chip (the Software renderer setting)",
    "kind": "code",
@@ -956,7 +1005,7 @@
    "licence": "GPL-3.0",
    "copyright": [
     "Copyright (C) 2026 BlackBearReloaded",
-    "Copyright 2026 the PSFlyCast contributors (its use in this title)"
+    "Copyright 2026 Press5elect and the PSFlyCast contributors (its use in this title)"
    ],
    "texts": [
     {
@@ -1033,7 +1082,7 @@
    "kind": "asset",
    "licence": "GPL-3.0-or-later",
    "copyright": [
-    "Copyright 2026 the PSFlyCast contributors"
+    "Copyright 2026 Press5elect and the PSFlyCast contributors"
    ],
    "texts": [],
    "source": {

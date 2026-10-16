@@ -204,6 +204,22 @@ on suits a Dreamcast game that only reads the D-pad.
 
 Any of these can be changed: see [Changing the controls](#14-changing-the-controls).
 
+**Starting a game from a forwarder.** A PS5 forwarder (an icon on the home
+screen for one game), or anything else that starts the title, can name the
+game with launch arguments:
+
+```
+--rom "games/<folder>/<file>.chd" --exit-after-game
+```
+
+`--rom` takes a full path (`/data/homebrew/PPSA99247/games/...`,
+`/mnt/usb0/...`), a path from the title's folder, or the game's name as the
+library shows it. The game must be in the library: the title waits for the
+library's first scan of a USB drive or share (a minute at most). With
+`--exit-after-game` the title closes when that game is closed, back to the
+home screen. A game that is not found says so. The boot log's `forwarder:`
+lines say what was asked and what was found.
+
 ## 7. The quick menu
 
 Click the **touch pad** during a game. The game pauses and the menu opens;
@@ -429,6 +445,60 @@ has to be loaded after that for it to show.
 - It changes the objects only, not how far the level itself is drawn.
 - A save state made with it on keeps the longer distances.
 
+**Mods.** A mod changes a game a feature at a time, without changing its disc
+image. It is a text file: a folder with a `mod.txt` in it, or a `<name>.mod`
+file, in `mods/` (or `PSFlyCast/mods` on a USB drive, with USB drives on).
+The mod's features are among the game's options (Details > Options, or the
+quick menu's Game options), each switched on and off by itself, off to begin
+with; what is on is kept for that game. The format:
+
+```
+name = Faster start
+version = 1.0
+author = Someone
+description = What the mod does.
+games = Game Name (USA), Another Game
+
+[feature]
+name = Skip the logos
+description = What this part does.
+patch = 8C010000: 2a 00 02 24 > 00 00 00 00
+write = 8C010010: 00 00 80 3f
+```
+
+A `patch` writes the new bytes only where the old ones are found, so another
+version of the game is left alone; a `write` sets the bytes at every vertical
+blank, as a cheat does. Addresses are in the Dreamcast's memory (8C000000 to
+8CFFFFFF), and a patch has as many bytes on each side. `games` names the game
+files as the library shows them, with their region tag (`Game Name (USA)`), or
+without it to mean every version. Mods are text: they carry no game data and
+can be shared. They are off online. The boot log's `mods:` lines say what was
+found and which line of a mod could not be read.
+
+**Find in memory** (quick menu). The classic cheat search over the game's
+memory: look for a value (a byte, two or four), or for one that went up, down,
+changed or stayed the same, and narrow it down while you play (open the menu,
+search, go back to the game, play, open the menu, search again). What is left
+can be held at its value (Cross), made a cheat (Square) or made a split of the
+speedrun timer (Triangle). A cheat is added to the file `Found - <title>.cht`
+in `cheats/`, off until you switch it on under Cheats. Not available online.
+
+**Speedrun timer** (quick menu). A timer at the top right of the picture, in
+game time (the same on every display, and stopped while the menu is open) or
+real time. Press **L3 and R3 together** to start and then to split, without
+opening the menu; the menu page also undoes a split, skips one, resets, adds
+splits and removes them. A split can trigger by itself when a value in the
+game's memory becomes a number (found with Find in memory); the run can start
+that way too. The best run and the fastest of each segment are kept for each
+game. A run with fast forward or a loaded state counts as practice and sets
+no record. The splits are the text file `data/splits/<game id>.txt`:
+
+```
+start when 0x8C01A2B4 u8 == 1
+split First level | when 0x8C07A3B4 u8 == 2
+split Boss
+```
+
 ## 14. Changing the controls
 
 While a game runs: touch pad, then **Controls**.
@@ -452,6 +522,12 @@ you would any control: Cross, then the button. L3 and R3 do nothing in
 Dreamcast games and are free for this. **Square** on the row takes it off
 its button again. Like every change on this page, it is for the running
 game.
+
+**Turbo.** Settings > Controls > **Turbo button** makes a button fire again
+and again while it is held, for the games that ask for hammering: Cross,
+Circle, Square, Triangle, L1, R1, Cross and Square, or L1 and R1. **Turbo
+speed** is 7, 10 or 15 presses a second. A game can have its own choice, like
+every option here; both rows are among the game's options.
 
 **Rumble** needs the rumble pack, which is in the controller's second slot by
 default. Settings > Controls > Controller slot 2 swaps it for a second memory
@@ -640,6 +716,20 @@ allowed it. If the picture stutters more than before, turn it off.
 **Language.** The first time v1.0.2 or a later version starts, the Dreamcast's language
 is set to the console's (Japanese, English, German, French, Spanish or
 Italian) if you had not changed it. Settings > System > Language changes it.
+
+**More ways to upscale and to tune the picture.** Besides FSR 1, **Upscaling**
+offers **Sharp bilinear** (clean pixel edges without shimmer), **NIS** (NVIDIA
+Image Scaling) and **CAS** (AMD Contrast Adaptive Sharpening). **Sharpening**
+(Soft, Normal, Sharp) sets how much NIS and CAS sharpen. **Film grain** (Off,
+Light, Medium, Strong) lays fine grain over the picture, and **Brightness**,
+**Contrast**, **Colour** and **Gamma** tune it. All of them can be chosen
+for one game. They are new, and not yet confirmed on a console.
+
+**Interface size, high contrast and colour-blind colours** are in Settings >
+Interface. **Interface size** goes from 100% to 130%; larger sizes show fewer rows
+on a screen. **High contrast** puts black behind the screens and makes the grey
+text brighter. **Colour-blind safe colours** use blue and orange where green
+would mark what is good.
 
 ## 17. Achievements
 
@@ -835,6 +925,14 @@ Everything is in `/data/homebrew/PPSA99247/`:
 | `flycast-boot.log` | What happened at start-up, and a crash report if there was one |
 
 **To back up your saves, copy `data/`.**
+
+**What leaves the console.** `PRIVACY.md` (in the title's folder as well)
+says what PSFlyCast sends over the network, to whom, and what it keeps. An
+achievement unlocked while the site cannot be reached is kept in
+`data/achievements-unsent.txt` and sent when it can.
+
+**What's new.** After PSFlyCast has updated itself, the first library screen
+shows the new version's release notes once.
 
 ## 24. When something goes wrong
 

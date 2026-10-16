@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the one call the title makes to leave its sandbox.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-3.0-or-later
 
 	A C++17-callable front for elevation.hpp (ps5-native-app-boilerplate's

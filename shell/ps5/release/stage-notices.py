@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright 2026 the PSFlyCast contributors
+# Copyright 2026 Press5elect and the PSFlyCast contributors
 """PSFlyCast - the notices of a staged title folder.
 
     python3 shell/ps5/release/stage-notices.py build-ps5/dist/PPSA99247 [--release TAG] [--check]

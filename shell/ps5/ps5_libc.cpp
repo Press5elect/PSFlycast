@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - libc entry points the console's libc does not export.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	newlocale and freelocale come from the payload SDK's platform layer (RADV's

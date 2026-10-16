@@ -2,7 +2,7 @@
 	PSFlyCast - the memory card manager's screen: a part of bigpicture.cpp,
 	which includes it (its helpers are that file's).
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	A dialog over the Settings, in two panes. On the left the cards: the

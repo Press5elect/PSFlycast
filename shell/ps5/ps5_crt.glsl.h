@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the game's picture as a tube shows it: "Scanlines" and "CRT".
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	One fragment shader, drawn by ps5_fsr.cpp in place of the emulator's
@@ -49,6 +49,8 @@ layout (push_constant) uniform pushBlock
 	vec4 beam;		// x: the game's lines; y, z: the first and second harmonics of a line's
 					// profile; w: how much of the lines is left in white
 	vec4 tube;		// x: the mask's pitch, in pixels; y: its depth; z: the glow; w: the vignette
+	vec4 colour;	// the picture's look: brightness, contrast, saturation, gamma (see lookTail)
+	vec4 grain;		// and its film grain
 } pc;
 layout (location = 0) out vec4 FragColor;
 #endif
@@ -152,6 +154,10 @@ void main()
 	lit = lit * (1.0 - pc.tube.w * r * r);
 #endif
 
+#ifdef CRT_HOST
 	FragColor = vec4(toSignal(lit), 1.0);
+#else
+	FragColor = vec4(lookTail(toSignal(lit), pc.colour, pc.grain), 1.0);
+#endif
 }
 )CRT"

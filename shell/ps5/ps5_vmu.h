@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the memory card manager's back end.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Reads and changes the memory card images Flycast keeps in its data folder

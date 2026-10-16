@@ -101,7 +101,7 @@ fi
 # The start-up sound (shell/ps5/sounds: the file and the page that makes it).
 mkdir -p "$app/sounds"
 cp -- "$src/shell/ps5/sounds/startup.wav" "$app/sounds/startup.wav"
-cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$app/"
+cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$src/shell/ps5/PRIVACY.md" "$app/"
 {
     echo "PSFlyCast${RELEASE_TAG:+ $RELEASE_TAG}, build $(sed -n 's/^#define PS5_BUILD_NUMBER //p' "$src/shell/ps5/ps5_build.h"), built $(date -u +%Y-%m-%d)"
     echo "flycast:    $(git -C "$src" rev-parse HEAD 2>/dev/null || echo unknown)"

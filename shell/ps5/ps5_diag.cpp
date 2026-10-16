@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - start-up record and crash report.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The console only says that a title stopped, not where. This file writes

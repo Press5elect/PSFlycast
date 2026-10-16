@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the DualSense, read through libScePad.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The calls and the sample layout are the ones two PS5 projects proved on the
@@ -62,6 +62,8 @@ namespace ps5::pad
 config::Option<int> StickAsDpad("StickAsDpad", StickDpadAuto, "ps5");
 config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
 config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
+config::Option<int> TurboButtons("TurboButtons", 0, "ps5");
+config::Option<int> TurboRate("TurboRate", 1, "ps5");
 
 namespace
 {
@@ -244,10 +246,24 @@ public:
 	void feed(const State& s, const PadData& raw)
 	{
 		u32 buttons = s.buttons;
+		// Both stick clicks together start, and then split, a speedrun (the
+		// timer is in the quick menu); only the first player's pad does.
+		if (maple_port() == 0 && (s.buttons & (L3 | R3)) == (L3 | R3) && (s.pressed & (L3 | R3)) != 0
+				&& ps5::speedrun::loaded())
+			ps5::speedrun::startOrSplit();
 		if (stickIsDpad())
 			buttons |= stickDirections(raw.lx, raw.ly);
 		else
 			stickHeld = 0;
+		// Turbo: a held button of the chosen ones is up for every other half
+		// period. The clock is the console's, so every button beats together.
+		const u32 turbo = (u32)TurboButtons & (Cross | Circle | Square | Triangle | L1 | R1);
+		if (turbo != 0 && (buttons & turbo) != 0)
+		{
+			static const u64 halfMs[3] = { 71, 50, 33 };
+			if ((now() / halfMs[std::clamp((int)TurboRate, 0, 2)]) % 2 == 1)
+				buttons &= ~turbo;
+		}
 		u32 changed = buttons ^ lastButtons;
 		while (changed != 0)
 		{

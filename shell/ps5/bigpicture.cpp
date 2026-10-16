@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - a Big Picture style, controller-only interface.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Layout, in units of 1/1080 of the screen height:
@@ -40,6 +40,7 @@
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
+#include "ps5_diag.h"
 #include "cheats.h"
 
 #include "types.h"
@@ -265,6 +266,19 @@ void applySkin()
 	col::accent = chosen == 0 ? s.accent : accents[chosen].colour;
 	col::accentDark = mix(col::accent, col::rgba(0, 0, 0), 0.35f);
 	col::accentGlow = alpha(col::accent, 70 / 255.f);
+	const ps5::Options& o = ps5::options();
+	if (o.highContrast)
+	{
+		col::bgTop = col::rgba(0, 0, 0); col::bgBottom = col::rgba(6, 6, 8);
+		col::bar = col::rgba(0, 0, 0, 250); col::sheet = col::rgba(0, 0, 0); col::sheetHi = col::rgba(14, 14, 16);
+		col::panel = col::rgba(16, 16, 18); col::panelHi = col::rgba(38, 38, 42); col::card = col::rgba(22, 22, 25);
+		col::dim = col::rgba(222, 228, 235); col::faint = col::rgba(180, 188, 196);
+	}
+	// Okabe-Ito blue and orange stand for good and for warm, apart for every
+	// kind of colour vision.
+	col::good = o.colourBlind ? col::rgba(86, 180, 233) : col::rgba(92, 200, 120);
+	if (o.colourBlind)
+		col::warm = col::rgba(230, 159, 0);
 }
 
 Backdrop backdropChoice()
@@ -948,7 +962,8 @@ void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 
 // The console's own keyboard (ps5_ime.cpp) is up, and what its text is for.
 // The pad is the keyboard's meanwhile.
-enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName, KeyboardRaUser, KeyboardRaPassword };
+enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName, KeyboardRaUser, KeyboardRaPassword,
+		KeyboardMemValue, KeyboardSplitName, KeyboardStartWhen, KeyboardSplitWhen };
 int keyboardFor = KeyboardNone;
 
 struct Input
@@ -1030,7 +1045,7 @@ void readInput()
 ImDrawList *beginScreen(const char *id, bool opaque)
 {
 	const ImGuiIO& io = ImGui::GetIO();
-	H = 1080.f;
+	H = 1080.f * 100.f / (float)std::clamp(ps5::options().uiScale, 100, 130);
 	S = io.DisplaySize.y / H;
 	W = io.DisplaySize.x / S;
 	timeNow = ImGui::GetTime();
@@ -2336,6 +2351,100 @@ void launch(Game& g, bool selectDisk, int stateSlot = -1)
 	gui_start_game(g.media.path);
 }
 
+// ---- a forwarder's request
+//
+// `--rom <path or name>` (ps5::launchRequest) starts a game once the library
+// has found the games: a full path, a path from the title's folder, or the
+// game's name (its title, or its file's name with or without the extension;
+// a part of a title counts when only one game has it). `--exit-after-game`
+// closes the title when that game is closed. A game that is not found says so.
+void forwarderTick(bool selectDisk)
+{
+	static enum { Waiting, Running, Done } state = Waiting;
+	static double began = -1;
+	static bool sawGame = false;
+	const ps5::LaunchRequest& req = ps5::launchRequest;
+	if (state == Done || (req.rom.empty() && !req.exitAfterGame))
+		return;
+	if (began < 0)
+		began = timeNow;
+	if (state == Running)
+	{
+		if (game_started)
+			sawGame = true;
+		else if (sawGame)
+		{
+			state = Done;
+			if (req.exitAfterGame)
+			{
+				ps5::diag::mark("launch: the game was closed; --exit-after-game closes the title");
+				dc_exit();
+			}
+		}
+		return;
+	}
+	if (req.rom.empty() || game_started || selectDisk)
+	{
+		state = Done;
+		return;
+	}
+	auto exists = [](const std::string& path) {
+		struct stat st;
+		return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
+	};
+	auto lower = [](std::string text) {
+		for (char& c : text)
+			c = (char)tolower((unsigned char)c);
+		return text;
+	};
+	auto start = [&](const std::string& path) {
+		ps5::diag::mark("launch: --rom starts %s", path.c_str());
+		state = Running;
+		for (Game& g : games)
+			if (g.media.path == path)
+			{
+				launch(g, false);
+				return;
+			}
+		loadingPath = path;
+		loadingTitle = get_file_basename(path);
+		insertedPath = path;
+		gui_start_game(path);
+	};
+	// A path that is there needs no wait for the scans.
+	if (!req.rom.empty() && req.rom[0] == '/' && exists(req.rom))
+		return start(req.rom);
+	if (exists(ps5::rootDir + req.rom))
+		return start(ps5::rootDir + req.rom);
+	// A name: after the games folders (and the share, if there is one) were looked through.
+	const bool looking = !scanner().done() || net.scanning || net.wanted;
+	if (looking && timeNow - began < 90)
+		return;
+	const std::string wanted = lower(req.rom);
+	const Game *exact = nullptr;
+	std::vector<const Game *> partial;
+	for (const Game& g : games)
+	{
+		const std::string file = lower(g.media.fileName);
+		const std::string bare = lower(get_file_basename(g.media.fileName));
+		if (lower(g.title) == wanted || file == wanted || bare == wanted)
+		{
+			exact = &g;
+			break;
+		}
+		if (lower(g.title).find(wanted) != std::string::npos || file.find(wanted) != std::string::npos)
+			partial.push_back(&g);
+	}
+	if (exact == nullptr && partial.size() == 1)
+		exact = partial[0];
+	if (exact != nullptr)
+		return start(exact->media.path);
+	state = Done;
+	ps5::diag::mark("launch: --rom \"%s\": no game found (%d games looked through)", req.rom.c_str(), (int)games.size());
+	gui_error(partial.empty() ? "No game found for \"" + req.rom + "\"."
+			: "More than one game fits \"" + req.rom + "\": the name is not enough to tell which.");
+}
+
 const char *regionText(u32 r)
 {
 	static std::string s;
@@ -2719,11 +2828,23 @@ const std::vector<GameOption>& gameOptions()
 				config::IntegerScale, G::Video),
 		onOff("Smooth scaling", "Bilinear filtering of the final picture", "config.rend.LinearInterpolation",
 				config::LinearInterpolation, G::Video),
-		pick("Upscaling", "FSR 1 sharpens a picture smaller than the screen. Scanlines and CRT show it as an old TV would",
-				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)", "Scanlines", "CRT" },
-				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp, ps5::UpscalingScanlines,
-						ps5::UpscalingCrt },
+		pick("Upscaling", "FSR 1, NIS and CAS sharpen the enlarged picture; sharp bilinear keeps pixels crisp. Scanlines and CRT show it as an old TV would",
+				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)", "Sharp bilinear", "NIS", "CAS", "Scanlines", "CRT" },
+				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp, ps5::UpscalingSharpBilinear,
+						ps5::UpscalingNis, ps5::UpscalingCas, ps5::UpscalingScanlines, ps5::UpscalingCrt },
 				ps5::Upscaling, G::Video),
+		pick("Sharpening", "How much NIS and CAS sharpen the picture", "ps5.Sharpening", { "Soft", "Normal", "Sharp" }, { 0, 1, 2 },
+				ps5::Sharpening, G::Video),
+		pick("Film grain", "A fine grain over the picture that moves every frame, strongest in the middle tones",
+				"ps5.FilmGrain", { "Off", "Light", "Medium", "Strong" }, { 0, 1, 2, 3 }, ps5::FilmGrain, G::Video),
+		range("Brightness", "50% to 150%; 100% is as the game made it", "ps5.Brightness", 50, 150, 5, "%", G::Video,
+				[] { return (int)ps5::Brightness; }, [](int v) { ps5::Brightness.set(v); }),
+		range("Contrast", "50% to 150%; 100% is as the game made it", "ps5.Contrast", 50, 150, 5, "%", G::Video,
+				[] { return (int)ps5::Contrast; }, [](int v) { ps5::Contrast.set(v); }),
+		range("Colour", "How strong the colours are: 0% is black and white, 100% as the game made them", "ps5.Saturation", 0, 150, 5, "%",
+				G::Video, [] { return (int)ps5::Saturation; }, [](int v) { ps5::Saturation.set(v); }),
+		range("Gamma", "50% to 150%; higher is brighter in the shadows", "ps5.Gamma", 50, 150, 5, "%", G::Video,
+				[] { return (int)ps5::Gamma; }, [](int v) { ps5::Gamma.set(v); }),
 		// Pictures made in between the game's own (ps5_framegen.cpp).
 		// Light makes one between two of the game's; Full one for every present that would repeat a picture.
 		pick("Frame generation",
@@ -2758,6 +2879,14 @@ const std::vector<GameOption>& gameOptions()
 				"ps5.StickAsDpad", { "Automatic", "On", "Off" },
 				{ ps5::pad::StickDpadAuto, ps5::pad::StickDpadOn, ps5::pad::StickDpadOff }, ps5::pad::StickAsDpad,
 				G::Controls),
+		pick("Turbo button",
+				"A button that is pressed again and again while it is held, for games that ask for hammering",
+				"ps5.TurboButtons", { "Off", "Cross", "Circle", "Square", "Triangle", "L1", "R1", "Cross and Square", "L1 and R1" },
+				{ 0, ps5::pad::Cross, ps5::pad::Circle, ps5::pad::Square, ps5::pad::Triangle, ps5::pad::L1, ps5::pad::R1,
+						ps5::pad::Cross | ps5::pad::Square, ps5::pad::L1 | ps5::pad::R1 },
+				ps5::pad::TurboButtons, G::Controls),
+		pick("Turbo speed", "How fast a button with turbo is pressed while it is held",
+				"ps5.TurboRate", { "7 a second", "10 a second", "15 a second" }, { 0, 1, 2 }, ps5::pad::TurboRate, G::Controls),
 		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack",
 				"input.device1.2", { "Rumble pack", "Memory card" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
@@ -2831,6 +2960,9 @@ std::vector<GameOption> optionsFor(const std::string& fileName, bool saved)
 			continue;
 		rows.push_back(option);
 	}
+	// The features of the mods that are for this game, after the patches.
+	for (const ps5::mods::Entry& feature : ps5::mods::forFile(fileName))
+		rows.push_back(patchSwitch(feature.label, feature.description, feature.key, nullptr));
 	return rows;
 }
 
@@ -4179,6 +4311,7 @@ void coverDialog(ImDrawList *dl, const Input& given)
 struct UpdateUi
 {
 	bool open = false;
+	bool news = false;		// "What's new": the notes of the version just installed
 } updateUi;
 
 // Opens the dialog; asked for by hand, it also asks GitHub again unless an
@@ -4225,6 +4358,21 @@ void updateDialog(ImDrawList *dl, const Input& given)
 		break;
 
 	case Phase::UpToDate:
+		if (updateUi.news)
+		{
+			title = "What's new in " + now.latest;
+			sub = "PSFlyCast was updated: you have " + mine;
+			for (const std::string& note : now.notes)
+				lines.push_back({ note, Plain });
+			lines.push_back({ "The manual has all of it, in the title's folder (MANUAL.md)", Dim });
+			buttons = { { Glyph::Cross, "Close", true } };
+			if (given.accept || given.back)
+			{
+				updateUi.news = false;
+				updateUi.open = false;
+			}
+			break;
+		}
 		title = "PSFlyCast is up to date";
 		if (ps5::update::isRelease())
 			sub = "You have " + mine + ", the newest release";
@@ -4233,7 +4381,7 @@ void updateDialog(ImDrawList *dl, const Input& given)
 			sub = "The newest release is " + now.latest + ". This is " + mine + ", which is newer";
 			lines.push_back({ "Installing " + now.latest + " would put the release in this test build's place", Dim });
 		}
-		buttons = { { Glyph::Circle, "Close", true }, { Glyph::Square, "Install " + now.latest + " anyway", false } };
+		buttons = { { Glyph::Circle, "Close", true }, { Glyph::Square, ps5::update::isRelease() ? "Install " + now.latest + " again" : "Install " + now.latest + " anyway", false } };
 		if (given.back)
 			updateUi.open = false;
 		else if (given.square)
@@ -5006,6 +5154,11 @@ void libraryScreen(bool selectDisk)
 	// dialog takes the pad while it is open.
 	if (!selectDisk && !game_started && ps5::update::offerAtStart())
 		openUpdate(false);
+	else if (!selectDisk && !game_started && !updateUi.open && ps5::update::whatsNew())
+	{
+		updateUi.news = true;
+		openUpdate(false);
+	}
 	// The console's keyboard, for a search: the pad is its while it is up.
 	{
 		std::string typed;
@@ -5035,6 +5188,7 @@ void libraryScreen(bool selectDisk)
 	}
 	chooseSource();
 	refreshGames(lib.source == Network);
+	forwarderTick(selectDisk);
 	// A disc is to be chosen for the running game: its own tab, and the disc
 	// after the one in the drive, if the game has several.
 	static bool choosing = false;
@@ -5846,6 +6000,21 @@ std::vector<Category> buildCategories()
 		look.rows.push_back(option("Motion",
 				"All: living background, screens that slide, cards that rise. Less: fades only. None: everything is at once",
 				{ "All", "Less", "None" }, ps5::options().motion));
+		Row size{ Row::Choice, "Interface size",
+				"How large everything in the interface is. Larger sizes show fewer rows on a screen",
+				{ "100%", "110%", "120%", "130%" } };
+		size.values = { 0, 1, 2, 3 };
+		size.get = [] { return (std::clamp(ps5::options().uiScale, 100, 130) - 100) / 10; };
+		size.set = [](int v) { ps5::options().uiScale = 100 + 10 * std::clamp(v, 0, 3); ps5::saveOptions(); };
+		look.rows.push_back(size);
+		Row contrast{ Row::Toggle, "High contrast", "Black behind the screens, and brighter grey text" };
+		contrast.get = [] { return ps5::options().highContrast ? 1 : 0; };
+		contrast.set = [](int v) { ps5::options().highContrast = v != 0; ps5::saveOptions(); };
+		look.rows.push_back(contrast);
+		Row blind{ Row::Toggle, "Colour-blind safe colours", "Blue and orange where green and red would tell things apart" };
+		blind.get = [] { return ps5::options().colourBlind ? 1 : 0; };
+		blind.set = [](int v) { ps5::options().colourBlind = v != 0; ps5::saveOptions(); };
+		look.rows.push_back(blind);
 		look.rows.push_back(option("Start-up animation",
 				"Random: one of the four each time PSFlyCast starts, never the same twice running. Any button ends it",
 				std::vector<std::string>(std::begin(splashChoices), std::end(splashChoices)), ps5::options().splash));
@@ -6030,6 +6199,7 @@ std::vector<Category> buildCategories()
 	// What is in this build, and whose it is: the part on the left, its
 	// source on the right.
 	for (const auto& [part, whose] : std::vector<std::pair<const char *, const char *>>{
+			{ "This port", "PSFlyCast, by Press5elect" },
 			{ "Emulator", "Flycast, by flyinghead and contributors" },
 			{ "Vulkan driver", "Mesa RADV: PS5_Vulkan and PS5_Mesa, by Mihawk-99" },
 			{ "Title start-up and SDK", "ps5-payload-sdk, by John Tornblom, and Mihawk-99's fork of it" },
@@ -6037,7 +6207,7 @@ std::vector<Category> buildCategories()
 			{ "Keyboard, USB input, home sound", "After BlackBearReloaded's Prospero projects; ps5-at9-converter" },
 			{ "Network shares", "libsmb2, by Ronnie Sahlberg" },
 			{ "Build foundation", "PS5_VulkanTemplate, by Mihawk-99" },
-			{ "Upscaling", "FidelityFX Super Resolution 1.0, by AMD" },
+			{ "Upscaling", "FidelityFX Super Resolution 1.0 and Contrast Adaptive Sharpening, by AMD; NVIDIA Image Scaling (MIT)" },
 			{ "Software renderer", "REFSW, by skmp, from nullDC-rust (MIT)" },
 			{ "Achievements", "rcheevos, by RetroAchievements.org (MIT)" },
 			{ "Cheats", "libretro-database (CC BY-SA 4.0)" },
@@ -6428,6 +6598,18 @@ struct QuickState
 	float rewindScroll = 0;
 	std::vector<ps5::rewind::Point> rewindPoints;
 	std::string rewindNote;
+	// The tools pages: 0 none, 1 the speedrun timer, 2 find in memory.
+	int tool = 0;
+	float toolAnim = 0;
+	int toolFocus = 0;
+	float toolScroll = 0;
+	int toolIndex = 0;				// the split a typed condition is for
+	int memCompare = 0;
+	std::string memValueText = "0";
+	std::vector<ps5::memsearch::Result> memResults;
+	double memAt = -10;
+	std::string toolNote;
+	std::string toolCross, toolSquare, toolTriangle;	// what the focused row's buttons do
 	// The Achievements page: the game's, asked for once when it is opened
 	// (each asking has the pictures still missing downloaded).
 	bool trophies = false;
@@ -6540,6 +6722,326 @@ void cheatsPage(ImDrawList *dl, float px, float pw, float top)
 		text(dl, regular(), 22, px + 56, top + rowH + 24, col::faint,
 				qm.cheatFiles.empty() ? "No cheat files in the cheats folder."
 				: "No cheats loaded. Choose this game's file above:\nthe closest names come first.", pw - 112);
+}
+
+// ---------------------------------------------------- tools: speedrun, memory
+
+struct ToolRow
+{
+	std::string label, value;
+	bool info = false;				// shown only
+	std::string cross, square, triangle;	// what the buttons do here, for the hints
+	std::function<void(int)> act;	// 0 Cross; -1 and 1 Left and Right
+	std::function<void()> onSquare, onTriangle;
+};
+
+void openTool(int which)
+{
+	qm.tool = which;
+	qm.toolFocus = 0;
+	qm.toolScroll = 0;
+	qm.toolNote.clear();
+	qm.memAt = -10;
+}
+
+u32 memValue()
+{
+	return (u32)strtoul(qm.memValueText.c_str(), nullptr, 0);
+}
+
+std::vector<ToolRow> speedrunRows()
+{
+	using namespace ps5::speedrun;
+	std::vector<ToolRow> rows;
+	const State state = ps5::speedrun::state();
+	{
+		ToolRow r;
+		r.label = state == Running ? "Split" : state == Finished ? "Start again" : "Start";
+		r.value = timeText(elapsed()) + (practice() ? "  (practice)" : "");
+		r.cross = state == Running ? "Split" : "Start";
+		r.act = [](int dir) { if (dir == 0) { ps5::speedrun::startOrSplit(); qm.toolNote.clear(); } };
+		rows.push_back(r);
+	}
+	rows.push_back({ "Undo the last split", "", false, "Undo", "", "", [](int d) { if (d == 0) ps5::speedrun::undo(); } });
+	rows.push_back({ "Skip this split", "", false, "Skip", "", "", [](int d) { if (d == 0) ps5::speedrun::skip(); } });
+	rows.push_back({ "Stop and reset", "", false, "Reset", "", "", [](int d) { if (d == 0) ps5::speedrun::reset(); } });
+	{
+		ToolRow r;
+		r.label = "Clock";
+		r.value = clockMode() == 0 ? "Game time" : "Real time";
+		r.cross = "Change";
+		r.act = [](int) { ps5::speedrun::setClock(clockMode() == 0 ? 1 : 0); };
+		rows.push_back(r);
+	}
+	{
+		ToolRow r;
+		r.label = "Timer on the picture";
+		r.value = shown() ? "On" : "Off";
+		r.cross = "Change";
+		r.act = [](int) { setShown(!shown()); };
+		rows.push_back(r);
+	}
+	{
+		ToolRow r;
+		r.label = "Starts by itself when";
+		r.value = startWhen().empty() ? "By hand" : startWhen();
+		r.cross = "Type a condition";
+		r.act = [](int d) {
+			if (d == 0)
+				openKeyboard(KeyboardStartWhen, "Start when", "0x8C01A2B4 u8 == 1 (empty: by hand)", ps5::speedrun::startWhen(), 60);
+		};
+		rows.push_back(r);
+	}
+	std::vector<Split>& list = splits();
+	for (size_t i = 0; i < list.size(); i++)
+	{
+		ToolRow r;
+		r.label = std::to_string(i + 1) + ".  " + list[i].name;
+		r.value = list[i].time >= 0 ? timeText(list[i].time) : list[i].best >= 0 ? "best " + timeText(list[i].best) : "";
+		if (!list[i].when.empty())
+			r.value += std::string(r.value.empty() ? "" : "   ") + ICON_FA_BOLT;
+		r.cross = "Splits by itself when...";
+		r.act = [i](int d) {
+			if (d != 0 || i >= ps5::speedrun::splits().size())
+				return;
+			qm.toolIndex = (int)i;
+			openKeyboard(KeyboardSplitWhen, "Split when", "0x8C07A3B4 u8 == 2 (empty: by hand)",
+					ps5::speedrun::splits()[i].when, 60);
+		};
+		rows.push_back(r);
+	}
+	rows.push_back({ "Add a split", "", false, "Name it", "", "", [](int d) {
+		if (d == 0) openKeyboard(KeyboardSplitName, "Name of the split", "Boss", "", 40, ps5::ime::Kind::Name); } });
+	rows.push_back({ "Remove the last split", "", false, "Remove", "", "", [](int d) { if (d == 0) ps5::speedrun::removeLast(); } });
+	rows.push_back({ "Forget the best times", "", false, "Forget", "", "", [](int d) { if (d == 0) ps5::speedrun::forgetBest(); } });
+	if (!qm.toolNote.empty())
+		rows.push_back({ qm.toolNote, "", true, "", "", "", nullptr });
+	return rows;
+}
+
+std::vector<ToolRow> memoryRows()
+{
+	using namespace ps5::memsearch;
+	std::vector<ToolRow> rows;
+	{
+		ToolRow r;
+		r.label = "Size";
+		const int bytes = size();
+		r.value = bytes == 1 ? "1 byte" : bytes == 2 ? "2 bytes" : "4 bytes";
+		r.cross = "Change";
+		r.act = [](int dir) {
+			const int bytes = ps5::memsearch::size();
+			const int next = dir < 0 ? (bytes == 1 ? 4 : bytes / 2) : (bytes == 4 ? 1 : bytes * 2);
+			setSize(next);
+			qm.memResults.clear();
+			qm.toolNote.clear();
+		};
+		rows.push_back(r);
+	}
+	{
+		ToolRow r;
+		r.label = "Look for";
+		r.value = compareName((Compare)qm.memCompare);
+		r.cross = "Change";
+		r.act = [](int dir) { qm.memCompare = (qm.memCompare + (dir < 0 ? CompareCount - 1 : 1)) % CompareCount; };
+		rows.push_back(r);
+	}
+	{
+		ToolRow r;
+		r.label = "The value";
+		r.value = compareNeedsValue((Compare)qm.memCompare) ? qm.memValueText : "not needed";
+		r.cross = "Type a number";
+		r.act = [](int d) {
+			if (d == 0)
+				openKeyboard(KeyboardMemValue, "The value", "A number, or 0x and hexadecimal", qm.memValueText, 12, ps5::ime::Kind::Name);
+		};
+		rows.push_back(r);
+	}
+	{
+		ToolRow r;
+		r.label = searching() ? "Narrow the search" : "Start the search";
+		r.value = searching() ? std::to_string(count()) + " left after " + std::to_string(steps()) + " step"
+				+ (steps() == 1 ? "" : "s") : "";
+		r.cross = searching() ? "Search" : "Start";
+		r.act = [](int d) {
+			if (d != 0)
+				return;
+			const Compare how = (Compare)qm.memCompare;
+			if (!searching())
+			{
+				begin();
+				if (!compareNeedsValue(how))
+				{
+					qm.toolNote = "The memory is noted. Play on, then search again";
+					return;
+				}
+			}
+			narrow(how, memValue());
+			qm.toolNote = count() == 0 ? "Nothing is left: start a new search" : "";
+			qm.memAt = -10;
+		};
+		rows.push_back(r);
+	}
+	rows.push_back({ "Start over", "", false, "New search", "", "", [](int d) {
+		if (d == 0) { begin(); qm.memResults.clear(); qm.toolNote = "Every place is a candidate again"; } } });
+	if (!qm.toolNote.empty())
+		rows.push_back({ qm.toolNote, "", true, "", "", "", nullptr });
+	if (searching() && count() > 0)
+	{
+		if (count() > qm.memResults.size())
+			rows.push_back({ "The first " + std::to_string(qm.memResults.size()) + " of them:", "", true, "", "", "", nullptr });
+		const int bytes = size();
+		for (const Result& hit : qm.memResults)
+		{
+			ToolRow r;
+			r.label = addressText(hit.address);
+			char hex[16];
+			snprintf(hex, sizeof(hex), "%X", hit.value);
+			r.value = std::to_string(hit.value) + "  (0x" + hex + ")";
+			if (hit.previous != hit.value)
+				r.value += "   was " + std::to_string(hit.previous);
+			if (frozen(hit.address, bytes))
+				r.value += std::string("   ") + ICON_FA_LOCK;
+			r.cross = "Hold at its value";
+			r.square = "Make a cheat";
+			r.triangle = "Split when it is this";
+			const u32 address = hit.address, value = hit.value;
+			r.act = [address, bytes](int d) {
+				if (d == 0) ps5::memsearch::freeze(address, bytes, !ps5::memsearch::frozen(address, bytes));
+			};
+			r.onSquare = [address, bytes, value] {
+				const std::string name = ps5::cheats::addFound("Found " + ps5::memsearch::addressText(address) + " = "
+						+ std::to_string(value), address, bytes, value);
+				if (name.empty())
+				{
+					qm.toolNote = "The cheat file could not be written";
+					return;
+				}
+				// The cheats that were on stay on.
+				ps5::cheats::saveStates();
+				ps5::cheats::select(name);
+				qm.toolNote = "Added to " + name + ", off until you switch it on in Cheats";
+			};
+			r.onTriangle = [address, bytes, value] {
+				const std::string when = "0x" + ps5::memsearch::addressText(address) + " u" + std::to_string(bytes * 8) + " == "
+						+ std::to_string(value);
+				ps5::speedrun::addSplit("Found " + ps5::memsearch::addressText(address));
+				const size_t last = ps5::speedrun::splits().size() - 1;
+				ps5::speedrun::setWhen(last, when);
+				qm.toolNote = "A split was added that triggers on " + when;
+			};
+			rows.push_back(r);
+		}
+	}
+	return rows;
+}
+
+// The typed text of a tool's keyboard, once accepted.
+void toolKeyboard()
+{
+	std::string typed;
+	const int purpose = keyboardState(typed);
+	if (purpose <= 0)
+		return;
+	while (!typed.empty() && isspace((unsigned char)typed.back()))
+		typed.pop_back();
+	switch (purpose)
+	{
+	case KeyboardMemValue:
+		if (!typed.empty())
+			qm.memValueText = std::to_string(strtoul(typed.c_str(), nullptr, 0));
+		break;
+	case KeyboardSplitName:
+		ps5::speedrun::addSplit(typed);
+		break;
+	case KeyboardStartWhen:
+		if (typed.empty() || ps5::speedrun::validCondition(typed))
+			ps5::speedrun::setStartWhen(typed);
+		else
+			qm.toolNote = "A condition is: address, u8 or u16 or u32, ==, !=, >, <, >= or <=, number";
+		break;
+	case KeyboardSplitWhen:
+	{
+		auto& list = ps5::speedrun::splits();
+		if (qm.toolIndex < 0 || qm.toolIndex >= (int)list.size())
+			break;
+		if (typed.empty() || ps5::speedrun::validCondition(typed))
+			ps5::speedrun::setWhen((size_t)qm.toolIndex, typed);
+		else
+			qm.toolNote = "A condition is: address, u8 or u16 or u32, ==, !=, >, <, >= or <=, number";
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+// The Speedrun timer and Find in memory pages, in the quick menu's panel.
+void toolsPage(ImDrawList *dl, float px, float pw, float top)
+{
+	toolKeyboard();
+	if (qm.tool == 2 && timeNow > qm.memAt + 0.3)
+	{
+		qm.memResults = ps5::memsearch::searching() ? ps5::memsearch::results(40) : std::vector<ps5::memsearch::Result>();
+		qm.memAt = timeNow;
+	}
+	const std::vector<ToolRow> rows = qm.tool == 1 ? speedrunRows() : memoryRows();
+	const int n = (int)rows.size();
+	qm.toolFocus = std::clamp(qm.toolFocus, 0, std::max(0, n - 1));
+	if (in.up)
+		for (int i = qm.toolFocus - 1; i >= 0; i--)
+			if (!rows[i].info) { qm.toolFocus = i; break; }
+	if (in.down)
+		for (int i = qm.toolFocus + 1; i < n; i++)
+			if (!rows[i].info) { qm.toolFocus = i; break; }
+	if (in.l2) qm.toolFocus = std::max(0, qm.toolFocus - 8);
+	if (in.r2) qm.toolFocus = std::min(n - 1, qm.toolFocus + 8);
+	qm.toolFocus = std::clamp(qm.toolFocus, 0, std::max(0, n - 1));
+	const ToolRow *row = n > 0 ? &rows[qm.toolFocus] : nullptr;
+	qm.toolCross = row != nullptr && !row->info ? row->cross : "";
+	qm.toolSquare = row != nullptr ? row->square : "";
+	qm.toolTriangle = row != nullptr ? row->triangle : "";
+	if (row != nullptr && !row->info)
+	{
+		if (row->act && in.accept) row->act(0);
+		else if (row->act && in.left) row->act(-1);
+		else if (row->act && in.right) row->act(1);
+		if (row->onSquare && in.square) row->onSquare();
+		if (row->onTriangle && in.triangle) row->onTriangle();
+	}
+	if (in.back || in.options)
+		qm.tool = 0;
+
+	text(dl, bold(), 34, px + 48, top - 62, col::text,
+			qm.tool == 1 ? ICON_FA_STOPWATCH "   Speedrun timer" : ICON_FA_MAGNIFYING_GLASS "   Find in memory");
+	const float rowH = 66;
+	const float viewH = H - 96 - top;
+	const float visible = viewH / rowH;
+	const float target = std::clamp((float)qm.toolFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)n - visible));
+	qm.toolScroll = approach(qm.toolScroll, target, 18);
+	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	for (int i = 0; i < n; i++)
+	{
+		const float y = top + (i - qm.toolScroll) * rowH;
+		if (y > H || y + rowH < top - rowH)
+			continue;
+		const bool on = i == qm.toolFocus && !rows[i].info;
+		if (on)
+			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
+		const float right = px + pw - 60;
+		const ImVec2 vs = textSize(regular(), 24, rows[i].value.c_str());
+		const float valueW = std::min(vs.x, pw * 0.5f);
+		text(dl, rows[i].info ? regular() : bold(), rows[i].info ? 22 : 26, px + 56, y + 16,
+				rows[i].info ? col::faint : on ? col::text : col::dim,
+				fit(rows[i].info ? regular() : bold(), rows[i].info ? 22 : 26, rows[i].label, pw - 160 - valueW).c_str());
+		if (!rows[i].value.empty())
+		{
+			const std::string v = fit(regular(), 24, rows[i].value, pw * 0.5f);
+			const ImVec2 ls = textSize(regular(), 24, v.c_str());
+			text(dl, regular(), 24, right - ls.x, y + rowH / 2 - ls.y / 2 - 1, on ? col::text : col::faint, v.c_str());
+		}
+	}
+	dl->PopClipRect();
 }
 
 // How many options the running game has of its own.
@@ -7140,6 +7642,8 @@ void quickMenu()
 		qm.rewindAnim = 0;
 		qm.trophies = false;
 		qm.trophiesAnim = 0;
+		qm.tool = 0;
+		qm.toolAnim = 0;
 		// Asked once as the menu opens: every asking has the game's picture
 		// downloaded again while it is missing.
 		qm.trophiesActive = config::EnableAchievements && achievements::isActive();
@@ -7231,6 +7735,18 @@ void quickMenu()
 		cheats.stays = true;
 		items.push_back(cheats);
 	}
+	{
+		// The speedrun timer and the cheat search: tools for a game that runs.
+		const bool run = ps5::speedrun::state() == ps5::speedrun::Running;
+		QuickItem timer{ ICON_FA_STOPWATCH, "Speedrun timer", run ? ps5::speedrun::timeText(ps5::speedrun::elapsed()) : "", true,
+				[] { openTool(1); } };
+		timer.stays = true;
+		items.push_back(timer);
+		QuickItem search{ ICON_FA_MAGNIFYING_GLASS, "Find in memory", ps5::memsearch::searching()
+				? std::to_string(ps5::memsearch::count()) + " left" : "", true, [] { openTool(2); } };
+		search.stays = true;
+		items.push_back(search);
+	}
 	if (config::EnableAchievements)
 	{
 		QuickItem trophies{ ICON_FA_TROPHY, "Achievements", qm.trophiesDetail, qm.trophiesActive, [] { openAchievements(); } };
@@ -7300,7 +7816,8 @@ void quickMenu()
 	const bool onControls = qm.controls;
 	const bool onRewind = qm.rewind;
 	const bool onTrophies = qm.trophies;
-	const bool onPage = onCheats || onOptions || onControls || onRewind || onTrophies;
+	const bool onTools = qm.tool != 0;
+	const bool onPage = onCheats || onOptions || onControls || onRewind || onTrophies || onTools;
 	if (!onPage)
 	{
 		if (in.up) qm.focus = (qm.focus + n - 1) % n;
@@ -7327,13 +7844,14 @@ void quickMenu()
 	qm.controlsAnim = approach(qm.controlsAnim, qm.controls ? 1.f : 0.f, 16);
 	qm.rewindAnim = approach(qm.rewindAnim, qm.rewind ? 1.f : 0.f, 16);
 	qm.trophiesAnim = approach(qm.trophiesAnim, qm.trophies ? 1.f : 0.f, 16);
+	qm.toolAnim = approach(qm.toolAnim, qm.tool != 0 ? 1.f : 0.f, 16);
 
 	// ---- the paused game, dimmed
 	dl->AddRectFilled(V(0, 0), V(W, H), col::rgba(0, 0, 0, (int)(140 * t)));
 
 	// ---- the panel, sliding in from the right
 	// The pages are wider; the Rewind page, a short list, is not.
-	const float pw = 640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.controlsAnim, qm.trophiesAnim });
+	const float pw = 640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.controlsAnim, qm.trophiesAnim, qm.toolAnim });
 	const float px = W - pw * (0.15f + 0.85f * t) + (1 - t) * 0;
 	gradientH(dl, px - 120, 0, 120, H, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, (int)(120 * t)));
 	rect(dl, px, 0, pw, H, alpha(col::sheet, 0.97f * t));
@@ -7376,6 +7894,8 @@ void quickMenu()
 	}
 	else if (onTrophies)
 		achievementsPage(dl, px, pw, itemsTop + 70);
+	else if (onTools)
+		toolsPage(dl, px, pw, itemsTop + 70);
 	else
 	{
 	qm.focusAnim = approach(qm.focusAnim, (float)qm.focus, 22);
@@ -7472,6 +7992,16 @@ void quickMenu()
 		else if (onTrophies)
 		{
 			hint(Glyph::DPadUD, "Move");
+			hint(Glyph::Circle, "Back");
+		}
+		else if (onTools)
+		{
+			if (!qm.toolCross.empty())
+				hint(Glyph::Cross, qm.toolCross.c_str());
+			if (!qm.toolSquare.empty())
+				hint(Glyph::Square, qm.toolSquare.c_str());
+			if (!qm.toolTriangle.empty())
+				hint(Glyph::Triangle, qm.toolTriangle.c_str());
 			hint(Glyph::Circle, "Back");
 		}
 		else if (onControls && qm.listening >= 0)

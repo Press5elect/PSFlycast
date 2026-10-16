@@ -108,6 +108,29 @@ right.
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
+## In development: the next version
+
+Builds after v1.1.0 add the following. **None of it has run on a console
+yet**; it compiles, the picture shaders were checked offline with a
+validator, and the rest is read over. It is listed here so that the manual
+and this page say the same.
+
+- Picture: Sharp bilinear, NIS and CAS upscaling; Sharpening; Film grain;
+  Brightness, Contrast, Colour and Gamma, each for one game if wanted.
+- Interface size (100% to 130%), high contrast and colour-blind safe colours.
+- Turbo for the face buttons and the shoulder buttons, per game.
+- Mods: text files that change a game a feature at a time.
+- Find in memory, and a speedrun timer with splits (L3 and R3 together
+  start and split).
+- Forwarder arguments (`--rom`, `--exit-after-game`).
+- Achievements unlocked while the site cannot be reached are kept and sent
+  later; `PRIVACY.md` says what leaves the console.
+- A "What's new" notice with the release notes after PSFlyCast has updated
+  itself.
+- NIS and CAS are from NVIDIA and AMD (both MIT); their licences are in
+  `licenses/`. PSFlyCast's own files carry the additional term in
+  `licenses/psflycast/ADDITIONAL-TERMS.txt`: keep the credit to Press5elect.
+
 ## New in v1.1.0
 
 Status, above, says which of it has been run on a console.

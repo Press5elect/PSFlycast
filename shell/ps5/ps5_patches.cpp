@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - game patches: a 16:9 picture, 60 frames a second.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	<root>/patches/patches.txt lists, for a game and a region, the memory

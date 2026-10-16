@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - frame generation: pictures in between the game's own.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	A game that draws 30 pictures a second is shown twice each on a 60 Hz

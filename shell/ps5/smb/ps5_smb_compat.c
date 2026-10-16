@@ -2,7 +2,7 @@
  * PSFlyCast - what libsmb2 asks of libc that a title does not have, or
  * has in another shape.
  *
- * Copyright 2026 the PSFlyCast contributors
+ * Copyright 2026 Press5elect and the PSFlyCast contributors
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *
  * libsmb2's sources are compiled with these names in place of libc's

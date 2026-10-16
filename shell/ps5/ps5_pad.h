@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the DualSense, read through libScePad.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Up to four pads, one per signed-in user. The first is player 1 and drives
@@ -78,6 +78,12 @@ extern config::Option<int> StickAsDpad;
 enum { AimStick, AimTouch, AimMotion };
 extern config::Option<int> LightGunAim;
 extern config::Option<int> MotionAimDirection;
+
+// Turbo: the buttons (libScePad bits) that are pressed again and again while
+// held, and how fast: 0 slow (7 a second), 1 normal (10), 2 fast (15).
+// Settings, and a game can have its own.
+extern config::Option<int> TurboButtons;
+extern config::Option<int> TurboRate;
 
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();

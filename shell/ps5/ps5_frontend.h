@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the front end's own options and state.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
@@ -16,6 +16,18 @@
 namespace ps5
 {
 extern std::string rootDir;		// with a trailing '/'
+
+// What a forwarder (the PS5 Forwarder Format) or anything else that starts the
+// title asks for on the command line: `--rom <path or name>` starts that game
+// as soon as the library has found the games, and `--exit-after-game` closes
+// the title when that game is closed. Both are taken out of the arguments
+// Flycast reads, which would take the value for a game of its own.
+struct LaunchRequest
+{
+	std::string rom;
+	bool exitAfterGame = false;
+};
+extern LaunchRequest launchRequest;
 extern bool elevated;			// the sandbox was left (USB drives, /data)
 // Frame pacing, "Sync to display": the display's refresh paces the game, and
 // the sound follows it by resampling a little faster or slower (ps5_audio.cpp).
@@ -34,8 +46,21 @@ enum
 	UpscalingOff, UpscalingFsr, UpscalingFsrSharp, UpscalingFsrSoft,
 	UpscalingScanlines,		// 4: the game's 240 or 480 lines, as a tube draws them
 	UpscalingCrt,			// 5: and the tube's mask, glow and darker corners
+	UpscalingSharpBilinear,	// 6: each texel grown by the whole number of times it fits, only the steps blended
+	UpscalingNis,			// 7: NVIDIA Image Scaling
+	UpscalingCas,			// 8: AMD's Contrast Adaptive Sharpening, which scales as well
 };
 extern config::Option<int> Upscaling;
+// The picture's look, drawn with whatever the Upscaling is: the sharpening of
+// NIS and CAS (0 soft, 1 normal, 2 sharp), film grain (0 off, 1 light, 2 medium,
+// 3 strong) and the colours in per cent (100 is as the game made them).
+// Settings, and a game can have its own (ps5_fsr.cpp).
+extern config::Option<int> Sharpening;
+extern config::Option<int> FilmGrain;
+extern config::Option<int> Brightness;
+extern config::Option<int> Contrast;
+extern config::Option<int> Saturation;
+extern config::Option<int> Gamma;
 // "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
 // 0 off, 1 light, 2 full.
 extern config::Option<int> FrameGeneration;
@@ -72,6 +97,11 @@ struct Options
 	int accent = 0;
 	int backdrop = 0;
 	int motion = 0;
+	// Accessibility: the interface's size in percent (100 to 130), black behind
+	// the screens with brighter text, and blue and orange where green marks good.
+	int uiScale = 100;
+	bool highContrast = false;
+	bool colourBlind = false;
 	// Which of the port's own defaults were already written over the settings
 	// an earlier build saved: 1 native depth interpolation on (build 18), 2 a
 	// rumble pack in the controller's second slot (build 19), 3 UPnP off
@@ -200,6 +230,9 @@ void cancel();		// a download or an unpacking; not the last step
 void skip();
 // True once, when the check at start-up found a newer release that was not skipped.
 bool offerAtStart();
+// True once, at the first start after an update, when the check at start-up
+// found that this is the newest release: its notes say what the update brought.
+bool whatsNew();
 }
 
 namespace sound
@@ -403,6 +436,100 @@ std::string label(const std::string& fileName, const char *kind);
 std::string optionKey(const char *kind);
 }
 
+namespace memsearch
+{
+// Find in memory (ps5_tools.cpp): the classic cheat search over the running
+// game's main memory. Addresses are offsets from its start; the console shows
+// them as 8C000000 and up.
+enum Compare { Equal, NotEqual, Greater, Less, Changed, Unchanged, Increased, Decreased, CompareCount };
+const char *compareName(Compare how);
+bool compareNeedsValue(Compare how);
+void setSize(int bytes);	// 1, 2 or 4; ends the search
+int size();
+void begin();
+bool searching();
+void narrow(Compare how, u32 value);
+u64 count();
+int steps();
+struct Result
+{
+	u32 address, value, previous;
+};
+std::vector<Result> results(size_t most);
+u32 read(u32 address, int bytes);
+void write(u32 address, int bytes, u32 value);
+// A value held where it is, written again at every vertical blank.
+bool frozen(u32 address, int bytes);
+void freeze(u32 address, int bytes, bool on);
+int frozenCount();
+void unload();
+// The GameShark code that sets a place to a value ("00123456 00000063").
+std::string gameSharkCode(u32 address, int bytes, u32 value);
+std::string addressText(u32 address);
+void init();
+}
+
+namespace speedrun
+{
+// The speedrun timer (ps5_tools.cpp), per game: <root>/data/splits/<game id>.txt.
+struct Split
+{
+	std::string name;
+	std::string when;	// "0x8C07A3B4 u8 == 2", or empty: by hand
+	s64 best = -1;		// the personal best's time at this split, in ms from the start
+	s64 gold = -1;		// the fastest this segment was ever done, in ms
+	s64 time = -1;		// this run's time at it, or -1
+};
+enum State { Idle, Running, Finished };
+void init();
+void unload();
+void startOrSplit();
+void undo();
+void skip();
+void reset();
+void markPractice(const char *why);
+State state();
+s64 elapsed();
+size_t current();
+bool practice();
+const std::string& practiceReason();
+std::vector<Split>& splits();
+bool loaded();
+int clockMode();	// 0 game time, 1 real time
+void setClock(int mode);
+bool shown();
+void setShown(bool on);
+void addSplit(const std::string& name);
+void removeLast();
+void setWhen(size_t index, const std::string& condition);
+const std::string& startWhen();
+void setStartWhen(const std::string& condition);
+void forgetBest();
+bool validCondition(const std::string& condition);
+std::string timeText(s64 ms);
+std::string deltaText(s64 ms);
+// The timer on the picture, at the top right.
+void drawOsd(float fontSize, float inset);
+}
+
+namespace mods
+{
+// Mods (ps5_mods.cpp): text files in <root>/mods that change a game a feature
+// at a time. A feature is a switch among the game's options, kept in the
+// game's section of emu.cfg under its key.
+struct Entry
+{
+	const char *key;
+	const char *label;
+	const char *description;
+};
+void init();
+// The features of the mods that are for a game file.
+std::vector<Entry> forFile(const std::string& fileName);
+// "2 mods, 1 problem (boot log, "mods:")", or empty when there are none.
+std::string summary();
+}
+
 namespace cheats
 {
 void init();
@@ -428,6 +555,10 @@ void autoLoad();
 void select(const std::string& name);
 // The file the running game's cheats came from.
 std::string current();
+// Adds a cheat that sets a place in memory to a value to the game's own file
+// of found cheats ("Found - <title>.cht" in <root>/cheats), which Find in
+// memory makes; returns the file's name, or empty when it could not be written.
+std::string addFound(const std::string& description, unsigned address, int bytes, unsigned value);
 // Saves which cheats are on, in <root>/data/cheats/<game id>.txt.
 void saveStates();
 }

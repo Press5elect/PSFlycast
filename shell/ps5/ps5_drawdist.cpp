@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - objects from further away, for the Sonic Adventure games.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	"Object draw distance" in a game's options (ps5.drawdist in its section

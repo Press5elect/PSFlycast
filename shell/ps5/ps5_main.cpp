@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the title's entry point.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Start-up, in order:
@@ -45,6 +45,7 @@
 #include <cstring>
 #include <string>
 #include <thread>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -135,6 +136,12 @@ void loadOptions(const std::string& dir)
 			currentOptions.backdrop = std::max(0, value);
 		else if (!strcmp(key, "motion"))
 			currentOptions.motion = std::clamp(value, 0, 2);
+		else if (!strcmp(key, "ui_scale"))
+			currentOptions.uiScale = std::clamp(value, 100, 130);
+		else if (!strcmp(key, "high_contrast"))
+			currentOptions.highContrast = value != 0;
+		else if (!strcmp(key, "colour_blind"))
+			currentOptions.colourBlind = value != 0;
 	}
 	fclose(f);
 }
@@ -149,14 +156,15 @@ void saveOptions()
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
-			"show_hidden = %d\nrewind = %d\nsplash_last = %d\n",
+			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
 			(int)currentOptions.splash, (int)currentOptions.splashSound, (int)currentOptions.updateCheck,
 			(int)currentOptions.menuSounds, (int)currentOptions.lightBar, (int)currentOptions.usbInput,
 			(int)currentOptions.vrr, (int)currentOptions.notifications, (int)currentOptions.showHidden,
-			(int)currentOptions.rewind, currentOptions.splashLast);
+			(int)currentOptions.rewind, currentOptions.splashLast, currentOptions.uiScale,
+			(int)currentOptions.highContrast, (int)currentOptions.colourBlind);
 	fclose(f);
 }
 
@@ -423,6 +431,11 @@ static void probeStorage()
 	}
 }
 
+namespace ps5
+{
+LaunchRequest launchRequest;
+}
+
 int main(int argc, char *argv[])
 {
 	ps5::diag::installCrashHandler();
@@ -517,7 +530,31 @@ int main(int argc, char *argv[])
 		ps5::diag::mark("display: variable refresh asked for in the Settings (setenv %d)", set);
 	}
 	ps5::diag::mark("flycast_init");
-	if (flycast_init(argc, argv) != 0)
+	// A forwarder's arguments are taken here, and left out of what Flycast reads.
+	std::vector<char *> kept;
+	for (int i = 0; i < argc; i++)
+	{
+		if (i > 0 && !strcmp(argv[i], "--rom") && i + 1 < argc)
+		{
+			ps5::launchRequest.rom = argv[++i];
+			continue;
+		}
+		if (i > 0 && !strncmp(argv[i], "--rom=", 6))
+		{
+			ps5::launchRequest.rom = argv[i] + 6;
+			continue;
+		}
+		if (i > 0 && !strcmp(argv[i], "--exit-after-game"))
+		{
+			ps5::launchRequest.exitAfterGame = true;
+			continue;
+		}
+		kept.push_back(argv[i]);
+	}
+	if (!ps5::launchRequest.rom.empty() || ps5::launchRequest.exitAfterGame)
+		ps5::diag::mark("launch: --rom \"%s\"%s", ps5::launchRequest.rom.c_str(),
+				ps5::launchRequest.exitAfterGame ? ", --exit-after-game" : "");
+	if (flycast_init((int)kept.size(), kept.data()) != 0)
 	{
 		ps5::diag::mark("flycast_init failed");
 		fflush(nullptr);
@@ -614,11 +651,29 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 6;
 		ps5::saveOptions();
 	}
+	if (ps5::options().defaults < 7)
+	{
+		// The same for the picture's new settings (sharpening, film grain and
+		// the colours), which a game's own values are kept against.
+		SaveSettings();
+		ps5::options().defaults = 7;
+		ps5::saveOptions();
+	}
+	if (ps5::options().defaults < 8)
+	{
+		// And the turbo settings.
+		SaveSettings();
+		ps5::options().defaults = 8;
+		ps5::saveOptions();
+	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();
 	ps5::games::init();
 	ps5::patches::init();
+	ps5::mods::init();
+	ps5::memsearch::init();
+	ps5::speedrun::init();
 	ps5::drawdist::init();
 	ps5::rewind::init();
 	ps5::rewind::setEnabled(ps5::options().rewind);

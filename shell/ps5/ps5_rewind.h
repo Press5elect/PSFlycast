@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - rewind: going back a few seconds, or minutes, in the game.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	While a game runs, a snapshot of the whole machine is taken every few

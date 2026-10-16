@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - a link-time name for libSceCommonDialog.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The payload SDK has no import library for the console's common-dialog

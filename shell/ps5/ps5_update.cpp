@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - updating the title from its releases on GitHub.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	A release is a ZIP of the title's folder, published on the project's
@@ -641,6 +641,7 @@ Release found;
 std::atomic<bool> busy;
 std::atomic<bool> stop;
 bool offered;				// the start-up's offer was made, or is not to be
+bool justUpdated;			// this start is the first after an update was installed
 std::string ownTag;			// "v1.0.1" for a release's build, empty for a test build
 std::string buildLine;		// BUILD.txt's first line
 
@@ -883,6 +884,7 @@ void init()
 		diag::mark("update: %s was installed, and %s has started; the previous version's files (update/old) are deleted",
 				installed.c_str(), thisBuild().c_str());
 		removeTree(work);
+		justUpdated = true;
 	}
 	else if (exists(work))
 	{
@@ -945,6 +947,18 @@ void skip()
 		fclose(f);
 	}
 	diag::mark("update: %s will not be offered at start-up", tag.c_str());
+}
+
+bool whatsNew()
+{
+	if (!justUpdated)
+		return false;
+	const Status now = status();
+	if (now.phase == Phase::Checking || now.phase == Phase::Idle)
+		return false;		// not known yet
+	justUpdated = false;
+	// The newest release is this one: its notes are what the update brought.
+	return now.phase == Phase::UpToDate && isRelease() && !now.notes.empty();
 }
 
 bool offerAtStart()

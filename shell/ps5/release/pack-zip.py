@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Copyright 2026 the PSFlyCast contributors
+# Copyright 2026 Press5elect and the PSFlyCast contributors
 """PSFlyCast - pack a staged title folder into the release's ZIP.
 
     python3 shell/ps5/release/pack-zip.py build-ps5/dist/PPSA99247 OUT/PSFlyCast-v1.0.0.zip --date 2026-10-03

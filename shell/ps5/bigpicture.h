@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - a Big Picture style, controller-only interface.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Replaces Flycast's desktop screens on the console: the game library, the

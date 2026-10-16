@@ -3,7 +3,7 @@
 PSFlyCast - the red IMPORTANT WARNING banner at the top of the README and of
 each release's notes (shell/ps5/screenshots/important-warning.png).
 
-Copyright 2026 the PSFlyCast contributors
+Copyright 2026 Press5elect and the PSFlyCast contributors
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Drawn here, from nothing but the repository's own Roboto Bold (fonts/, Apache

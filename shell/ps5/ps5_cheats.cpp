@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - cheats from RetroArch .cht files.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Flycast's cheat manager reads RetroArch's cheat files (address, value,
@@ -383,6 +383,57 @@ void setEnabled(const std::string& gameId, const std::vector<std::string>& on)
 		fprintf(f, "%s\n", name.c_str());
 	fclose(f);
 	chmod(idFile(gameId).c_str(), 0666);
+}
+
+std::string addFound(const std::string& description, unsigned address, int bytes, unsigned value)
+{
+	// The game's own file of found cheats, in <root>/cheats, kept apart from the
+	// database's files. A cheat is a block of "cheatN_..." lines.
+	std::string title = settings.content.title.empty() ? get_file_basename(settings.content.fileName) : settings.content.title;
+	std::string safe;
+	for (char c : title)
+		safe += (isalnum((unsigned char)c) || c == ' ' || c == '-' || c == '_') ? c : '_';
+	if (safe.size() > 60)
+		safe.resize(60);
+	const std::string name = "Found - " + safe + ".cht";
+	const std::string path = cheatsDir() + name;
+	mkdir(cheatsDir().c_str(), 0777);
+	std::vector<std::string> kept;
+	int count = 0;
+	if (FILE *f = fopen(path.c_str(), "r"))
+	{
+		char line[1024];
+		while (fgets(line, sizeof(line), f) != nullptr)
+		{
+			std::string text(line);
+			while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+				text.pop_back();
+			if (text.compare(0, 6, "cheats") == 0 && text.find("_") == std::string::npos)
+				continue;
+			int n;
+			if (sscanf(text.c_str(), "cheat%d_desc", &n) == 1)
+				count = std::max(count, n + 1);
+			if (!text.empty())
+				kept.push_back(text);
+		}
+		fclose(f);
+	}
+	std::string clean;
+	for (char c : description)
+		clean += c == '"' ? '\'' : c;
+	const std::string prefix = "cheat" + std::to_string(count) + "_";
+	FILE *f = fopen(path.c_str(), "w");
+	if (f == nullptr)
+		return "";
+	fprintf(f, "cheats = %d\n", count + 1);
+	for (const std::string& line : kept)
+		fprintf(f, "%s\n", line.c_str());
+	fprintf(f, "%sdesc = \"%s\"\n%saddress = %u\n%scheat_type = 1\n%smemory_search_size = %d\n%svalue = %u\n%senable = false\n",
+			prefix.c_str(), clean.c_str(), prefix.c_str(), address, prefix.c_str(), prefix.c_str(),
+			bytes >= 4 ? 2 : bytes >= 2 ? 1 : 0, prefix.c_str(), value, prefix.c_str());
+	fclose(f);
+	chmod(path.c_str(), 0666);
+	return name;
 }
 
 void init()

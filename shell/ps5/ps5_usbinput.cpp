@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - a USB keyboard and a USB mouse, as the Dreamcast's.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	A keyboard or a mouse plugged into the console is read through

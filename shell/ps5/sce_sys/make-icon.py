@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright 2026 the PSFlyCast contributors
+# Copyright 2026 Press5elect and the PSFlyCast contributors
 """PSFlyCast - draws the title's icon, sce_sys/icon0.png.
 
     python3 shell/ps5/sce_sys/make-icon.py [Roboto-Bold.ttf]

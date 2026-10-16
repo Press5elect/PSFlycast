@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - how fast a game really runs.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	A frame counter says how many pictures a second reach the screen, which

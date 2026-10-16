@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - FSR 1 upscaling of the game's picture, and its picture filters.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The emulator draws a game at its internal resolution and stretches the
@@ -28,6 +28,7 @@
 #include "ps5_fsr_constants.h"
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
+#include "NIS_Config.h"
 #include "cfg/option.h"
 #include "hw/pvr/pvr_regs.h"
 #include "rend/vulkan/compiler.h"
@@ -46,13 +47,20 @@
 namespace ps5
 {
 config::Option<int> Upscaling("Upscaling", UpscalingOff, "ps5");
+config::Option<int> Sharpening("Sharpening", 1, "ps5");
+config::Option<int> FilmGrain("FilmGrain", 0, "ps5");
+config::Option<int> Brightness("Brightness", 100, "ps5");
+config::Option<int> Contrast("Contrast", 100, "ps5");
+config::Option<int> Saturation("Saturation", 100, "ps5");
+config::Option<int> Gamma("Gamma", 100, "ps5");
 }
 
 namespace ps5::fsr
 {
 // The filters' two values go on from where ps5_frontend.h's enum ends.
-static_assert((int)UpscalingScanlines == (int)UpscalingFsrSoft + 1 && (int)UpscalingCrt == (int)UpscalingScanlines + 1,
-		"the picture filters continue ps5::Upscaling's values");
+static_assert((int)UpscalingScanlines == (int)UpscalingFsrSoft + 1 && (int)UpscalingCrt == (int)UpscalingScanlines + 1
+		&& (int)UpscalingSharpBilinear == (int)UpscalingCrt + 1 && (int)UpscalingNis == (int)UpscalingSharpBilinear + 1
+		&& (int)UpscalingCas == (int)UpscalingNis + 1, "the picture filters continue ps5::Upscaling's values");
 
 namespace
 {
@@ -63,6 +71,13 @@ const char FfxA[] =
 ;
 const char FfxFsr1[] =
 #include "ffx_fsr1.inc"
+;
+const char FfxCas[] =
+#include "ffx_cas.inc"
+;
+// NVIDIA Image Scaling's compute shader (shell/ps5/nis, MIT).
+const char NisScaler[] =
+#include "NIS_Scaler.inc"
 ;
 
 // One triangle over the whole viewport.
@@ -111,6 +126,8 @@ layout (push_constant) uniform pushBlock
 {
 	uvec4 con;
 	ivec4 origin;		// of the picture, in the framebuffer
+	vec4 colour;		// the picture's look (lookTail)
+	vec4 grain;
 } pc;
 layout (location = 0) out vec4 FragColor;
 
@@ -129,7 +146,91 @@ void main()
 {
 	AF3 c;
 	FsrRcasF(c.r, c.g, c.b, AU2(ASU2(gl_FragCoord.xy) - pc.origin.xy), pc.con);
-	FragColor = vec4(c, 1.0);
+	FragColor = vec4(lookTail(c, pc.colour, pc.grain), 1.0);
+}
+)";
+
+// The picture's look, which every shader that puts the picture on the screen
+// ends with: colours (contrast about the middle, brightness, saturation, gamma;
+// 1 1 1 1 changes nothing) and a film grain: squares of a few screen pixels, a
+// new pattern every frame, strongest in the middle tones (where film's is) and
+// fainter in the blacks and whites. Two draws are added, a triangular spread,
+// which looks like grain and not like static.
+const char LookTail[] = R"(
+float lookHash(vec3 p)
+{
+	p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+	p += dot(p, p.yxz + 33.33);
+	return fract((p.x + p.y) * p.z);
+}
+
+vec3 lookTail(vec3 c, vec4 colour, vec4 grain)
+{
+	c = (c - 0.5) * colour.y + 0.5;
+	c *= colour.x;
+	c = mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, colour.z);
+	c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / colour.w));
+	if (grain.x > 0.0)
+	{
+		vec2 cell = floor(gl_FragCoord.xy / max(grain.y, 1.0));
+		float n = lookHash(vec3(cell, grain.z)) + lookHash(vec3(cell + 71.0, grain.z + 0.37)) - 1.0;
+		float luma = dot(c, vec3(0.299, 0.587, 0.114));
+		float midtone = 0.35 + 0.65 * (1.0 - abs(2.0 * luma - 1.0));
+		c = clamp(c + vec3(n) * grain.x * midtone, 0.0, 1.0);
+	}
+	return clamp(c, 0.0, 1.0);
+}
+)";
+
+// Sharp bilinear, CAS and the plain stretch, from the game's picture: LOOK_KIND
+// 0 the stretch (the screen's bilinear read), 1 sharp bilinear (each texel grown
+// by the whole number of times it fits, only the steps between them blended), 2
+// CAS, AMD's contrast adaptive sharpening, which scales the picture as it
+// sharpens it (LOOK_CAS_SCALE 1) or sharpens one already the size it has on
+// the screen (0).
+const char LookTop[] = R"(
+layout (set = 0, binding = 0) uniform sampler2D tex;
+layout (push_constant) uniform pushBlock
+{
+	vec2 origin;	// of the picture in the framebuffer, in pixels
+	vec2 size;		// of the picture there, in pixels
+	uvec4 const0;
+	uvec4 const1;
+	vec4 colour;
+	vec4 grain;
+} pc;
+layout (location = 0) out vec4 FragColor;
+
+#define A_GPU 1
+#define A_GLSL 1
+)";
+
+const char LookCasMain[] = R"(
+AF3 CasLoad(ASU2 p) { return texelFetch(tex, clamp(p, ASU2(0), textureSize(tex, 0) - ASU2(1)), 0).rgb; }
+void CasInput(inout AF1 r, inout AF1 g, inout AF1 b) {}
+)";
+
+const char LookBottom[] = R"(
+void main()
+{
+	vec2 uv = (gl_FragCoord.xy - pc.origin) / pc.size;
+	vec3 c;
+#if LOOK_KIND == 2
+	AF3 s;
+	CasFilter(s.r, s.g, s.b, AU2(ASU2(gl_FragCoord.xy) - ASU2(pc.origin)), pc.const0, pc.const1, LOOK_CAS_SCALE == 0);
+	c = s;
+#elif LOOK_KIND == 1
+	vec2 texSize = vec2(textureSize(tex, 0));
+	vec2 texel = uv * texSize;
+	vec2 scale = max(floor(pc.size / texSize), vec2(1.0));
+	vec2 centre = fract(texel) - 0.5;
+	vec2 region = 0.5 - 0.5 / scale;
+	texel = floor(texel) + (centre - clamp(centre, -region, region)) * scale + 0.5;
+	c = textureLod(tex, texel / texSize, 0.0).rgb;
+#else
+	c = textureLod(tex, uv, 0.0).rgb;
+#endif
+	FragColor = vec4(lookTail(c, pc.colour, pc.grain), 1.0);
 }
 )";
 
@@ -141,7 +242,34 @@ const char CrtSource[] =
 // The setting asks for one of the picture filters, not for FSR.
 bool isFilter(int mode)
 {
-	return mode == UpscalingScanlines || mode == UpscalingCrt;
+	return mode == UpscalingScanlines || mode == UpscalingCrt || mode == UpscalingSharpBilinear;
+}
+
+// The upscaling is FSR's EASU, into an image of its own, before the swapchain's pass.
+bool isFsr(int mode)
+{
+	return mode == UpscalingFsr || mode == UpscalingFsrSharp || mode == UpscalingFsrSoft;
+}
+
+// Film grain or other colours than the game's: the picture is drawn through
+// our own shader even with no filter chosen.
+bool lookWanted()
+{
+	return ps5::FilmGrain > 0 || ps5::Brightness != 100 || ps5::Contrast != 100 || ps5::Saturation != 100
+			|| ps5::Gamma != 100;
+}
+
+LookConstants currentLook(float outHeight)
+{
+	static unsigned frame;
+	return lookConstants(ps5::FilmGrain, ps5::Brightness, ps5::Contrast, ps5::Saturation, ps5::Gamma, outHeight, frame++);
+}
+
+// CAS's sharpness, from the setting.
+float casSharpness()
+{
+	static const float sharpness[3] = { 0.2f, 0.5f, 0.8f };
+	return sharpness[std::clamp((int)ps5::Sharpening, 0, 2)];
 }
 
 // How many lines the game's video mode makes a picture of: 240 when it is not
@@ -182,6 +310,24 @@ struct State
 	vk::RenderPass rcasRenderPass;		// the one rcasPipeline was made for
 	vk::UniquePipeline crtPipeline[2];
 	vk::RenderPass crtRenderPass[2];	// the one each was made for
+	// Sharp bilinear, CAS and the plain stretch: [kind][CAS scaling].
+	vk::UniquePipelineLayout lookLayout;
+	vk::UniqueShaderModule lookShader[3][2];
+	vk::UniquePipeline lookPipeline[3][2];
+	vk::RenderPass lookRenderPass[3][2];
+	std::vector<vk::UniqueDescriptorSet> lookSets;
+	int lookLogged = -1;
+	// NVIDIA Image Scaling: a compute pass, before the swapchain's, into an image of its own.
+	vk::UniqueDescriptorPool nisPool;
+	vk::UniqueDescriptorSetLayout nisSetLayout;
+	vk::UniquePipelineLayout nisLayout;
+	vk::UniqueShaderModule nisShader;
+	vk::UniquePipeline nisPipeline;
+	std::unique_ptr<FramebufferAttachment> nisTarget;
+	std::vector<vk::UniqueDescriptorSet> nisSets;
+	bool nisReady = false;		// the target holds this picture, scaled
+	vk::ImageView nisSource;
+	vk::Extent2D nisExtent;
 	vk::UniqueSampler sampler;
 	std::unique_ptr<FramebufferAttachment> target;
 	vk::UniqueFramebuffer framebuffer;
@@ -198,6 +344,7 @@ struct State
 
 std::unique_ptr<State> state;
 bool failed;		// until the next reset(): the emulator's own stretch is used
+bool nisFailed;		// the same, for NIS
 bool crtFailed;		// the same, for the picture filters
 
 VulkanContext *context()
@@ -296,7 +443,7 @@ void makeFsr()
 	s.easuShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
 			VulkanSource().addSource(EasuTop).addSource(FfxA).addSource(EasuMain).addSource(FfxFsr1).addSource(EasuBottom).generate());
 	s.rcasShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
-			VulkanSource().addSource(RcasTop).addSource(FfxA).addSource(RcasMain).addSource(FfxFsr1).addSource(RcasBottom).generate());
+			VulkanSource().addSource(RcasTop).addSource(FfxA).addSource(RcasMain).addSource(FfxFsr1).addSource(LookTail).addSource(RcasBottom).generate());
 	if (!s.easuShader || !s.rcasShader)
 		throw std::runtime_error("a shader did not compile");
 	s.easuPipeline = makePipeline(*s.vertexShader, *s.easuShader, *s.easuLayout, *s.easuPass);
@@ -318,7 +465,7 @@ vk::Pipeline filterPipeline(int tube, vk::RenderPass renderPass)
 	if (!s.crtShader[tube])
 	{
 		s.crtShader[tube] = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
-				VulkanSource().addConstant("CRT_TUBE", tube).addSource(CrtSource).generate());
+				VulkanSource().addConstant("CRT_TUBE", tube).addSource(LookTail).addSource(CrtSource).generate());
 		if (!s.crtShader[tube])
 			throw std::runtime_error("a shader did not compile");
 	}
@@ -328,6 +475,229 @@ vk::Pipeline filterPipeline(int tube, vk::RenderPass renderPass)
 		s.crtRenderPass[tube] = renderPass;
 	}
 	return *s.crtPipeline[tube];
+}
+
+// Sharp bilinear (kind 1), CAS (2) or the plain stretch (0) for this render
+// pass; scale: CAS scales the picture itself. Throws as makeState does.
+vk::Pipeline lookPipeline(int kind, int scale, vk::RenderPass renderPass)
+{
+	makeState();
+	State& s = *state;
+	if (!s.lookLayout)
+	{
+		vk::PushConstantRange range(vk::ShaderStageFlagBits::eFragment, 0, sizeof(LookShaderConstants));
+		s.lookLayout = context()->GetDevice().createPipelineLayoutUnique(
+				vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s.setLayout.get(), range));
+	}
+	if (!s.lookShader[kind][scale])
+	{
+		VulkanSource source;
+		source.addConstant("LOOK_KIND", kind).addConstant("LOOK_CAS_SCALE", scale).addSource(LookTop);
+		if (kind == 2)
+			source.addSource(FfxA).addSource(LookCasMain).addSource(FfxCas);
+		s.lookShader[kind][scale] = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eFragment,
+				source.addSource(LookTail).addSource(LookBottom).generate());
+		if (!s.lookShader[kind][scale])
+			throw std::runtime_error("a shader did not compile");
+	}
+	if (!s.lookPipeline[kind][scale] || s.lookRenderPass[kind][scale] != renderPass)
+	{
+		s.lookPipeline[kind][scale] = makePipeline(*s.vertexShader, *s.lookShader[kind][scale], *s.lookLayout, renderPass);
+		s.lookRenderPass[kind][scale] = renderPass;
+	}
+	return *s.lookPipeline[kind][scale];
+}
+
+// NVIDIA Image Scaling's shader: NIS_Scaler.h as it is, with its texture
+// reads given a combined image sampler and its two filter tables (a texel of
+// four numbers each, two to a phase) given as constant arrays made from
+// NIS_Config.h's, so that nothing but the picture, its answer and 112 bytes of
+// constants is bound.
+std::string nisTables()
+{
+	std::string text;
+	for (int table = 0; table < 2; table++)
+	{
+		text += table == 0 ? "const vec4 nisScalerCoef[128] = vec4[128](\n" : "const vec4 nisUsmCoef[128] = vec4[128](\n";
+		for (size_t phase = 0; phase < kPhaseCount; phase++)
+			for (int half = 0; half < 2; half++)
+			{
+				const float *row = table == 0 ? coef_scale[phase] : coef_usm[phase];
+				char item[160];
+				snprintf(item, sizeof(item), "vec4(%.9g, %.9g, %.9g, %.9g)%s\n", row[half * 4], row[half * 4 + 1],
+						row[half * 4 + 2], row[half * 4 + 3], phase == kPhaseCount - 1 && half == 1 ? "" : ",");
+				text += item;
+			}
+		text += ");\n";
+	}
+	return text;
+}
+
+std::string nisSource()
+{
+	std::string scaler = NisScaler;
+	auto replace = [&scaler](const std::string& from, const std::string& to) {
+		size_t at = scaler.find(from);
+		if (at == std::string::npos)
+			throw std::runtime_error("NIS_Scaler.h is not the version this was written for");
+		while (at != std::string::npos)
+		{
+			scaler.replace(at, from.size(), to);
+			at = scaler.find(from, at + to.size());
+		}
+	};
+	replace("NVTEX_LOAD(coef_scaler, NVI2(vIdx, phase))", "nisScalerCoef[phase * 2 + vIdx]");
+	replace("NVTEX_LOAD(coef_usm, NVI2(vIdx, phase))", "nisUsmCoef[phase * 2 + vIdx]");
+	replace("textureLod(sampler2D(x, sampler), pos, 0)", "textureLod(x, pos, 0)");
+	replace("textureGather(sampler2D(x, sampler), pos, 0)", "textureGather(x, pos, 0)");
+	replace("textureGather(sampler2D(x, sampler), pos, 1)", "textureGather(x, pos, 1)");
+	replace("textureGather(sampler2D(x, sampler), pos, 2)", "textureGather(x, pos, 2)");
+	static const char Declarations[] = R"(
+layout (push_constant) uniform pushBlock
+{
+	float kDetectRatio;
+	float kDetectThres;
+	float kMinContrastRatio;
+	float kRatioNorm;
+
+	float kContrastBoost;
+	float kEps;
+	float kSharpStartY;
+	float kSharpScaleY;
+
+	float kSharpStrengthMin;
+	float kSharpStrengthScale;
+	float kSharpLimitMin;
+	float kSharpLimitScale;
+
+	float kScaleX;
+	float kScaleY;
+	float kDstNormX;
+	float kDstNormY;
+	float kSrcNormX;
+	float kSrcNormY;
+
+	uint kInputViewportOriginX;
+	uint kInputViewportOriginY;
+	uint kInputViewportWidth;
+	uint kInputViewportHeight;
+
+	uint kOutputViewportOriginX;
+	uint kOutputViewportOriginY;
+	uint kOutputViewportWidth;
+	uint kOutputViewportHeight;
+
+	float reserved0;
+	float reserved1;
+};
+layout (set = 0, binding = 0) uniform sampler2D in_texture;
+layout (set = 0, binding = 1, rgba8) uniform writeonly image2D out_texture;
+)";
+	static const char Main[] = R"(
+layout (local_size_x = NIS_THREAD_GROUP_SIZE) in;
+void main()
+{
+	NVScaler(gl_WorkGroupID.xy, gl_LocalInvocationID.x);
+}
+)";
+	return VulkanSource().addConstant("NIS_GLSL", 1).addConstant("NIS_SCALER", 1).addConstant("NIS_USE_HALF_PRECISION", 0)
+			.addSource(Declarations).addSource(nisTables()).addSource(scaler).addSource(Main).generate();
+}
+
+// The compute pipeline and what it binds. Throws as makeState does.
+void makeNis()
+{
+	makeState();
+	State& s = *state;
+	if (s.nisPipeline)
+		return;
+	const vk::Device device = context()->GetDevice();
+	std::array<vk::DescriptorSetLayoutBinding, 2> bindings = {
+			vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eCompute),
+			vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eStorageImage, 1, vk::ShaderStageFlagBits::eCompute) };
+	s.nisSetLayout = device.createDescriptorSetLayoutUnique(
+			vk::DescriptorSetLayoutCreateInfo(vk::DescriptorSetLayoutCreateFlags(), bindings));
+	// A pool of its own: the context's has too few storage images to share.
+	std::array<vk::DescriptorPoolSize, 2> sizes = { vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, 8),
+			vk::DescriptorPoolSize(vk::DescriptorType::eStorageImage, 8) };
+	s.nisPool = device.createDescriptorPoolUnique(vk::DescriptorPoolCreateInfo(
+			vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet, 8, sizes));
+	vk::PushConstantRange range(vk::ShaderStageFlagBits::eCompute, 0, offsetof(NISConfig, reserved1) + sizeof(float));
+	s.nisLayout = device.createPipelineLayoutUnique(
+			vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), s.nisSetLayout.get(), range));
+	s.nisShader = ShaderCompiler::TryCompile(vk::ShaderStageFlagBits::eCompute, nisSource());
+	if (!s.nisShader)
+		throw std::runtime_error("the NIS shader did not compile");
+	s.nisPipeline = device.createComputePipelineUnique(context()->GetPipelineCache(),
+			vk::ComputePipelineCreateInfo(vk::PipelineCreateFlags(),
+					vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eCompute,
+							*s.nisShader, "main"), *s.nisLayout)).value;
+	ps5::diag::mark("nis: ready");
+}
+
+// NVIDIA Image Scaling from view (in: the picture, all of its image) into the
+// NIS target (out), by a compute pass recorded outside a render pass.
+// Throws as makeState does.
+void runNis(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::ImageView original, const vk::Extent2D& in,
+		const vk::Extent2D& out)
+{
+	makeNis();
+	State& s = *state;
+	const vk::Device device = context()->GetDevice();
+	if (!s.nisTarget || s.nisTarget->getExtent() != out)
+	{
+		s.nisReady = false;
+		if (s.nisTarget)
+			context()->WaitIdle();
+		s.nisSets.clear();
+		s.nisTarget.reset();
+		auto target = std::make_unique<FramebufferAttachment>(context()->GetPhysicalDevice(), device);
+		target->Init(out.width, out.height, vk::Format::eR8G8B8A8Unorm,
+				vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled, "NIS target");
+		s.nisTarget = std::move(target);
+		ps5::diag::mark("nis: a target of %u x %u", out.width, out.height);
+	}
+	NISConfig config{};
+	static const float strength[3] = { 0.15f, 0.5f, 0.85f };
+	if (!NVScalerUpdateConfig(config, strength[std::clamp((int)ps5::Sharpening, 0, 2)], 0, 0, in.width, in.height, in.width,
+			in.height, 0, 0, out.width, out.height, out.width, out.height))
+		throw std::runtime_error("NIS does not scale that far");
+	const unsigned index = (unsigned)context()->GetCurrentImageIndex();
+	if (index >= s.nisSets.size())
+		s.nisSets.resize(index + 1);
+	if (!s.nisSets[index])
+		s.nisSets[index] = std::move(device.allocateDescriptorSetsUnique(
+				vk::DescriptorSetAllocateInfo(*s.nisPool, s.nisSetLayout.get())).front());
+	vk::DescriptorImageInfo input(*s.sampler, view, vk::ImageLayout::eShaderReadOnlyOptimal);
+	vk::DescriptorImageInfo output({}, s.nisTarget->GetImageView(), vk::ImageLayout::eGeneral);
+	std::array<vk::WriteDescriptorSet, 2> writes = {
+			vk::WriteDescriptorSet(*s.nisSets[index], 0, 0, vk::DescriptorType::eCombinedImageSampler, input),
+			vk::WriteDescriptorSet(*s.nisSets[index], 1, 0, vk::DescriptorType::eStorageImage, output) };
+	device.updateDescriptorSets(writes, nullptr);
+	// The picture it reads was drawn by a render pass; the image it writes was read a frame ago.
+	vk::MemoryBarrier drawn(vk::AccessFlagBits::eColorAttachmentWrite | vk::AccessFlagBits::eShaderWrite,
+			vk::AccessFlagBits::eShaderRead);
+	vk::ImageMemoryBarrier toWrite(vk::AccessFlagBits::eShaderRead, vk::AccessFlagBits::eShaderWrite,
+			vk::ImageLayout::eUndefined, vk::ImageLayout::eGeneral, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+			s.nisTarget->GetImage(), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+	commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput | vk::PipelineStageFlagBits::eFragmentShader
+			| vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eComputeShader, {}, drawn, nullptr, toWrite);
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, *s.nisPipeline);
+	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *s.nisLayout, 0, *s.nisSets[index], nullptr);
+	commandBuffer.pushConstants(*s.nisLayout, vk::ShaderStageFlagBits::eCompute, 0,
+			offsetof(NISConfig, reserved1) + sizeof(float), &config);
+	// NIS_Scaler.h's blocks: 32 x 24 pixels each.
+	commandBuffer.dispatch((out.width + 31) / 32, (out.height + 23) / 24, 1);
+	vk::ImageMemoryBarrier toRead(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead, vk::ImageLayout::eGeneral,
+			vk::ImageLayout::eShaderReadOnlyOptimal, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED,
+			s.nisTarget->GetImage(), vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
+	commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader, vk::PipelineStageFlagBits::eFragmentShader, {},
+			nullptr, nullptr, toRead);
+	if (!s.nisReady || s.nisExtent != in)
+		ps5::diag::mark("nis: %u x %u to %u x %u", in.width, in.height, out.width, out.height);
+	s.nisReady = true;
+	s.nisSource = original;
+	s.nisExtent = in;
 }
 
 // The image the picture is upscaled into, of the size it has on the screen.
@@ -378,13 +748,71 @@ void fail(const char *where, const char *what)
 	WARN_LOG(RENDERER, "FSR: %s failed: %s", where, what);
 }
 
+// The picture drawn by our look shader (kinds as lookPipeline has them), from
+// view, or from the FSR target when CAS is to sharpen what that made. False
+// when it cannot be, and the caller draws it the usual way.
+bool drawLook(vk::CommandBuffer commandBuffer, int kind, int scale, vk::ImageView view, const vk::Extent2D& extent,
+		vk::RenderPass renderPass, const vk::Rect2D& region, int shiftX, int shiftY)
+{
+	if (crtFailed || config::Rotate90 || !view || region.extent.width == 0 || region.extent.height == 0)
+		return false;
+	const int left = region.offset.x + shiftX, top = region.offset.y + shiftY;
+	const int width = (int)region.extent.width, height = (int)region.extent.height;
+	const int x0 = std::max(left, region.offset.x), y0 = std::max(top, region.offset.y);
+	const int x1 = std::min(left, region.offset.x) + width, y1 = std::min(top, region.offset.y) + height;
+	if (x1 <= x0 || y1 <= y0)
+		return true;		// shifted out of sight
+	vk::Pipeline pipeline;
+	vk::DescriptorSet set;
+	try {
+		pipeline = lookPipeline(kind, scale, renderPass);
+		set = descriptorSet(state->lookSets, view);
+	} catch (const std::exception& e) {
+		crtFailed = true;
+		ps5::diag::mark("look: failed (%s): the picture is stretched the usual way", e.what());
+		WARN_LOG(RENDERER, "Picture look failed: %s", e.what());
+		return false;
+	}
+	State& s = *state;
+	LookShaderConstants constants{};
+	constants.origin[0] = (float)left;
+	constants.origin[1] = (float)top;
+	constants.size[0] = (float)width;
+	constants.size[1] = (float)height;
+	constants.look = currentLook((float)height);
+	if (kind == 2)
+	{
+		// The picture CAS reads is the game's (scaled by CAS itself) or the FSR target (already its size).
+		const float inW = scale != 0 ? (float)extent.width : (float)width;
+		const float inH = scale != 0 ? (float)extent.height : (float)height;
+		casConstants(constants.const0, constants.const1, casSharpness(), inW, inH, (float)width, (float)height);
+	}
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	commandBuffer.setViewport(0, vk::Viewport((float)left, (float)top, (float)width, (float)height, 0.f, 1.f));
+	commandBuffer.setScissor(0, vk::Rect2D({ x0, y0 }, { (u32)(x1 - x0), (u32)(y1 - y0) }));
+	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *s.lookLayout, 0, set, nullptr);
+	commandBuffer.pushConstants(*s.lookLayout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants), &constants);
+	commandBuffer.draw(3, 1, 0, 0);
+	const int said = kind * 4 + scale * 2 + (ps5::FilmGrain > 0 ? 1 : 0);
+	if (s.lookLogged != said)
+	{
+		s.lookLogged = said;
+		ps5::diag::mark("look: %s%s%s, %d x %d", kind == 2 ? (scale ? "CAS" : "CAS on the FSR picture")
+				: kind == 1 ? "sharp bilinear" : "plain stretch", ps5::FilmGrain > 0 ? ", film grain" : "",
+				lookWanted() ? ", colours" : "", width, height);
+	}
+	return true;
+}
+
 // The picture through one of the two filters: present, for them.
-bool presentFiltered(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass renderPass, const vk::Rect2D& region,
-		int shiftX, int shiftY)
+bool presentFiltered(vk::CommandBuffer commandBuffer, vk::ImageView view, const vk::Extent2D& extent, vk::RenderPass renderPass,
+		const vk::Rect2D& region, int shiftX, int shiftY)
 {
 	// A picture turned on its side is left to the emulator's own stretch, as with FSR.
 	if (crtFailed || config::Rotate90 || !view || region.extent.width == 0 || region.extent.height == 0)
 		return false;
+	if (ps5::Upscaling == UpscalingSharpBilinear)
+		return drawLook(commandBuffer, 1, 0, view, extent, renderPass, region, shiftX, shiftY);
 	const int tube = ps5::Upscaling == UpscalingCrt ? 1 : 0;
 	// The picture, moved by the game's own shift, inside its part of the screen.
 	const int left = region.offset.x + shiftX, top = region.offset.y + shiftY;
@@ -405,7 +833,8 @@ bool presentFiltered(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::Re
 		return false;
 	}
 	State& s = *state;
-	const CrtConstants constants = crtConstants(tube != 0, (float)left, (float)top, (float)width, (float)height, gameLines());
+	CrtConstants constants = crtConstants(tube != 0, (float)left, (float)top, (float)width, (float)height, gameLines());
+	constants.look = currentLook((float)height);
 	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 	commandBuffer.setViewport(0, vk::Viewport((float)left, (float)top, (float)width, (float)height, 0.f, 1.f));
 	commandBuffer.setScissor(0, vk::Rect2D({ x0, y0 }, { (u32)(x1 - x0), (u32)(y1 - y0) }));
@@ -428,51 +857,100 @@ void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, co
 		const vk::Rect2D& region)
 {
 	// (The picture filters read the picture itself, in present.)
-	const bool wanted = ps5::Upscaling != UpscalingOff && !isFilter(ps5::Upscaling) && !failed && !config::Rotate90 && view
-			&& extent.width > 0 && extent.height > 0
+	const int mode = ps5::Upscaling;
+	const bool bigger = !config::Rotate90 && view && extent.width > 0 && extent.height > 0
 			&& extent.width < region.extent.width && extent.height < region.extent.height;
-	if (!wanted)
+	// NIS scales by at most twice each way; beyond that FSR's EASU stretches first and NIS sharpens that.
+	const bool nis = mode == UpscalingNis && !nisFailed && bigger;
+	const bool nisDirect = nis && region.extent.width <= 2 * extent.width && region.extent.height <= 2 * extent.height;
+	// FSR's own stretch, or for CAS (which scales only up to 4 times the area itself) the same under it.
+	const bool easu = isFsr(mode) || (mode == UpscalingCas
+			&& !casCanScale((float)extent.width, (float)extent.height, (float)region.extent.width, (float)region.extent.height))
+			|| (nis && !nisDirect);
+	const bool wanted = easu && !failed && bigger;
+	if (!wanted && !nisDirect)
 	{
 		if (state)
+		{
 			state->ready = false;
+			state->nisReady = false;
+		}
 		return;
 	}
+	if (nis && state && !fresh && state->nisReady && state->nisSource == view && state->nisExtent == extent && state->nisTarget
+			&& state->nisTarget->getExtent() == region.extent)
+		return;		// the same picture, presented again
 	vk::DescriptorSet set;
-	try {
-		makeFsr();
-		makeTarget(region.extent);
+	if (wanted)
+	{
+		try {
+			makeFsr();
+			makeTarget(region.extent);
+			State& s = *state;
+			if (!nis && !fresh && s.ready && s.source == view && s.sourceExtent == extent)
+				return;		// the same picture, presented again
+			set = descriptorSet(s.easuSets, view);
+		} catch (const std::exception& e) {
+			fail("the upscale", e.what());
+			return;
+		}
 		State& s = *state;
-		if (!fresh && s.ready && s.source == view && s.sourceExtent == extent)
-			return;		// the same picture, presented again
-		set = descriptorSet(s.easuSets, view);
-	} catch (const std::exception& e) {
-		fail("the upscale", e.what());
-		return;
+		const vk::Extent2D out = region.extent;
+		commandBuffer.beginRenderPass(vk::RenderPassBeginInfo(*s.easuPass, *s.framebuffer, vk::Rect2D({ 0, 0 }, out)),
+				vk::SubpassContents::eInline);
+		commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *s.easuPipeline);
+		commandBuffer.setViewport(0, vk::Viewport(0.f, 0.f, (float)out.width, (float)out.height, 0.f, 1.f));
+		commandBuffer.setScissor(0, vk::Rect2D({ 0, 0 }, out));
+		commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *s.easuLayout, 0, set, nullptr);
+		const EasuConstants constants = easuConstants((float)extent.width, (float)extent.height, (float)out.width, (float)out.height);
+		commandBuffer.pushConstants(*s.easuLayout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants), &constants);
+		commandBuffer.draw(3, 1, 0, 0);
+		commandBuffer.endRenderPass();
+		if (!s.ready || s.sourceExtent != extent)
+			ps5::diag::mark("fsr: %u x %u to %u x %u", extent.width, extent.height, out.width, out.height);
+		s.ready = true;
+		s.source = view;
+		s.sourceExtent = extent;
 	}
-	State& s = *state;
-	const vk::Extent2D out = region.extent;
-	commandBuffer.beginRenderPass(vk::RenderPassBeginInfo(*s.easuPass, *s.framebuffer, vk::Rect2D({ 0, 0 }, out)),
-			vk::SubpassContents::eInline);
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *s.easuPipeline);
-	commandBuffer.setViewport(0, vk::Viewport(0.f, 0.f, (float)out.width, (float)out.height, 0.f, 1.f));
-	commandBuffer.setScissor(0, vk::Rect2D({ 0, 0 }, out));
-	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *s.easuLayout, 0, set, nullptr);
-	const EasuConstants constants = easuConstants((float)extent.width, (float)extent.height, (float)out.width, (float)out.height);
-	commandBuffer.pushConstants(*s.easuLayout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants), &constants);
-	commandBuffer.draw(3, 1, 0, 0);
-	commandBuffer.endRenderPass();
-	if (!s.ready || s.sourceExtent != extent)
-		ps5::diag::mark("fsr: %u x %u to %u x %u", extent.width, extent.height, out.width, out.height);
-	s.ready = true;
-	s.source = view;
-	s.sourceExtent = extent;
+	if (nis)
+	{
+		try {
+			// Straight from the game's picture, or from the EASU target that stretched it.
+			if (nisDirect)
+				runNis(commandBuffer, view, view, extent, region.extent);
+			else
+				runNis(commandBuffer, state->target->GetImageView(), view, region.extent, region.extent);
+		} catch (const std::exception& e) {
+			nisFailed = true;
+			if (state)
+				state->nisReady = false;
+			ps5::diag::mark("nis: failed (%s): the picture is drawn the usual way", e.what());
+			WARN_LOG(RENDERER, "NIS failed: %s", e.what());
+		}
+	}
 }
 
-bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass renderPass, const vk::Rect2D& region,
-		int shiftX, int shiftY)
+bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, const vk::Extent2D& extent, vk::RenderPass renderPass,
+		const vk::Rect2D& region, int shiftX, int shiftY)
 {
 	if (isFilter(ps5::Upscaling))
-		return presentFiltered(commandBuffer, view, renderPass, region, shiftX, shiftY);
+		return presentFiltered(commandBuffer, view, extent, renderPass, region, shiftX, shiftY);
+	if (ps5::Upscaling == UpscalingCas || ps5::Upscaling == UpscalingNis || (ps5::Upscaling == UpscalingOff && lookWanted()))
+	{
+		// CAS scales the picture itself where it can; otherwise it sharpens the FSR target, if there is one.
+		if (ps5::Upscaling == UpscalingCas)
+		{
+			if (casCanScale((float)extent.width, (float)extent.height, (float)region.extent.width, (float)region.extent.height))
+				return drawLook(commandBuffer, 2, 1, view, extent, renderPass, region, shiftX, shiftY);
+			if (state && state->ready && !failed && state->source == view && state->target
+					&& state->target->getExtent() == region.extent)
+				return drawLook(commandBuffer, 2, 0, state->target->GetImageView(), region.extent, renderPass, region, shiftX, shiftY);
+		}
+		if (ps5::Upscaling == UpscalingNis && state && state->nisReady && !nisFailed && state->nisSource == view
+				&& state->nisTarget && state->nisTarget->getExtent() == region.extent)
+			return drawLook(commandBuffer, 0, 0, state->nisTarget->GetImageView(), region.extent, renderPass, region, shiftX, shiftY);
+		return drawLook(commandBuffer, 0, 0, view, extent, renderPass, region, shiftX, shiftY);
+	}
 	if (!state || !state->ready || failed || ps5::Upscaling == UpscalingOff || state->source != view
 			|| !state->target || state->target->getExtent() != region.extent)
 		return false;
@@ -500,7 +978,8 @@ bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass
 	commandBuffer.setViewport(0, vk::Viewport((float)left, (float)top, (float)width, (float)height, 0.f, 1.f));
 	commandBuffer.setScissor(0, vk::Rect2D({ x0, y0 }, { (u32)(x1 - x0), (u32)(y1 - y0) }));
 	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *s.rcasLayout, 0, set, nullptr);
-	const RcasConstants constants = rcasConstants(sharpnessStops(), left, top);
+	RcasConstants constants = rcasConstants(sharpnessStops(), left, top);
+	constants.look = currentLook((float)height);
 	commandBuffer.pushConstants(*s.rcasLayout, vk::ShaderStageFlagBits::eFragment, 0, sizeof(constants), &constants);
 	commandBuffer.draw(3, 1, 0, 0);
 	return true;
@@ -510,6 +989,7 @@ void reset()
 {
 	state.reset();
 	failed = false;
+	nisFailed = false;
 	crtFailed = false;
 }
 

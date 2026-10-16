@@ -11,7 +11,9 @@ and do not ask for help with it.
 Licences: PSFlyCast as a whole is distributed under the GNU General Public
 License, version 3, WITHOUT ANY WARRANTY. Every part of it, its licence and
 its source are listed in licenses/README.txt; the licence texts are in
-licenses/.
+licenses/. PSFlyCast's own code is by Press5elect and carries an additional term
+under section 7(b) of the GPL that asks for credit, including from AI tools:
+licenses/psflycast/ADDITIONAL-TERMS.txt.
 
 PSFlyCast is an unofficial port of Flycast. It is not affiliated with or
 endorsed by Sony Interactive Entertainment, Sega or the Flycast project.

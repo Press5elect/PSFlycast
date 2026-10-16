@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - cover downloads.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-3.0-or-later
 
 	A game with no cover gets one from the libretro thumbnails collection
@@ -980,6 +980,101 @@ int get(const std::string& url, std::vector<u8>& content, const Headers *reqHead
 	return status;
 }
 
+// The achievements that could not be sent. An unlock or a leaderboard entry
+// made while the server cannot be reached is kept in data/achievements-unsent.txt
+// (one request a line: address, content type, form) if the title closes before
+// the client sent it, and sent when the server next answers. The server takes
+// an unlock it already has without harm. The file has the sign-in key in it
+// (the forms carry it), and is for the title alone.
+namespace
+{
+std::mutex unsentMutex;
+
+std::string unsentPath()
+{
+	return ps5::rootDir + "data/achievements-unsent.txt";
+}
+
+bool unsentKind(const std::string& url, const char *payload)
+{
+	return payload != nullptr && url.find("retroachievements.org") != std::string::npos
+			&& (strstr(payload, "r=awardachievement") != nullptr || strstr(payload, "r=submitlbentry") != nullptr);
+}
+
+void unsentKeep(const std::string& url, const std::string& contentType, const std::string& form)
+{
+	std::lock_guard<std::mutex> lock(unsentMutex);
+	std::vector<std::string> lines;
+	if (FILE *f = fopen(unsentPath().c_str(), "r"))
+	{
+		char line[4096];
+		while (fgets(line, sizeof(line), f) != nullptr)
+		{
+			std::string text = line;
+			while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+				text.pop_back();
+			if (!text.empty())
+				lines.push_back(text);
+		}
+		fclose(f);
+	}
+	const std::string entry = url + "\t" + contentType + "\t" + form;
+	if (std::find(lines.begin(), lines.end(), entry) == lines.end())
+		lines.push_back(entry);
+	if (lines.size() > 200)
+		lines.erase(lines.begin(), lines.end() - 200);
+	if (FILE *f = fopen(unsentPath().c_str(), "w"))
+	{
+		for (const std::string& line : lines)
+			fprintf(f, "%s\n", line.c_str());
+		fclose(f);
+		chmod(unsentPath().c_str(), 0600);
+	}
+	ps5::diag::mark("achievements: the server did not answer; %d unsent request(s) kept", (int)lines.size());
+}
+
+// Sent when the server answers: what stays unsent stays in the file.
+void unsentSend(int (*send)(const std::string&, const char *, const char *, std::vector<u8>&))
+{
+	std::vector<std::string> lines;
+	{
+		std::lock_guard<std::mutex> lock(unsentMutex);
+		if (FILE *f = fopen(unsentPath().c_str(), "r"))
+		{
+			char line[4096];
+			while (fgets(line, sizeof(line), f) != nullptr)
+			{
+				std::string text = line;
+				while (!text.empty() && (text.back() == '\n' || text.back() == '\r'))
+					text.pop_back();
+				if (!text.empty())
+					lines.push_back(text);
+			}
+			fclose(f);
+		}
+		if (lines.empty())
+			return;
+		unlink(unsentPath().c_str());
+	}
+	int sent = 0;
+	for (const std::string& line : lines)
+	{
+		const size_t a = line.find('\t');
+		const size_t b = a == std::string::npos ? a : line.find('\t', a + 1);
+		if (b == std::string::npos)
+			continue;
+		const std::string url = line.substr(0, a), type = line.substr(a + 1, b - a - 1), form = line.substr(b + 1);
+		std::vector<u8> reply;
+		const int status = send(url, form.c_str(), type.c_str(), reply);
+		if (status == 200)
+			sent++;
+		else
+			unsentKeep(url, type, form);
+	}
+	ps5::diag::mark("achievements: %d of %d kept request(s) sent", sent, (int)lines.size());
+}
+}
+
 // What is posted, and the answer whatever its status: a service's own error
 // is in it (the achievements' server).
 int post(const std::string& url, const char *payload, const char *contentType, std::vector<u8>& reply)
@@ -987,12 +1082,28 @@ int post(const std::string& url, const char *payload, const char *contentType, s
 	const size_t size = payload != nullptr ? strlen(payload) : 0;
 	Headers headers{ { "Content-Type", contentType != nullptr ? contentType : "application/x-www-form-urlencoded" },
 			{ "User-Agent", ps5::net::userAgent() } };
-	std::lock_guard<std::mutex> lock(ps5::covers::httpMutex);
-	const int status = ps5::covers::client.request("POST", url, headers, payload, size, reply, 30, true);
+	int status;
+	{
+		std::lock_guard<std::mutex> lock(ps5::covers::httpMutex);
+		status = ps5::covers::client.request("POST", url, headers, payload, size, reply, 30, true);
+	}
 	if (status < 0)
 	{
 		reply.clear();
-		return 503;
+		status = 503;
+	}
+	// The server did not answer: what it was to be told is kept for later.
+	if (status >= 500 && unsentKind(url, payload))
+		unsentKeep(url, contentType != nullptr ? contentType : "application/x-www-form-urlencoded", payload);
+	// It answers: what was kept is sent (not from within a send of the kept).
+	else if (status == 200 && url.find("retroachievements.org") != std::string::npos)
+	{
+		static std::atomic<bool> sending{false};
+		if (!sending.exchange(true))
+		{
+			unsentSend(post);
+			sending = false;
+		}
 	}
 	return status;
 }

@@ -1441,7 +1441,7 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
 #ifdef USE_PS5
 	// The picture upscaled by FSR, where there is one of this frame (ps5_fsr.cpp).
-	if (ps5::fsr::present(commandBuffer, imageView, *renderPass,
+	if (ps5::fsr::present(commandBuffer, imageView, extent, *renderPass,
 			vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)),
 			(int)std::lround(shiftX * (width - dx * 2) / (float)extent.width),
 			(int)std::lround(shiftY * (height - dy * 2) / (float)extent.height)))

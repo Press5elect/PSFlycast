@@ -2,7 +2,7 @@
 	PSFlyCast - FSR 1 upscaling of the game's picture, and its picture filters
 	(ps5_fsr.cpp).
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 */
 #pragma once
@@ -23,8 +23,8 @@ void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, co
 // region, moved by (shiftX, shiftY) pixels; or, with a picture filter, draws
 // view itself through it. False when there is none of this picture (or the
 // filter cannot be used): the caller draws it its usual way.
-bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, vk::RenderPass renderPass, const vk::Rect2D& region,
-		int shiftX, int shiftY);
+bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, const vk::Extent2D& extent, vk::RenderPass renderPass,
+		const vk::Rect2D& region, int shiftX, int shiftY);
 
 // Everything is let go: the swapchain is made again, or the device goes.
 void reset();

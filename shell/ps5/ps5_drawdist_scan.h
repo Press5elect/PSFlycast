@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - finding a game's object tables in its memory.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	Sonic Adventure and Sonic Adventure 2 decide by distance which of a

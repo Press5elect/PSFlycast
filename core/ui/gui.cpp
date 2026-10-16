@@ -1648,6 +1648,10 @@ void gui_draw_osd()
 				dl->AddText(nullptr, uiLargeFontSize(), pos, col, &message.front(), &message.back() + 1, maxW);
 			}
 		}
+#ifdef FLYCAST_BIGPICTURE
+	// PSFlyCast: the speedrun timer, when the game has splits or a run is on
+	ps5::speedrun::drawOsd(uiLargeFontSize(), insetLeft + 16.f);
+#endif
 
 	if (ggpo::active())
 	{

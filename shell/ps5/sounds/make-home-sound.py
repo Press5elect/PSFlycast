@@ -3,7 +3,7 @@
 PSFlyCast - the sound the console plays while the title is selected on its
 home screen (sce_sys/snd0.at9).
 
-Copyright 2026 the PSFlyCast contributors
+Copyright 2026 Press5elect and the PSFlyCast contributors
 SPDX-License-Identifier: GPL-3.0-or-later
 
 Writes a 24-second loop as a WAV file: 48 kHz, stereo, 16-bit. It is made of

@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - text from the console's own keyboard.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The system's text entry (libSceImeDialog) is opened over the interface,

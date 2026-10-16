@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - audio through libSceAudioOut.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	The port is opened as both console-proven PS5 projects open it: the system

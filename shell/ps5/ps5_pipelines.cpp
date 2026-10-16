@@ -1,7 +1,7 @@
 /*
 	PSFlyCast - the store behind pipeline warm-up.
 
-	Copyright 2026 the PSFlyCast contributors
+	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
 	core/rend/vulkan/pipeline_warm.h: the pipelines each game has used are kept

@@ -19,6 +19,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_smb.cpp
 	shell/ps5/ps5_cheats.cpp
 	shell/ps5/ps5_patches.cpp
+	shell/ps5/ps5_mods.cpp
+	shell/ps5/ps5_tools.cpp
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_framegen.cpp
 	shell/ps5/ps5_perf.cpp
@@ -41,12 +43,18 @@ target_sources(${PROJECT_NAME} PRIVATE
 
 # FSR 1's two headers (shell/ps5/fsr, AMD's, MIT) are compiled at run time as
 # GLSL: each is wrapped in a string literal for ps5_fsr.cpp to include.
-foreach(header ffx_a ffx_fsr1)
+foreach(header ffx_a ffx_fsr1 ffx_cas)
 	file(READ ${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/fsr/${header}.h FSR_TEXT)
 	file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc.new "R\"FFX(${FSR_TEXT})FFX\"")
 	execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
 		${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc.new ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/${header}.inc)
 endforeach()
+# NVIDIA Image Scaling's shader (shell/ps5/nis, MIT) the same way.
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/nis/NIS_Scaler.h NIS_TEXT)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/NIS_Scaler.inc.new "R\"NIS(${NIS_TEXT})NIS\"")
+execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different
+	${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/NIS_Scaler.inc.new ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated/NIS_Scaler.inc)
+target_include_directories(${PROJECT_NAME} PRIVATE shell/ps5/nis)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ps5_generated)
 
 # CMake gives the executable's objects and archives, in link order, to
