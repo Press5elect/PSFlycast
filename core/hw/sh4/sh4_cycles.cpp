@@ -17,6 +17,7 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "sh4_cycles.h"
+#include "modules/mmu.h"
 
 int Sh4Cycles::countCycles(u16 op)
 {
@@ -64,7 +65,10 @@ int Sh4Cycles::countCycles(u16 op)
 	if (isMemOp[opcode->ex_type])
 	{
 		if (++memOps < 4)
-			cycles = 2;
+			// PSFlyCast keeps the MMU's extra cycles that Flycast dev dropped (ec56b5f26): without
+			// them a Windows CE game gets more guest instructions out of every frame and the
+			// console has more to emulate; with them it ran at full speed in 1.1.0.
+			cycles = mmu_enabled() ? 5 : 2;
 	}
 	// TODO only for mem read?
 #endif

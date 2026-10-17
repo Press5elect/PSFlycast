@@ -45,6 +45,10 @@ if [[ $platform_symbols != *" T ps5_localeconv"* || $platform_symbols != *" T ps
     exit 2
 fi
 
+# FFmpeg for the game videos (FFMPEG_DIR: its source, default ../deps-src/ffmpeg-n9.0.2).
+mkdir -p "$build"
+bash "$src/shell/ps5/tools/build-ffmpeg.sh" ps5 "$build/ffmpeg"
+
 if [[ ! -f $build/build.ninja ]]; then
     cmake -S "$src" -B "$build" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$src/shell/ps5/ps5-toolchain.cmake" \

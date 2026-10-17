@@ -45,6 +45,10 @@
 #define clip_verify(x)
 #endif
 
+#ifdef USE_PS5
+namespace ps5 { bool vmuBeepSample(int sample, int bus); }
+#endif
+
 namespace aica::sgc
 {
 //Sound generation, mixin, and channel regs emulation
@@ -1537,9 +1541,13 @@ void ReadCommonReg(u32 reg,bool byte)
 	}
 }
 
-void vmuBeep(int on, int period)
+static int beepBus = -1;
+
+void vmuBeep(int on, int period, int bus)
 {
 	beep.update(on, period);
+	if (bus >= 0)
+		beepBus = bus;
 }
 
 constexpr int CDDA_SIZE = 2352 / 2;
@@ -1595,6 +1603,11 @@ void AICA_Sample()
 	if (config::VmuSound)
 	{
 		SampleType b = beep.getSample();
+#ifdef USE_PS5
+		// "VMU sounds" through a controller: its speaker has the beep, the TV not.
+		if (::ps5::vmuBeepSample(b, beepBus))
+			b = 0;
+#endif
 		mixl += b;
 		mixr += b;
 	}

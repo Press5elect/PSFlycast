@@ -1053,6 +1053,7 @@ ImDrawList *beginScreen(const char *id, bool opaque)
 	S = io.DisplaySize.y / H;
 	W = io.DisplaySize.x / S;
 	timeNow = ImGui::GetTime();
+	ps5::video::frame();
 	readInput();
 
 	ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -2367,6 +2368,8 @@ void launch(Game& g, bool selectDisk, int stateSlot = -1)
 		}
 		return;
 	}
+	// The library's video ends with the library.
+	ps5::video::stop();
 	::settings.content.title = loadingTitle;
 	ps5::games::loadStateAtStart(stateSlot);
 	if (g.source == Network)
@@ -2841,6 +2844,36 @@ const std::vector<GameOption>& gameOptions()
 			o.set = [](int v) { config::StretchToFill.set(v != 0 && !config::SuperWidescreen); };
 			return o;
 		}(),
+		[] {
+			// Flycast greys out stretching to fill with this one, so one turns the other off.
+			GameOption o = onOff("Super widescreen",
+					"With Widescreen: draws much further to the sides, for a 21:9 or wider picture. Some games show their edges",
+					"config.rend.SuperWideScreen", config::SuperWidescreen, GameOption::Video);
+			o.set = [](int v) {
+				config::SuperWidescreen.set(v != 0);
+				if (v != 0)
+					config::StretchToFill.set(false);
+			};
+			return o;
+		}(),
+		range("Horizontal stretching",
+				"Makes the picture wider without drawing more of the game: 100% is as the Dreamcast made it, 133% fills a 16:9 screen",
+				"config.rend.ScreenStretching", 100, 150, 1, "%", G::Video,
+				[] { return (int)config::ScreenStretching.get(); },
+				[](int v) { config::ScreenStretching.set(v); }),
+		onOff("Rotate screen 90 degrees",
+				"For the arcade games that were made for a screen turned on its side. Upscaling filters are off while it is on",
+				"config.rend.Rotate90", config::Rotate90, G::Video),
+		onOff("Fog", "The haze that hides what is far away. Off shows the whole scene clearly, and some games look wrong",
+				"config.rend.Fog", config::Fog, G::Video),
+		onOff("Shadows (modifier volumes)", "The shadows most games draw. Off is a little faster",
+				"config.rend.ModifierVolumes", config::ModifierVolumes, G::Video),
+		onOff("Translucent depth mask",
+				"Fixes see-through surfaces drawn behind what they should be in front of, in a few games. Off for most",
+				"config.rend.TranslucentPolygonDepthMask", config::TranslucentPolygonDepthMask, G::Video),
+		onOff("Fix edge bleeding in upscaled pictures",
+				"Stops thin lines at the edges of textures when the resolution is above native. Off if pixels seem to shift",
+				"config.rend.FixUpscaleBleedingEdge", config::FixUpscaleBleedingEdge, G::Video),
 		onOff("Widescreen game patches", "Built-in 16:9 patches for the games that have one",
 				"config.rend.WidescreenGameHacks", config::WidescreenGameHacks, G::Video, true),
 		pick("Anisotropic filtering", "Sharper textures at grazing angles", "config.rend.AnisotropicFiltering",
@@ -2876,6 +2909,8 @@ const std::vector<GameOption>& gameOptions()
 		// left corner, the second controller's the top right.
 		onOff("Memory card screen", "Shows the memory card's little screen in a corner of the picture while you play",
 				"config.rend.FloatVMUs", config::FloatVMUs, G::Video),
+		range("Memory card screen size", "How large the memory card's screen is, with Memory card screen on", "ps5.VmuScreenSize",
+				50, 300, 10, "%", G::Video, [] { return (int)ps5::VmuScreenSize; }, [](int v) { ps5::VmuScreenSize.set(v); }),
 		onOff("Integer scaling", "Whole-number scaling of the picture, no blur", "config.rend.IntegerScale",
 				config::IntegerScale, G::Video),
 		onOff("Smooth scaling", "Bilinear filtering of the final picture", "config.rend.LinearInterpolation",
@@ -2928,6 +2963,10 @@ const std::vector<GameOption>& gameOptions()
 		onOff("DSP emulation", "The sound chip's effects (reverb, echo); needed by some games",
 				"config.aica.DSPEnabled", config::DSPEnabled, G::Audio),
 		onOff("VMU sounds", "The beeps of the VMU", "audio.VmuSound", config::VmuSound, G::Audio),
+		pick("VMU sound plays in",
+				"With VMU sounds on: the TV, the speaker of the controller whose memory card beeps, or both. Controller speaker: not tried on a console yet",
+				"ps5.VmuSoundOutput", { "The TV", "The controller", "TV and controller" }, { 0, 1, 2 },
+				ps5::VmuSoundOutput, G::Audio),
 
 		range("Vibration", "How strongly the DualSense rumbles", nullptr, 0, 100, 10, "%", G::Controls,
 				[] { auto p = pad1(); return p ? p->get_rumble_power() : 100; },
@@ -3726,6 +3765,78 @@ void gameStarted(const std::string& path)
 namespace
 {
 
+// ---- the focused game's video, where its cover is
+
+struct HeroVideo
+{
+	std::string game;
+	double since = 0;
+	float fade = 0;
+} heroVideo;
+
+// The name ES-DE gives a game's media: its file's, without the extension; a disc's own
+// folder when the file is called after what it is (a GDI is often "disc").
+std::string videoStem(const Game& g)
+{
+	std::string path = g.media.path;
+	if (path.rfind("ps5disc:", 0) == 0)
+		return "";
+	const size_t hash = path.find('#');
+	if (hash != std::string::npos)
+		path.resize(hash);
+	size_t slash = path.find_last_of('/');
+	std::string file = slash == std::string::npos ? path : path.substr(slash + 1);
+	const size_t dot = file.find_last_of('.');
+	std::string stem = dot == std::string::npos ? file : file.substr(0, dot);
+	std::string lower = stem;
+	for (char& c : lower)
+		c = (char)std::tolower((unsigned char)c);
+	if ((lower == "disc" || lower == "track01" || lower == "game" || lower == "index") && slash != std::string::npos && slash > 0)
+	{
+		const size_t before = path.find_last_of('/', slash - 1);
+		stem = path.substr(before == std::string::npos ? 0 : before + 1, slash - (before == std::string::npos ? 0 : before + 1));
+	}
+	return stem;
+}
+
+// The video's picture once the game has been in focus a moment and has one; none before.
+ImTextureID heroVideoTexture(const Game *focused, bool shown)
+{
+	if (focused == nullptr || !shown || !ps5::GameVideos || !ps5::video::available())
+	{
+		heroVideo.fade = approach(heroVideo.fade, 0, 8);
+		if (heroVideo.fade < 0.01f)
+		{
+			heroVideo.game.clear();
+			ps5::video::stop();
+		}
+		return ImTextureID();
+	}
+	if (heroVideo.game != focused->media.path)
+	{
+		heroVideo.game = focused->media.path;
+		heroVideo.since = timeNow;
+		heroVideo.fade = 0;
+		ps5::video::stop();
+	}
+	if (timeNow - heroVideo.since < 1.2)
+		return ImTextureID();
+	const std::string file = ps5::video::find(videoStem(*focused), focused->title);
+	if (file.empty())
+		return ImTextureID();
+	ps5::video::play(file, true, ps5::GameVideoVolume / 100.f);
+	int w = 0, h = 0;
+	void *id = ps5::video::picture(w, h);
+	if (id == nullptr || ps5::video::ended())
+	{
+		heroVideo.fade = approach(heroVideo.fade, 0, 8);
+		return ImTextureID();
+	}
+	heroVideo.fade = approach(heroVideo.fade, 1, 4);
+	return (ImTextureID)id;
+}
+
+
 // ---- the shelves view: the focused game's art behind its title, shelves below
 
 void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
@@ -3747,8 +3858,14 @@ void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
 			// It breathes: a slow push in and out, when everything moves.
 			const float push = motion() == MotionFull ? 1.035f + 0.03f * std::sin((float)timeNow * 0.21f) : 1.f;
 			const float aw = W * 0.66f * push, ah = (heroH + 150) * push;
-			imageFade(dl, id, W - W * 0.66f - (aw - W * 0.66f) * 0.5f, heroTop - (ah - heroH - 150) * 0.3f, aw, ah, 0.6f * lib.heroFade,
+			const ImTextureID clip = heroVideoTexture(focused, true);
+			imageFade(dl, id, W - W * 0.66f - (aw - W * 0.66f) * 0.5f, heroTop - (ah - heroH - 150) * 0.3f, aw, ah,
+					0.6f * lib.heroFade * (1.f - heroVideo.fade),
 					{ 0.f, 0.5f, 1.f }, { 0.f, 1.f, 1.f }, { 0.f, 0.55f, 1.f }, { 1.f, 0.8f, 0.f });
+			if (clip != ImTextureID() && heroVideo.fade > 0.01f)
+				imageFade(dl, clip, W - W * 0.66f - (aw - W * 0.66f) * 0.5f, heroTop - (ah - heroH - 150) * 0.3f, aw, ah,
+						0.6f * lib.heroFade * heroVideo.fade,
+						{ 0.f, 0.5f, 1.f }, { 0.f, 1.f, 1.f }, { 0.f, 0.55f, 1.f }, { 1.f, 0.8f, 0.f });
 		}
 		const float tx = 96;
 		const float a = lib.heroFade;
@@ -6093,6 +6210,27 @@ std::vector<Category> buildCategories()
 		system.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Toggle, "Back up memory cards to the network share",
+				"When you quit a game, the cards that changed are copied to PSFlyCast/Memory cards on the first share in network.cfg" };
+		r.get = [] { return ps5::smb::CardBackup ? 1 : 0; };
+		r.set = [](int v) { ps5::smb::CardBackup.set(v != 0); };
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Back up memory cards now", "Copies the cards that changed since the last copy. The share needs write access" };
+		r.info = [] { return cardBackupResult(); };
+		r.action = [] {
+			if (game_started)
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("Quit the game first", 4000, "Its memory cards are in use while it is loaded");
+			}
+			else
+				startCardBackup(true);
+		};
+		system.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Action, "Memory cards", "The saves on each card: copy one to another card, delete it, or take it to and from a file" };
 		r.action = [] {
 			// Flycast holds a loaded game's cards open: changed under it, its saves would be lost.
@@ -8152,6 +8290,9 @@ void quickMenu()
 		ps5::net::gameEnding(true);
 		gui_stop_game();
 		ps5::net::gameEnding(false);
+		// The game has let go of its memory cards: copies to the network share.
+		if (ps5::smb::CardBackup)
+			startCardBackup(false);
 	} });
 
 	// ---- input

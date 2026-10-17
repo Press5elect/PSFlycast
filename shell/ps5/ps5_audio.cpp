@@ -28,9 +28,11 @@
 #include "cfg/option.h"
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
+#include "ps5_pad.h"
 #include "log/Log.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -51,11 +53,13 @@ int sceAudioOutInit(void);
 int sceAudioOutOpen(int32_t userId, int32_t type, int32_t index, uint32_t len, uint32_t freq, uint32_t param);
 int sceAudioOutOutput(int32_t handle, const void *p);
 int sceAudioOutClose(int32_t handle);
+int sceAudioOutSetVolume(int32_t handle, int32_t flag, int32_t *vol);
 }
 
 namespace ps5
 {
 config::Option<bool> SyncToDisplay("SyncToDisplay", true, "ps5");
+config::Option<int> VmuSoundOutput("VmuSoundOutput", 0, "ps5");
 }
 
 namespace
@@ -299,6 +303,12 @@ struct Voice
 std::mutex mixMutex;
 std::mutex playMutex;			// one caller at a time starts or ends the mixer's thread
 std::vector<Voice> voices;
+// A video's sound (pushStream): 48 kHz stereo, mixed in with the voices.
+std::vector<s16> streamPcm;
+size_t streamAt = 0;			// the next frame
+float streamGain = 1.f;
+float streamLast[2] = { 0, 0 };
+float streamPhase = 0.f;
 std::thread mixThread, loadThread;
 bool mixRunning;				// under mixMutex
 std::atomic<bool> mixStop;
@@ -347,10 +357,23 @@ void mixRun()
 					mix[i * 2 + 1] += (*voice.pcm)[voice.at * 2 + 1] * g;
 				}
 			}
+			{
+				const size_t frames = streamPcm.size() / 2;
+				for (u32 i = 0; i < Grain && streamAt < frames; i++, streamAt++)
+				{
+					mix[i * 2] += streamPcm[streamAt * 2] * streamGain;
+					mix[i * 2 + 1] += streamPcm[streamAt * 2 + 1] * streamGain;
+				}
+				if (streamAt >= frames)
+				{
+					streamPcm.clear();
+					streamAt = 0;
+				}
+			}
 			voices.erase(std::remove_if(voices.begin(), voices.end(), [](const Voice& voice) {
 				return voice.at >= voice.pcm->size() / 2 || (voice.ending && voice.level <= 0);
 			}), voices.end());
-			idle = voices.empty();
+			idle = voices.empty() && streamPcm.empty();
 			// Twenty seconds with nothing to play: the port is given back.
 			silent = idle ? silent + 1 : 0;
 			if (silent > 20 * (int)(OutRate / Grain) && !mixStop)
@@ -575,4 +598,170 @@ void ps5::sound::close()
 	}
 	if (old.joinable())
 		old.join();
+}
+
+// ------------------------------------------------ the VMU's beeps, in a controller
+//
+// With "VMU sounds" going to the controller, the beep (44.1 kHz mono, from the
+// sound chip's mixer) is played on the speaker of the DualSense whose memory
+// card made it: a port of type 4 (the pad speaker) of that pad's user, mono at
+// 48 kHz. Not tried on a console yet: when the console refuses the port, the
+// beep stays on the TV and the reason is in the log.
+namespace
+{
+
+class PadSpeaker
+{
+public:
+	// Takes the beep's next sample; true when the TV is not to have it.
+	bool sample(int value, int bus)
+	{
+		const int where = ps5::VmuSoundOutput;
+		if (where == 0)
+			return false;
+		if (!started.exchange(true))
+			thread = std::thread([this] { run(); });
+		wanted = bus;
+		const u32 w = writePos.load(std::memory_order_relaxed);
+		if (((w + 1) & Mask) != readPos.load(std::memory_order_acquire))
+		{
+			ring[w] = (s16)std::clamp(value, -32768, 32767);
+			writePos.store((w + 1) & Mask, std::memory_order_release);
+		}
+		return where == 1 && working.load();
+	}
+
+private:
+	static constexpr u32 Size = 1 << 14, Mask = Size - 1;
+	static constexpr u32 SpeakerRate = 48000;
+	static constexpr int PortPadSpeaker = 4;
+	static constexpr u32 FormatS16Mono = 0;
+
+	void run()
+	{
+		audioLibrary();
+		int port = -1;
+		int user = -1;
+		alignas(64) s16 grain[Grain];
+		float phase = 0.f;
+		s16 last = 0;
+		while (true)
+		{
+			if (port < 0)
+			{
+				// Wait for the first beep, then open the speaker of its pad.
+				if (readPos.load() == writePos.load())
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(20));
+					continue;
+				}
+				user = ps5::pad::userOfPort(wanted.load());
+				if (user < 0)
+				{
+					ps5::diag::mark("vmu sound: no pad for the speaker");
+					readPos.store(writePos.load());
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					continue;
+				}
+				port = sceAudioOutOpen(user, PortPadSpeaker, 0, Grain, SpeakerRate, FormatS16Mono);
+				ps5::diag::mark("vmu sound: pad speaker of user %d -> %x", user, port);
+				if (port < 0)
+				{
+					// The console says no: the TV keeps the beep. Not tried again.
+					working = false;
+					return;
+				}
+				int32_t volume[2] = { 0x8000, 0x8000 };
+				sceAudioOutSetVolume(port, 3, volume);
+				working = true;
+			}
+			// 44.1 kHz in, 48 kHz out.
+			const float step = (float)InRate / SpeakerRate;
+			bool any = false;
+			for (u32 i = 0; i < Grain; i++)
+			{
+				while (phase >= 1.f)
+				{
+					const u32 r = readPos.load(std::memory_order_relaxed);
+					if (r != writePos.load(std::memory_order_acquire))
+					{
+						last = ring[r];
+						readPos.store((r + 1) & Mask, std::memory_order_release);
+						any = true;
+					}
+					else
+						last = 0;
+					phase -= 1.f;
+				}
+				grain[i] = last;
+				phase += step;
+			}
+			(void)any;
+			sceAudioOutOutput(port, grain);
+		}
+	}
+
+	std::array<s16, Size> ring{};
+	std::atomic<u32> readPos{ 0 }, writePos{ 0 };
+	std::atomic<bool> started{ false }, working{ false };
+	std::atomic<int> wanted{ -1 };
+	std::thread thread;
+};
+
+PadSpeaker padSpeaker;
+
+}
+
+namespace ps5
+{
+
+bool vmuBeepSample(int sample, int bus)
+{
+	return padSpeaker.sample(sample, bus);
+}
+
+}
+
+namespace ps5::sound
+{
+
+void pushStream(const short *samples, size_t frames, int channels, int rate, float gain)
+{
+	if (samples == nullptr || frames == 0 || channels < 1 || rate < 8000)
+		return;
+	// The mixer runs while a video plays: an empty voice keeps its port open.
+	static const auto silence = std::make_shared<const std::vector<s16>>(std::vector<s16>(2, 0));
+	::play(Voice{ silence, 0, 0.f, false, 1.f, false });
+	std::lock_guard<std::mutex> lock(mixMutex);
+	if (!mixRunning)
+		return;
+	streamGain = gain;
+	const float step = (float)rate / OutRate;
+	const size_t room = (size_t)OutRate * 2 * 2;		// two seconds of stereo
+	for (size_t i = 0; i < frames; i++)
+	{
+		const float l = samples[i * channels], r = samples[i * channels + (channels > 1 ? 1 : 0)];
+		while (streamPhase < 1.f)
+		{
+			if (streamPcm.size() - streamAt * 2 >= room)
+				return;		// far ahead: the rest is dropped
+			const float a = streamPhase;
+			streamPcm.push_back((s16)(streamLast[0] + (l - streamLast[0]) * a));
+			streamPcm.push_back((s16)(streamLast[1] + (r - streamLast[1]) * a));
+			streamPhase += step;
+		}
+		streamPhase -= 1.f;
+		streamLast[0] = l;
+		streamLast[1] = r;
+	}
+}
+
+void clearStream()
+{
+	std::lock_guard<std::mutex> lock(mixMutex);
+	streamPcm.clear();
+	streamAt = 0;
+	streamPhase = 0.f;
+}
+
 }

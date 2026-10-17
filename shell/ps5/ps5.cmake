@@ -18,6 +18,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
 	shell/ps5/ps5_disc.cpp
+	shell/ps5/ps5_video.cpp
 	shell/ps5/ps5_archive.cpp
 	shell/ps5/ps5_rar.cpp
 	shell/ps5/ps5_drive_cam.cpp
@@ -143,6 +144,17 @@ target_compile_definitions(smb2ps5 PRIVATE HAVE_CONFIG_H "_U_=__attribute__((unu
 target_compile_options(smb2ps5 PRIVATE -w)
 target_include_directories(${PROJECT_NAME} PRIVATE "${LIBSMB2_DIR}/include")
 target_link_libraries(${PROJECT_NAME} PRIVATE smb2ps5)
+
+# Game videos (shell/ps5/ps5_video.cpp): FFmpeg's libavformat, libavcodec and
+# libavutil (LGPL-2.1-or-later), built for the console by
+# shell/ps5/tools/build-ffmpeg.sh into FFMPEG_ROOT (build.sh does it).
+set(FFMPEG_ROOT "${CMAKE_BINARY_DIR}/ffmpeg" CACHE PATH "FFmpeg for the console: include/ and lib/")
+if(NOT EXISTS "${FFMPEG_ROOT}/lib/libavformat.a")
+	message(FATAL_ERROR "FFmpeg was not found at ${FFMPEG_ROOT}: shell/ps5/tools/build-ffmpeg.sh ps5 ${FFMPEG_ROOT}")
+endif()
+target_include_directories(${PROJECT_NAME} PRIVATE "${FFMPEG_ROOT}/include")
+target_link_libraries(${PROJECT_NAME} PRIVATE
+	"${FFMPEG_ROOT}/lib/libavformat.a" "${FFMPEG_ROOT}/lib/libavcodec.a" "${FFMPEG_ROOT}/lib/libavutil.a")
 
 # The title's monotonic clock from the processor's counter (shell/ps5/ps5_clock.c).
 set_source_files_properties(shell/ps5/ps5_clock.c PROPERTIES COMPILE_OPTIONS "-std=gnu11")

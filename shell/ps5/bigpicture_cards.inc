@@ -413,6 +413,111 @@ void openCards()
 	readCards();
 }
 
+// ---- the memory cards, copied to the network share
+//
+// When a game is quit (and from the Settings), every card file that changed
+// since it was last sent goes to the share of the first games folder in
+// network.cfg: PSFlyCast/Memory cards. On a thread of its own, one at a time.
+struct CardBackup
+{
+	std::mutex mutex;
+	std::thread thread;
+	std::atomic<bool> running{ false };
+	std::map<std::string, unsigned long long> sent;		// path -> a hash of the content last sent
+	std::string result;									// the last run, for the Settings
+};
+
+CardBackup& cardBackup()
+{
+	static CardBackup backup;
+	return backup;
+}
+
+std::string cardBackupResult()
+{
+	CardBackup& b = cardBackup();
+	std::lock_guard<std::mutex> lock(b.mutex);
+	if (b.running)
+		return "Copying...";
+	return b.result.empty() ? "Not yet" : b.result;
+}
+
+// manual: said on the screen when done, also when nothing needed sending.
+void startCardBackup(bool manual)
+{
+	CardBackup& b = cardBackup();
+	const std::string target = ps5::smb::backupFolder();
+	if (target.empty())
+	{
+		if (manual)
+			os_notify("No network share", 4000, "Add a path line to network.cfg: the cards are copied to that share");
+		return;
+	}
+	if (b.running.exchange(true))
+		return;
+	if (b.thread.joinable())
+		b.thread.join();
+	const std::string folder = get_writable_data_path("");
+	b.thread = std::thread([&b, target, folder, manual] {
+		int copied = 0, failed = 0, same = 0;
+		std::string why;
+		for (const vmu::Card& card : vmu::cards(folder))
+		{
+			if (!card.exists)
+				continue;
+			FILE *f = fopen(card.path.c_str(), "rb");
+			if (f == nullptr)
+				continue;
+			std::vector<unsigned char> data(vmu::ImageSize);
+			data.resize(fread(data.data(), 1, data.size(), f));
+			fclose(f);
+			if (data.empty())
+				continue;
+			unsigned long long hash = 1469598103934665603ull;
+			for (unsigned char c : data)
+				hash = (hash ^ c) * 1099511628211ull;
+			{
+				std::lock_guard<std::mutex> lock(b.mutex);
+				const auto at = b.sent.find(card.path);
+				if (at != b.sent.end() && at->second == hash)
+				{
+					same++;
+					continue;
+				}
+			}
+			std::string one;
+			if (ps5::smb::putFile(target, card.fileName, data.data(), data.size(), one))
+			{
+				std::lock_guard<std::mutex> lock(b.mutex);
+				b.sent[card.path] = hash;
+				copied++;
+			}
+			else
+			{
+				failed++;
+				why = one;
+				if (one.find("does not answer") != std::string::npos)
+					break;		// the share is not there: not asked again for each card
+			}
+		}
+		{
+			std::lock_guard<std::mutex> lock(b.mutex);
+			if (failed)
+				b.result = "Failed: " + why;
+			else if (copied)
+				b.result = std::to_string(copied) + (copied == 1 ? " card copied" : " cards copied");
+			else
+				b.result = "Up to date";
+			b.running = false;
+		}
+		if (failed)
+			os_notify("Memory card backup failed", 6000, why.c_str());
+		else if (manual)
+			os_notify(copied ? "Memory cards copied to the network share" : "Memory cards are up to date on the share", 3000);
+		ps5::diag::mark("cards: backup to %s: %d copied, %d unchanged, %d failed %s", target.c_str(), copied, same, failed, why.c_str());
+	});
+}
+
 void cardsDialog(ImDrawList *dl, const Input& given)
 {
 	using ps5::sound::Cue;

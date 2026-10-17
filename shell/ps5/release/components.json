@@ -4,7 +4,7 @@
   "shell/ps5/release/stage-notices.py reads this table after a build and writes LEGAL.txt and licenses/ into the title folder:",
   "the texts, a components.json that ties every file to the part it belongs to and the revision it was built from, and a README.txt.",
   "Paths are relative to the repository; ${VULKAN} is PS5_VULKAN_DIR (../PS5_Vulkan), ${MESA} ../PS5_Mesa, ${SDK} PS5_PAYLOAD_SDK,",
-  "${SDK_FORK} ../PS5_PayloadSDK, ${SMB} LIBSMB2_DIR (../libsmb2) and ${CHEATS} ../libretro-database.",
+  "${SDK_FORK} ../PS5_PayloadSDK, ${SMB} LIBSMB2_DIR (../libsmb2), ${FFMPEG} FFMPEG_DIR (../deps-src/ffmpeg-n9.0.2) and ${CHEATS} ../libretro-database.",
   "'in-tree' sources are in this repository (Flycast's core/deps and its submodules), at the revision the repository records."
  ],
  "schema": 1,
@@ -1101,6 +1101,30 @@
     "url": "https://github.com/sahlberg/libsmb2"
    },
    "modifications": "Unmodified; compiled with this title's shell/ps5/smb/config.h and ps5_smb_compat.c. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "ffmpeg",
+   "name": "FFmpeg (plays the game videos: libavformat, libavcodec, libavutil)",
+   "kind": "code",
+   "licence": "LGPL-2.1-or-later",
+   "copyright": [
+    "Copyright (c) the FFmpeg developers"
+   ],
+   "texts": [
+    {
+     "from": "${FFMPEG}/COPYING.LGPLv2.1",
+     "to": "COPYING.LGPLv2.1"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${FFMPEG}",
+    "url": "https://github.com/FFmpeg/FFmpeg"
+   },
+   "modifications": "Unmodified (release n9.0.2). Built by shell/ps5/tools/build-ffmpeg.sh as static libraries without --enable-gpl or --enable-nonfree: only the MP4 demuxer, the H.264, AAC and MP3 decoders and their parsers. It is linked statically: the source archives attached to the release are what relinking it needs.",
    "files": [
     "eboot.bin"
    ]

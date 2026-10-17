@@ -1216,6 +1216,104 @@ bool isNetworkPath(const std::string& path)
 	return path.rfind("smb://", 0) == 0;
 }
 
+config::Option<bool> CardBackup("MemoryCardBackup", true, "ps5");
+
+std::string backupFolder()
+{
+	// The first games folder's share: smb://server/share, then our own folder.
+	for (const std::string& folder : folders)
+	{
+		const size_t serverEnd = folder.find('/', 6);
+		if (serverEnd == std::string::npos)
+			continue;
+		size_t shareEnd = folder.find('/', serverEnd + 1);
+		if (shareEnd == std::string::npos)
+			shareEnd = folder.size();
+		return folder.substr(0, shareEnd) + "/PSFlyCast/Memory cards";
+	}
+	return "";
+}
+
+bool putFile(const std::string& folder, const std::string& name, const void *data, size_t size, std::string& why)
+{
+	std::string relative;
+	Share *share = locate(folder, relative);
+	if (share == nullptr)
+	{
+		why = "not a network folder";
+		return false;
+	}
+	std::lock_guard<std::recursive_mutex> lock(share->mutex);
+	Busy busy;
+	for (int attempt = 0; attempt < 2; attempt++)
+	{
+		if (!share->connect())
+		{
+			why = "the share does not answer";
+			return false;
+		}
+		const long long started = nowMs();
+		smb2_context *c = share->context;
+		// The folders, one level at a time; one that is there already is fine.
+		std::string made;
+		size_t at = 0;
+		bool foldersOk = true;
+		while (at <= relative.size() && !relative.empty())
+		{
+			size_t slash = relative.find('/', at);
+			if (slash == std::string::npos)
+				slash = relative.size();
+			made = relative.substr(0, slash);
+			smb2_stat_64 st{};
+			if (smb2_stat(c, made.c_str(), &st) != 0 && smb2_mkdir(c, made.c_str()) != 0)
+			{
+				why = "the folder \"" + made + "\" cannot be made: " + stripped(smb2_get_error(c));
+				foldersOk = false;
+				break;
+			}
+			at = slash + 1;
+			if (slash == relative.size())
+				break;
+		}
+		if (!foldersOk)
+		{
+			if (!share->lost(started))
+				return false;
+			continue;
+		}
+		const std::string target = relative.empty() ? name : relative + "/" + name;
+		smb2fh *handle = smb2_open(c, target.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
+		if (handle == nullptr)
+		{
+			why = stripped(smb2_get_error(c));
+			if (!share->lost(started))
+				return false;
+			continue;
+		}
+		const uint32_t chunk = std::max<uint32_t>(4096, std::min<uint32_t>(smb2_get_max_write_size(c), 1u << 20));
+		const uint8_t *bytes = static_cast<const uint8_t *>(data);
+		bool ok = true;
+		for (size_t done = 0; done < size && ok; )
+		{
+			const uint32_t count = (uint32_t)std::min<size_t>(chunk, size - done);
+			const int wrote = smb2_pwrite(c, handle, bytes + done, count, done);
+			if (wrote <= 0)
+			{
+				why = stripped(smb2_get_error(c));
+				ok = false;
+			}
+			else
+				done += (size_t)wrote;
+		}
+		smb2_close(c, handle);
+		if (ok)
+			return true;
+		if (!share->lost(started))
+			return false;
+	}
+	return false;
+}
+
 void retryNow()
 {
 	std::lock_guard<std::mutex> lock(sharesMutex);

@@ -26,6 +26,9 @@
 #ifdef LIBRETRO
 #include "vmu_xhair.h"
 #endif
+#ifdef USE_PS5
+#include "ps5_frontend.h"
+#endif
 
 #include <memory>
 
@@ -146,8 +149,12 @@ void VulkanOverlay::Draw(vk::CommandBuffer commandBuffer, vk::Extent2D viewport,
 		pipeline->BindPipeline(commandBuffer);
 		const float *color = nullptr;
 #ifndef LIBRETRO
-		vmu_height *= 2.f;
-		vmu_width *= 2.f;
+		float sizeFactor = 2.f;
+#ifdef USE_PS5
+		sizeFactor *= ps5::VmuScreenSize / 100.f;	// "Memory card screen size"
+#endif
+		vmu_height *= sizeFactor;
+		vmu_width *= sizeFactor;
 		float blendConstants[4] = { 0.75f, 0.75f, 0.75f, 0.75f };
 		color = blendConstants;
 #else

@@ -69,6 +69,7 @@ def variables():
         "SDK": Path(os.environ.get("PS5_PAYLOAD_SDK", ROOT.parent / "PS5_RetroArch/.deps/native/ps5-payload-sdk")).resolve(),
         "SDK_FORK": Path(os.environ.get("PS5_PAYLOAD_SDK_FORK", ROOT.parent / "PS5_PayloadSDK")).resolve(),
         "SMB": Path(os.environ.get("LIBSMB2_DIR", ROOT.parent / "libsmb2")).resolve(),
+        "FFMPEG": Path(os.environ.get("FFMPEG_DIR", ROOT.parent / "deps-src" / "ffmpeg-n9.0.2")).resolve(),
         "CHEATS": Path(os.environ.get("CHEATS_REPO", ROOT.parent / "libretro-database")).resolve(),
     }
 

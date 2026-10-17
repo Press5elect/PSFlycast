@@ -208,6 +208,14 @@ def main():
         add(f"libsmb2-{smb['revision'][:12]}.tar.xz", f"libsmb2, {smb['url']} at {smb['revision']}, unmodified.",
             [archive_members(names["SMB"], smb["revision"], f"libsmb2-{smb['revision'][:12]}/")])
 
+        if "ffmpeg" in parts:
+            ffmpeg = parts["ffmpeg"]["source"]
+            clean(names["FFMPEG"])
+            add(f"ffmpeg-{ffmpeg['revision'][:12]}.tar.xz",
+                f"FFmpeg, {ffmpeg['url']} at {ffmpeg['revision']} (n9.0.2), unmodified; shell/ps5/tools/build-ffmpeg.sh in the title's source "
+                f"archive builds the three libraries from it.",
+                [archive_members(names["FFMPEG"], ffmpeg["revision"], f"ffmpeg-{ffmpeg['revision'][:12]}/")])
+
         if "cheats" in parts:
             cheats = parts["cheats"]["source"]
             add(f"libretro-database-cht-dreamcast-{cheats['revision'][:12]}.tar.xz",

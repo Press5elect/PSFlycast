@@ -776,7 +776,7 @@ struct maple_sega_vmu: maple_base
 					u8 ald = r8();
 					r16(); // Alarm 2
 					INFO_LOG(MAPLE, "BEEP: %d/%d", alw, ald);
-					aica::sgc::vmuBeep(alw, ald);
+					aica::sgc::vmuBeep(alw, ald, bus_id);
 
 					relayMapleLink();
 					return MDRS_DeviceReply;
@@ -790,11 +790,11 @@ struct maple_sega_vmu: maple_base
 			break;
 
 		case MDC_DeviceReset:
-			aica::sgc::vmuBeep(0, 0);
+			aica::sgc::vmuBeep(0, 0, bus_id);
 			return MDRS_DeviceReply;
 
 		case MDC_DeviceKill:
-			aica::sgc::vmuBeep(0, 0);
+			aica::sgc::vmuBeep(0, 0, bus_id);
 			return MDRS_DeviceReply;
 
 		default:

@@ -105,5 +105,7 @@ void hotplug();
 void plugPorts();
 // Which ports have a pad, for the Settings: "2: ports A and B".
 std::string portsText();
+// The user whose pad is on a port (0 to 3); the first pad's user for a port without one; -1 for none.
+int userOfPort(int port);
 
 }

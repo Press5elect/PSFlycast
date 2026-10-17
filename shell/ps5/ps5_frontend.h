@@ -61,6 +61,13 @@ extern config::Option<int> Brightness;
 extern config::Option<int> Contrast;
 extern config::Option<int> Saturation;
 extern config::Option<int> Gamma;
+// The memory card screens in a game, in per cent of their usual size.
+extern config::Option<int> VmuScreenSize;
+// Game videos in the library: 0 off, else the sound's volume in per cent (a video with no sound plays on).
+extern config::Option<int> GameVideoVolume;
+extern config::Option<bool> GameVideos;
+// Where the VMU's beeps are heard with "VMU sounds": 0 the TV, 1 the controller's speaker, 2 both.
+extern config::Option<int> VmuSoundOutput;
 // "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
 // 0 off, 1 light, 2 full.
 extern config::Option<int> FrameGeneration;
@@ -150,6 +157,12 @@ void cancelLoad();
 // Forgets that a share did not answer a moment ago (before a scan the user
 // asked for).
 void retryNow();
+// Memory card backups: on by default, and only when a share is in network.cfg.
+extern config::Option<bool> CardBackup;
+// Where they go: smb://server/share/PSFlyCast/Memory cards on the first games folder's share; empty without a share.
+std::string backupFolder();
+// Writes one file there (the folders are made); false with the reason.
+bool putFile(const std::string& folder, const std::string& name, const void *data, size_t size, std::string& why);
 
 // What the share is doing, for the screen: "Waiting for the network share
 // (12 s)" while a request has had no answer for a while (a NAS waking its
@@ -260,8 +273,31 @@ bool startupWave(double seconds, float *out, int count);
 // The menu's sounds, when they are on (Options::menuSounds).
 enum class Cue { Move, Select, Back, Tab, Open, Refuse, Count };
 void cue(Cue which);
+// Sound from a video (ps5_video.cpp), mixed with the rest: interleaved 16-bit
+// samples at any rate, played as they arrive. At most two seconds are kept.
+void pushStream(const short *samples, size_t frames, int channels, int rate, float gain);
+void clearStream();
 // Everything ends and the port is closed; returns when it is.
 void close();
+}
+
+// Game videos (ps5_video.cpp): the video of a game in the library, played where its cover is.
+namespace video
+{
+// Whether videos can be played at all.
+bool available();
+// The video file for a game, "" when it has none (looked for on a thread of its own: the
+// answer comes with a later call). `stem` is the game's file name without its extension, `title` its title.
+std::string find(const std::string& stem, const std::string& title);
+// Asks for a file to be played; call every frame it is shown, or it stops.
+void play(const std::string& path, bool loop, float volume);
+// The newest picture as an interface texture, nullptr before the first. Also keeps the sound going.
+void *picture(int& width, int& height);
+bool ended();
+void stop();
+// Once a frame from the interface: a video no one asked for is ended.
+void frame();
+std::string status();
 }
 
 namespace perf

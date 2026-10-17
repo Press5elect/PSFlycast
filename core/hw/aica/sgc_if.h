@@ -44,6 +44,7 @@ typedef s32 SampleType;
 void ReadCommonReg(u32 reg, bool byte);
 void serialize(Serializer& ctx);
 void deserialize(Deserializer& ctx);
-void vmuBeep(int on, int period);
+// bus: the controller port of the memory card that beeps (-1: not known).
+void vmuBeep(int on, int period, int bus = -1);
 
 } // namespace aica::sgc

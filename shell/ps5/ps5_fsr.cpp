@@ -53,6 +53,7 @@ config::Option<int> Brightness("Brightness", 100, "ps5");
 config::Option<int> Contrast("Contrast", 100, "ps5");
 config::Option<int> Saturation("Saturation", 100, "ps5");
 config::Option<int> Gamma("Gamma", 100, "ps5");
+config::Option<int> VmuScreenSize("VmuScreenSize", 100, "ps5");
 }
 
 namespace ps5::fsr

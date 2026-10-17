@@ -342,6 +342,13 @@ On the left are the cards, on the right the saves of the card you are on.
   listed by the game's title, or by its ID when the game is not in the
   library.
 
+Settings > Video > **Memory card screen** shows the cards' little screens over
+the game; **Memory card screen size** makes them 50% to 300% of their size.
+With Settings > Audio > **VMU sounds** on, **VMU sound plays in** chooses the
+TV, the speaker of the controller whose card beeps, or both (the controller
+speaker is not tested on a console yet: when the console refuses it the beep
+stays on the TV).
+
 Each card says how many of its 200 blocks are free and how many saves it
 holds. Each save shows its picture, its name, its size in blocks and its
 date.
@@ -594,13 +601,13 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting and its per-pixel layers, widescreen, stretch to fill, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
-| **Audio** | Volume, the sound chip's effects, the memory card's beeps |
+| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
+| **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
-| **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, the memory card manager |
+| **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager |
 | **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
 | **Achievements** | RetroAchievements on or off, and your account on the site |
-| **Interface** | Skin, accent colour, background, motion, the start-up animation and its sound, menu sounds |
+| **Interface** | Skin, accent colour, background, motion, game videos, the start-up animation and its sound, menu sounds |
 | **Library** | In sections: games (scan, view, disc grouping, hidden games), covers, USB drives, the USB CD or DVD drive, the network, the folders, and Free up space (unpacked archives, shader cache, log files) |
 | **About** | The version and build, check for updates, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
@@ -829,6 +836,14 @@ and is read as it runs.
 A NAS that is waking up gets a minute to answer; the screen shows how long it
 has waited, and Circle cancels.
 
+### Memory card backup on the share
+
+With a share in `network.cfg`, Settings > System > **Back up memory cards to
+the network share** (on by default) copies the cards that changed to
+`PSFlyCast/Memory cards` on the first share, each time you quit a game.
+**Back up memory cards now** does it at once. The share needs write access,
+and a failure is said on the screen. Not tested on a console yet.
+
 ## 19. Games on a USB drive
 
 1. Put your games in a folder named `flycast` or `dreamcast` at the top of
@@ -949,6 +964,13 @@ Settings > Interface. A change shows at once.
   `sounds/startup.wav` in PSFlyCast's folder.
 - **Menu sounds:** a soft note for moving, choosing, going back and changing
   tab. On or off.
+- **Game videos:** Off, Silent or a volume. The video of the game in focus
+  plays on the library's Shelves screen where its cover is, after a moment.
+  Videos are found the way ES-DE keeps them: an `.mp4` (H.264 with AAC or MP3
+  sound) named like the game's file or its title, in `videos`,
+  `media/videos`, `media/dreamcast/videos` or
+  `downloaded_media/dreamcast/videos`, in PSFlyCast's folder, in a games
+  folder, on a USB drive or on the network share. Not tested on a console yet.
 
 On the console's home screen PSFlyCast has a quiet sound of its own while it
 is selected. The console's setting for home-screen music turns it off, along

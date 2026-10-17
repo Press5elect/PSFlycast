@@ -816,4 +816,16 @@ int connectedCount()
 	return n;
 }
 
+
+int userOfPort(int port)
+{
+	for (const Seat& seat : seats)
+		if (seat.port == port && seat.userId != -1)
+			return seat.userId;
+	for (const Seat& seat : seats)
+		if (seat.port >= 0 && seat.userId != -1)
+			return seat.userId;
+	return -1;
+}
+
 }
