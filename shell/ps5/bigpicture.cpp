@@ -3908,14 +3908,16 @@ void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
 		}
 		lib.heroFade = approach(lib.heroFade, 1, 8);
 		const ImTextureID id = coverTexture(*focused);
-		if (id != ImTextureID())
+		// The video plays where the cover is, and with no cover to fade from as well.
+		const ImTextureID clip = heroVideoTexture(focused, true);
+		if (id != ImTextureID() || clip != ImTextureID())
 		{
 			// The art fills the right of the hero, fading into the backdrop
 			// from its left edge and toward the shelves.
 			// It breathes: a slow push in and out, when everything moves.
 			const float push = motion() == MotionFull ? 1.035f + 0.03f * std::sin((float)timeNow * 0.21f) : 1.f;
 			const float aw = W * 0.66f * push, ah = (heroH + 150) * push;
-			const ImTextureID clip = heroVideoTexture(focused, true);
+			if (id != ImTextureID())
 			imageFade(dl, id, W - W * 0.66f - (aw - W * 0.66f) * 0.5f, heroTop - (ah - heroH - 150) * 0.3f, aw, ah,
 					0.6f * lib.heroFade * (1.f - heroVideo.fade),
 					{ 0.f, 0.5f, 1.f }, { 0.f, 1.f, 1.f }, { 0.f, 0.55f, 1.f }, { 1.f, 0.8f, 0.f });

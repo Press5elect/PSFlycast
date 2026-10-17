@@ -794,6 +794,9 @@ struct Index
 	std::map<std::string, std::string> loose;		// plain() of it -> file
 	double at = 0;
 	bool any = false;
+	std::vector<std::string> sample;		// the first names it holds, for the log
+	int others = 0;						// files in it that are not videos we can play
+	int total = 0;
 };
 std::map<std::string, Index> indexes;		// the finder's thread only
 
@@ -816,6 +819,9 @@ Index& indexOf(const std::string& folder)
 		{
 			if (entry.isDirectory)
 				continue;
+			index.total++;
+			if (index.sample.size() < 4)
+				index.sample.push_back(entry.name);
 			const std::string lower = lowerCase(entry.name);
 			const size_t dot = lower.find_last_of('.');
 			if (dot == std::string::npos)
@@ -853,18 +859,49 @@ void finderRun()
 		}
 		std::string result;
 		int withVideos = 0;
+		std::string firstWith, firstOther;
 		const std::vector<std::string> folders = videoFolders(job.path);
 		const std::string names[2] = { job.first, job.second };
 		for (const std::string& folder : folders)
 		{
 			const Index& index = indexOf(folder);
 			if (index.any)
+			{
 				withVideos++;
-			for (int pass = 0; pass < 2 && result.empty(); pass++)
+				if (firstWith.empty())
+				{
+					firstWith = folder + ": " + std::to_string(index.total) + " files, e.g.";
+					for (const std::string& n : index.sample)
+						firstWith += " \"" + n + "\"";
+				}
+			}
+			else if (index.total > 0 && firstOther.empty())
+			{
+				firstOther = folder + ": " + std::to_string(index.total) + " files none of them mp4, e.g.";
+				for (const std::string& n : index.sample)
+					firstOther += " \"" + n + "\"";
+			}
+			for (int pass = 0; pass < 3 && result.empty(); pass++)
 				for (const std::string& name : names)
 				{
 					if (name.empty())
 						continue;
+					if (pass == 2)
+					{
+						// A video called after the game with more or less around it ("Game - Video", "Game (Europe)").
+						const std::string want = plain(name);
+						if (want.size() < 5)
+							continue;
+						for (const auto& [loose, file] : index.loose)
+							if (loose.size() >= 5 && (loose.find(want) == 0 || want.find(loose) == 0))
+							{
+								result = file;
+								break;
+							}
+						if (!result.empty())
+							break;
+						continue;
+					}
 					const auto& table = pass == 0 ? index.exact : index.loose;
 					const auto at = table.find(pass == 0 ? lowerCase(clean(name)) : plain(name));
 					if (at != table.end())
@@ -882,6 +919,10 @@ void finderRun()
 			ps5::diag::mark("video: none for \"%s\" / \"%s\" (%d of %d folders have videos; first: %s; game: %s)", job.first.c_str(),
 					job.second.c_str(), withVideos, (int)folders.size(), folders.empty() ? "-" : folders[0].c_str(),
 					job.path.c_str());
+		if (result.empty() && !firstWith.empty())
+			ps5::diag::mark("video: the first folder with videos: %s", firstWith.c_str());
+		if (result.empty() && !firstOther.empty())
+			ps5::diag::mark("video: a folder with other files: %s", firstOther.c_str());
 		std::lock_guard<std::mutex> lock(findMutex);
 		found[job.first] = Found{ result, secondsNow() };
 	}
