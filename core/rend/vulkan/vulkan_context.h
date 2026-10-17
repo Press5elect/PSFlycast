@@ -115,6 +115,8 @@ public:
 	vk::PhysicalDevice GetPhysicalDevice() const { return physicalDevice; }
 	vk::Device GetDevice() const { return *device; }
 	vk::PipelineCache GetPipelineCache() const { return *pipelineCache; }
+	// Writes the compiled pipelines to the cache file (also done when the context ends); the size, or 0.
+	size_t SavePipelineCache();
 	vk::RenderPass GetRenderPass() const { return *renderPass; }
 	vk::CommandBuffer GetCurrentCommandBuffer() const { return *commandBuffers[GetCurrentImageIndex()]; }
 	vk::DescriptorPool GetDescriptorPool() const { return *descriptorPool; }

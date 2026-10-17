@@ -1476,6 +1476,27 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 		quadDrawer->Draw(commandBuffer, imageView, vtx, !config::LinearInterpolation);
 }
 
+size_t VulkanContext::SavePipelineCache()
+{
+	if (!device || !pipelineCache)
+		return 0;
+	std::vector<u8> cacheData;
+	try {
+		cacheData = device->getPipelineCacheData(*pipelineCache);
+	} catch (const vk::SystemError&) {
+		return 0;
+	}
+	if (cacheData.empty())
+		return 0;
+	std::string cachePath = hostfs::getShaderCachePath("vulkan_pipeline.cache");
+	FILE *f = nowide::fopen(cachePath.c_str(), "wb");
+	if (f == nullptr)
+		return 0;
+	(void)std::fwrite(&cacheData[0], 1, cacheData.size(), f);
+	std::fclose(f);
+	return cacheData.size();
+}
+
 void VulkanContext::WaitIdle() const
 {
 	try {
@@ -1597,20 +1618,7 @@ void VulkanContext::term()
 	}
 	inFlightObjects.clear();
 	imguiDriver.reset();
-	if (device && pipelineCache)
-	{
-		std::vector<u8> cacheData = device->getPipelineCacheData(*pipelineCache);
-		if (!cacheData.empty())
-		{
-			std::string cachePath = hostfs::getShaderCachePath("vulkan_pipeline.cache");
-			FILE *f = nowide::fopen(cachePath.c_str(), "wb");
-			if (f != nullptr)
-			{
-				(void)std::fwrite(&cacheData[0], 1, cacheData.size(), f);
-				std::fclose(f);
-			}
-		}
-	}
+	SavePipelineCache();
 	overlay.reset();
 #ifdef USE_PS5
 	ps5::fsr::reset();

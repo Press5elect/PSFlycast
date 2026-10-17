@@ -6115,7 +6115,7 @@ std::string spaceFolder(int which)
 	switch (which)
 	{
 	case 0: return ps5::archive::cacheFolder();
-	case 1: return ps5::rootDir + "radv-shader-cache";
+	case 1: return ps5::rootDir + "radv-shader-cache";		// and data/vulkan_pipeline.cache, in spaceBytes / spaceClear
 	default: return ps5::rootDir + "logs";
 	}
 }
@@ -6135,7 +6135,14 @@ SpaceNow& spaceNow(bool force = false)
 		now.at = timeNow;
 		for (int i = 0; i < 3; i++)
 		{
-			const unsigned long long bytes = ps5::archive::folderBytes(spaceFolder(i));
+			unsigned long long bytes = ps5::archive::folderBytes(spaceFolder(i));
+			if (i == 1)
+			{
+				// Flycast's own file of compiled pipelines is the shader cache too.
+				struct stat st{};
+				if (stat((ps5::rootDir + "data/vulkan_pipeline.cache").c_str(), &st) == 0)
+					bytes += (unsigned long long)st.st_size;
+			}
 			char text[32];
 			if (bytes < 1024 * 1024)
 				snprintf(text, sizeof(text), bytes == 0 ? "Empty" : "%llu KB", bytes / 1024);
@@ -6705,6 +6712,8 @@ std::vector<Category> buildCategories()
 		r.info = [w] { return spaceNow().sizeText[w]; };
 		r.action = [w, label] {
 			ps5::archive::emptyFolder(spaceFolder(w));
+			if (w == 1)
+				::remove((ps5::rootDir + "data/vulkan_pipeline.cache").c_str());
 			spaceNow(true);
 			os_notify((label + " cleared").c_str(), 2500);
 		};

@@ -13,6 +13,7 @@
 	makes each of those builds a read from disk after the first time.
 */
 #include "rend/vulkan/pipeline_warm.h"
+#include "rend/vulkan/vulkan_context.h"
 #include "emulator.h"
 #include "log/Log.h"
 #include "ps5_diag.h"
@@ -107,6 +108,9 @@ void onSave(Event, void *)
 	std::lock_guard<std::mutex> lock(mutex);
 	saveLocked();
 	ps5::diag::mark("pipelines: %d kept for %s", (int)records.size(), settings.content.gameId.c_str());
+	// The compiled pipelines go to data/vulkan_pipeline.cache now, not only when PSFlyCast ends.
+	if (VulkanContext *context = VulkanContext::Instance())
+		ps5::diag::mark("pipeline cache saved: %zu bytes", context->SavePipelineCache());
 	logCache("now");
 }
 } // namespace
