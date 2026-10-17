@@ -3894,6 +3894,14 @@ ImTextureID heroVideoTexture(const Game *focused, bool shown)
 }
 
 
+// The focused game's video in place of its cover, in the rectangle where the cover is (list and grid).
+void coverVideo(ImDrawList *dl, const Game *focused, float x, float y, float w, float h, float r)
+{
+	const ImTextureID clip = heroVideoTexture(focused, true);
+	if (clip != ImTextureID() && heroVideo.fade > 0.01f)
+		imageFill(dl, clip, x, y, w, h, r, alpha(col::text, heroVideo.fade));
+}
+
 // ---- the shelves view: the focused game's art behind its title, shelves below
 
 void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
@@ -4077,6 +4085,8 @@ void drawGrid(ImDrawList *dl, Game *focused)
 		if (near > 0.02f)
 			glow(dl, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 12, alpha(col::accent, near), 20);
 		drawCover(dl, g, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 10, near);
+		if (focused != nullptr && &g == focused && !lib.details)
+			coverVideo(dl, focused, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 10);
 		coverMarks(dl, g, x - grow / 2, y - grow / 2, cardW + grow, cardH + grow, 10, true);
 		if (near > 0.02f)
 			outline(dl, x - grow / 2 - 4, y - grow / 2 - 4, cardW + grow + 8, cardH + grow + 8, alpha(col::text, near), 13, 4);
@@ -4141,6 +4151,7 @@ void drawList(ImDrawList *dl, Game *focused, bool selectDisk)
 	const float px = listX + listW + 64, pw = W - px - 96;
 	const float cover = std::min(pw, 440.f);
 	drawCover(dl, *focused, px, top, cover, cover, 16, 1);
+	coverVideo(dl, focused, px, top, cover, cover, 16);
 	coverMarks(dl, *focused, px, top, cover, cover, 16, true);
 	float y = top + cover + 36;
 	y += text(dl, bold(), 40, px, y, col::text, focused->title.c_str(), pw).y + 14;

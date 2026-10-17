@@ -990,7 +990,7 @@ Settings > Interface. A change shows at once.
   after two minutes without a button and a small mark wanders over it. Made for
   OLED TVs; not tested on one yet.
 - **Game videos:** Off, Silent or a volume. The video of the game in focus
-  plays on the library's Shelves screen where its cover is, after a moment.
+  plays on the library (Shelves, Grid and List) where its cover is, after a moment.
   Videos are found the way ES-DE keeps them: an `.mp4` (H.264 with AAC or MP3
   sound) named like the game's file or its title, in `videos`,
   `media/videos`, `media/dreamcast/videos` or
