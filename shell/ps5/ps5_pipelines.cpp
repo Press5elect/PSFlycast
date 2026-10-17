@@ -16,6 +16,7 @@
 #include "emulator.h"
 #include "log/Log.h"
 #include "ps5_diag.h"
+#include "ps5_archive.h"
 
 #include <atomic>
 #include <cstdio>
@@ -33,6 +34,14 @@ namespace pipelinewarm
 {
 namespace
 {
+// What the driver's shader cache holds, for the log: it should grow as games compile.
+void logCache(const char *when)
+{
+	const std::string dir = ps5::rootDir + "radv-shader-cache";
+	ps5::diag::mark("shader cache %s: %llu bytes in %s (MESA_SHADER_CACHE_DIR=%s)", when, ps5::archive::folderBytes(dir),
+			dir.c_str(), getenv("MESA_SHADER_CACHE_DIR") ? getenv("MESA_SHADER_CACHE_DIR") : "unset");
+}
+
 std::mutex mutex;
 std::set<Record> records;
 std::string currentFile;
@@ -84,6 +93,8 @@ void onStart(Event, void *)
 		fclose(f);
 	}
 	NOTICE_LOG(RENDERER, "Pipeline warm-up: %d pipelines known for %s", (int)records.size(), settings.content.gameId.c_str());
+	ps5::diag::mark("pipelines: %d known for %s", (int)records.size(), settings.content.gameId.c_str());
+	logCache("at start");
 	// A new generation, never 0 (a manager's "not warmed").
 	u32 next = currentGeneration.load() + 1;
 	if (next == 0)
@@ -95,6 +106,8 @@ void onSave(Event, void *)
 {
 	std::lock_guard<std::mutex> lock(mutex);
 	saveLocked();
+	ps5::diag::mark("pipelines: %d kept for %s", (int)records.size(), settings.content.gameId.c_str());
+	logCache("now");
 }
 } // namespace
 
