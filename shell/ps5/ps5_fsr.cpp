@@ -42,6 +42,7 @@
 #include <cstring>
 #include <memory>
 #include <stdexcept>
+#include <chrono>
 #include <vector>
 
 namespace ps5
@@ -54,6 +55,26 @@ config::Option<int> Contrast("Contrast", 100, "ps5");
 config::Option<int> Saturation("Saturation", 100, "ps5");
 config::Option<int> Gamma("Gamma", 100, "ps5");
 config::Option<int> VmuScreenSize("VmuScreenSize", 100, "ps5");
+config::Option<int> SidePicture("SidePicture", 0, "ps5");
+config::Option<int> OledCare("OledCare", 0, "ps5");
+}
+
+namespace ps5
+{
+// A slow loop: a square of positions, one step every 20 seconds (about 10 px on a 4K screen at most).
+void oledShift(int screenHeight, int& x, int& y)
+{
+	x = y = 0;
+	if (OledCare <= 0)
+		return;
+	static const int route[][2] = { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 2, 1 }, { 2, 2 }, { 1, 2 }, { 0, 2 }, { 0, 1 },
+			{ -1, 1 }, { -2, 0 }, { -2, -1 }, { -2, -2 }, { -1, -2 }, { 0, -2 }, { 1, -2 }, { 2, -2 }, { 2, -1 } };
+	const long long step = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count() / 20;
+	const auto& at = route[step % (sizeof(route) / sizeof(route[0]))];
+	const int unit = std::max(1, screenHeight / 540);		// 4 px at 1080p... 4 at 2160
+	x = at[0] * unit;
+	y = at[1] * unit;
+}
 }
 
 namespace ps5::fsr

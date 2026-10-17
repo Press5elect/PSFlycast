@@ -147,6 +147,7 @@ static void CheckImGuiResult(VkResult err)
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
 #include "ps5_fsr.h"
+#include "ps5_border.h"
 #include "ps5_framegen.h"
 #include <cerrno>
 #define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
@@ -909,6 +910,7 @@ void VulkanContext::CreateSwapChain()
 		device->waitIdle();
 #ifdef USE_PS5
 		ps5::fsr::reset();
+		ps5::border::reset();
 		ps5::framegen::reset();
 		ps5display::reset();
 #endif
@@ -1421,6 +1423,19 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	};
 	float shiftX, shiftY;
 	getVideoShift(shiftX, shiftY);
+#ifdef USE_PS5
+	{
+		// OLED care: the picture moves a few pixels in a slow loop (ps5_fsr.cpp).
+		int ox, oy, bx = 0, by = 0;
+		ps5::oledShift(height, ox, oy);
+		if (ox != 0 || oy != 0)
+		{
+			getWindowboxDimensions(width, height, aspectRatio, bx, by, config::Rotate90);
+			shiftX += ox * (float)extent.width / std::max(1, (int)width - bx * 2);
+			shiftY -= oy * (float)extent.height / std::max(1, (int)height - by * 2);
+		}
+	}
+#endif
 	vtx[0].x = vtx[2].x = -1.f + shiftX * 2.f / extent.width;
 	vtx[1].x = vtx[3].x = vtx[0].x + 2;
 	vtx[0].y = vtx[1].y = -1.f + shiftY * 2.f / extent.height;
@@ -1440,6 +1455,10 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	int dy = 0;
 	getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
 #ifdef USE_PS5
+	// What fills the bars beside the picture (ps5_border.cpp).
+	if ((dx > 0 || dy > 0) && !config::Rotate90)
+		ps5::border::draw(commandBuffer, *renderPass, width, height,
+				vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
 	// The picture upscaled by FSR, where there is one of this frame (ps5_fsr.cpp).
 	if (ps5::fsr::present(commandBuffer, imageView, extent, *renderPass,
 			vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)),
@@ -1532,6 +1551,8 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 				getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
 				ps5::fsr::upscale(GetCurrentCommandBuffer(), (bool)image || shown != imageView, shown, extent,
 						vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
+				if (dx > 0 || dy > 0)
+					ps5::border::prepare(GetCurrentCommandBuffer(), (bool)image, shown, extent);
 			}
 #else
 			const vk::ImageView shown = imageView;
@@ -1593,6 +1614,7 @@ void VulkanContext::term()
 	overlay.reset();
 #ifdef USE_PS5
 	ps5::fsr::reset();
+	ps5::border::reset();
 	ps5::framegen::reset();
 #endif
 	ShaderCompiler::Term();

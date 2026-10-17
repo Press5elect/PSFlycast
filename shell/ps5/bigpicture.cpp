@@ -40,6 +40,7 @@
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
+#include "ps5_border.h"
 #include "ps5_disc.h"
 #include "ps5_archive.h"
 #include <sys/statvfs.h>
@@ -979,6 +980,8 @@ Input in;
 
 // Edge-triggered buttons, and directions that repeat while held (D-pad or
 // left stick), as a TV interface's lists do.
+double lastActivity = 0;		// when a button was last used (OLED care)
+
 void readInput()
 {
 	const auto& pad = ps5::pad::player1();
@@ -993,6 +996,8 @@ void readInput()
 	in.r2 = pad.pressed & ps5::pad::R2;
 	in.r3 = pad.pressed & ps5::pad::R3;
 	in.options = pad.pressed & ps5::pad::Options;
+	if (pad.pressed || pad.buttons || std::fabs(pad.lx) > 0.3f || std::fabs(pad.ly) > 0.3f)
+		lastActivity = timeNow;
 
 	struct Repeat { double next = 0; bool held = false; };
 	static Repeat rep[4];
@@ -1056,7 +1061,10 @@ ImDrawList *beginScreen(const char *id, bool opaque)
 	ps5::video::frame();
 	readInput();
 
-	ImGui::SetNextWindowPos(ImVec2(0, 0));
+	// OLED care: the whole interface moves a few pixels in a slow loop.
+	int oledX = 0, oledY = 0;
+	ps5::oledShift((int)io.DisplaySize.y, oledX, oledY);
+	ImGui::SetNextWindowPos(ImVec2((float)oledX, (float)oledY));
 	ImGui::SetNextWindowSize(io.DisplaySize);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
@@ -1066,8 +1074,20 @@ ImDrawList *beginScreen(const char *id, bool opaque)
 	ImGui::PopStyleVar(2);
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	applySkin();
+	ps5::border::setAccent(((col::accent >> 0) & 255) << 16 | ((col::accent >> 8) & 255) << 8 | ((col::accent >> 16) & 255));
 	if (opaque)
 		drawBackdrop(dl);
+	// OLED care, full: left alone for two minutes, the screen dims and a small mark wanders over it.
+	if (ps5::OledCare >= 2 && timeNow - lastActivity > 120.0)
+	{
+		const float k = (float)std::min(1.0, (timeNow - lastActivity - 120.0) / 20.0);
+		ImDrawList *fg = ImGui::GetForegroundDrawList();
+		fg->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, (int)(170 * k)));
+		const double t = timeNow * 0.02;
+		const float mx = io.DisplaySize.x * (0.1f + 0.8f * (float)(0.5 + 0.5 * std::sin(t * 1.3)));
+		const float my = io.DisplaySize.y * (0.1f + 0.8f * (float)(0.5 + 0.5 * std::sin(t * 0.9 + 1.0)));
+		fg->AddCircleFilled(ImVec2(mx, my), 6.f * S, IM_COL32(120, 140, 170, (int)(90 * k)));
+	}
 	return dl;
 }
 
@@ -2909,6 +2929,12 @@ const std::vector<GameOption>& gameOptions()
 		// left corner, the second controller's the top right.
 		onOff("Memory card screen", "Shows the memory card's little screen in a corner of the picture while you play",
 				"config.rend.FloatVMUs", config::FloatVMUs, G::Video),
+		pick("Beside the picture",
+				"What fills the screen beside a 4:3 picture. The picture's light: the picture blurred wide and soft. Gradient: a quiet "
+				"tone of the interface's colour. Your picture: borders/<game ID>.png, or default.png, in the title's folder. "
+				"Carried on: the picture's edges mirrored and blurred outwards",
+				"ps5.SidePicture", { "Black", "The picture's light", "Gradient", "My picture", "Carried on" }, { 0, 1, 2, 3, 4 },
+				ps5::SidePicture, G::Video),
 		range("Memory card screen size", "How large the memory card's screen is, with Memory card screen on", "ps5.VmuScreenSize",
 				50, 300, 10, "%", G::Video, [] { return (int)ps5::VmuScreenSize; }, [](int v) { ps5::VmuScreenSize.set(v); }),
 		onOff("Integer scaling", "Whole-number scaling of the picture, no blur", "config.rend.IntegerScale",
@@ -6413,6 +6439,27 @@ std::vector<Category> buildCategories()
 		menu.get = [] { return ps5::options().menuSounds ? 1 : 0; };
 		menu.set = [](int v) { ps5::options().menuSounds = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(menu);
+		look.rows.push_back(choice("OLED care",
+				"Moves the picture and the interface a few pixels in a slow loop so nothing stays lit in one place. "
+				"Pixel shift + dim also darkens the library after two minutes without a button and moves a small mark over it",
+				{ "Off", "Pixel shift", "Pixel shift + dim when idle" }, { 0, 1, 2 }, ps5::OledCare));
+		Row videos{ Row::Choice, "Game videos",
+				"The game's video plays in the library where its cover is, when one is found beside the games (a videos folder). "
+				"Silent plays without sound",
+				{ "Off", "Silent", "Quiet", "Medium", "Loud" }, { 0, 1, 2, 3, 4 } };
+		videos.get = [] {
+			if (!ps5::GameVideos)
+				return 0;
+			const int v = ps5::GameVideoVolume;
+			return v <= 0 ? 1 : v <= 25 ? 2 : v <= 50 ? 3 : 4;
+		};
+		videos.set = [](int v) {
+			ps5::GameVideos.set(v > 0);
+			static const int volumes[] = { 0, 0, 25, 50, 100 };
+			if (v > 0)
+				ps5::GameVideoVolume.set(volumes[std::clamp(v, 0, 4)]);
+		};
+		look.rows.push_back(videos);
 	}
 	cats.push_back(look);
 

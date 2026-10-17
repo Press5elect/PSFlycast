@@ -40,6 +40,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/third_party/mihawkgen/src/fg_splat.cpp
 	shell/ps5/ps5_perf.cpp
 	shell/ps5/ps5_framegen.h
+	shell/ps5/ps5_border.cpp
 	shell/ps5/ps5_fsr.cpp
 	shell/ps5/ps5_update.cpp
 	shell/ps5/ps5_rewind.cpp

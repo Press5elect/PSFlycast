@@ -349,6 +349,15 @@ TV, the speaker of the controller whose card beeps, or both (the controller
 speaker is not tested on a console yet: when the console refuses it the beep
 stays on the TV).
 
+Settings > Video > **Beside the picture** chooses what fills the screen beside
+(or above and below) a picture that does not fill it, as in PSSwanStation:
+**Black**; **The picture's light**, the picture blurred wide and soft and
+dimmer towards the edges; **Gradient**, a quiet tone of the interface's colour;
+**My picture**, `borders/<game ID>.png` (or `.jpg`), else `borders/default.png`,
+in PSFlyCast's folder, spread to cover the screen; **Carried on**, the picture's
+edges mirrored outwards and blurred. It is a per-game setting. It is not tested
+on a console yet; if it cannot start it falls back to black and says so in the log.
+
 Each card says how many of its 200 blocks are free and how many saves it
 holds. Each save shows its picture, its name, its size in blocks and its
 date.
@@ -964,6 +973,11 @@ Settings > Interface. A change shows at once.
   `sounds/startup.wav` in PSFlyCast's folder.
 - **Menu sounds:** a soft note for moving, choosing, going back and changing
   tab. On or off.
+- **OLED care:** Off, Pixel shift, or Pixel shift + dim when idle. The picture
+  of the game and the interface move a few pixels in a slow loop (a step every
+  20 seconds), so no edge stays lit in one place. With dim, the library darkens
+  after two minutes without a button and a small mark wanders over it. Made for
+  OLED TVs; not tested on one yet.
 - **Game videos:** Off, Silent or a volume. The video of the game in focus
   plays on the library's Shelves screen where its cover is, after a moment.
   Videos are found the way ES-DE keeps them: an `.mp4` (H.264 with AAC or MP3

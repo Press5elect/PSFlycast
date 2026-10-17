@@ -63,6 +63,15 @@ extern config::Option<int> Saturation;
 extern config::Option<int> Gamma;
 // The memory card screens in a game, in per cent of their usual size.
 extern config::Option<int> VmuScreenSize;
+// What fills the bars beside (or above) a picture that does not fit the screen (ps5_border.cpp): 0 black,
+// 1 the picture's own light (blurred), 2 a gradient in the interface's colour, 3 a picture of your own
+// (<root>/borders/<game ID>.png, else default.png), 4 the picture carried on past its edges.
+extern config::Option<int> SidePicture;
+// Care for an OLED screen: 0 off, 1 the picture and the interface move a few pixels in a slow loop,
+// 2 as 1, and the library dims when nobody presses anything (then shows a moving mark).
+extern config::Option<int> OledCare;
+// The loop's current offset in screen pixels for a screen this many pixels high (0 when off).
+void oledShift(int screenHeight, int& x, int& y);
 // Game videos in the library: 0 off, else the sound's volume in per cent (a video with no sound plays on).
 extern config::Option<int> GameVideoVolume;
 extern config::Option<bool> GameVideos;
