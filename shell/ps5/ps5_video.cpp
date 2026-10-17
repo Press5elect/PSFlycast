@@ -43,6 +43,7 @@ extern "C" {
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <condition_variable>
 #include <cstdarg>
 #include <cstdio>
@@ -684,11 +685,40 @@ void closeNow()
 
 std::mutex findMutex;
 std::condition_variable findWake;
-std::map<std::string, std::string> found;		// stem -> file, "" for none
+struct Found
+{
+	std::string file;		// "" for none
+	double at = 0;
+};
+std::map<std::string, Found> found;		// stem -> the answer, a "none" kept for a minute
 std::deque<std::pair<std::string, std::string>> wanted;	// stem, title
 std::thread finder;
 bool finding = false;
-std::atomic<unsigned> foundGeneration{ 0 };
+
+// A name as ES-DE and a games folder may spell it differently: lower case, what is in
+// brackets left out, letters and digits only.
+std::string plain(const std::string& name)
+{
+	std::string out;
+	int depth = 0;
+	for (char c : name)
+	{
+		if (c == '(' || c == '[')
+			depth++;
+		else if (c == ')' || c == ']')
+			depth = std::max(0, depth - 1);
+		else if (depth == 0 && std::isalnum((unsigned char)c))
+			out += (char)std::tolower((unsigned char)c);
+	}
+	return out;
+}
+
+std::string lowerCase(std::string text)
+{
+	for (char& c : text)
+		c = (char)std::tolower((unsigned char)c);
+	return text;
+}
 
 std::string clean(std::string text)
 {
@@ -698,6 +728,8 @@ std::string clean(std::string text)
 	return text;
 }
 
+// The folders that may hold videos: beside the games and in every folder above them
+// up to the share's or drive's top, in the layouts ES-DE and plain folders use.
 std::vector<std::string> videoFolders()
 {
 	std::vector<std::string> bases{ ps5::rootDir };
@@ -715,17 +747,85 @@ std::vector<std::string> videoFolders()
 		if (!dir.empty() && seen.insert(dir).second)
 			out.push_back(dir);
 	};
+	static const char *const subs[] = {
+		"videos", "media/videos", "media/dreamcast/videos", "media/naomi/videos", "media/atomiswave/videos",
+		"downloaded_media/dreamcast/videos", "downloaded_media/naomi/videos", "downloaded_media/atomiswave/videos",
+		"ES-DE/downloaded_media/dreamcast/videos", "ES-DE/downloaded_media/naomi/videos",
+		"ES-DE/downloaded_media/atomiswave/videos", "PSFlyCast/videos"
+	};
 	for (std::string base : bases)
 	{
 		while (base.size() > 1 && base.back() == '/')
 			base.pop_back();
-		for (const char *sub : { "videos", "media/videos", "media/dreamcast/videos", "downloaded_media/dreamcast/videos" })
-			add(base + "/" + sub);
-		const size_t slash = base.find_last_of('/');
-		if (slash != std::string::npos && slash > 6)
-			add(base.substr(0, slash) + "/downloaded_media/dreamcast/videos");
+		// smb://server/share is as far up as a network folder goes.
+		size_t top = 1;
+		if (base.rfind("smb://", 0) == 0)
+		{
+			const size_t serverEnd = base.find('/', 6);
+			top = serverEnd == std::string::npos ? base.size() : base.find('/', serverEnd + 1);
+			if (top == std::string::npos)
+				top = base.size();
+		}
+		std::string dir = base;
+		for (int level = 0; level < 5 && dir.size() >= top; level++)
+		{
+			for (const char *sub : subs)
+				add(dir + "/" + sub);
+			const size_t slash = dir.find_last_of('/');
+			if (slash == std::string::npos || slash < top)
+				break;
+			dir.resize(slash);
+		}
 	}
 	return out;
+}
+
+struct Index
+{
+	std::map<std::string, std::string> exact;		// lower case name without extension -> file
+	std::map<std::string, std::string> loose;		// plain() of it -> file
+	double at = 0;
+	bool any = false;
+};
+std::map<std::string, Index> indexes;		// the finder's thread only
+
+double secondsNow()
+{
+	using namespace std::chrono;
+	return duration_cast<duration<double>>(steady_clock::now().time_since_epoch()).count();
+}
+
+Index& indexOf(const std::string& folder)
+{
+	Index& index = indexes[folder];
+	if (index.at != 0 && secondsNow() - index.at < 300)
+		return index;
+	index = Index();
+	index.at = secondsNow();
+	try
+	{
+		for (const hostfs::FileInfo& entry : hostfs::storage().listContent(folder))
+		{
+			if (entry.isDirectory)
+				continue;
+			const std::string lower = lowerCase(entry.name);
+			const size_t dot = lower.find_last_of('.');
+			if (dot == std::string::npos)
+				continue;
+			const std::string ext = lower.substr(dot);
+			if (ext != ".mp4" && ext != ".m4v" && ext != ".mov")
+				continue;
+			const std::string stem = lower.substr(0, dot);
+			const std::string file = folder + "/" + entry.name;
+			index.exact.emplace(stem, file);
+			const std::string loose = plain(entry.name.substr(0, dot));
+			if (!loose.empty())
+				index.loose.emplace(loose, file);
+			index.any = true;
+		}
+	}
+	catch (...) {}
+	return index;
 }
 
 void finderRun()
@@ -744,38 +844,37 @@ void finderRun()
 			wanted.pop_front();
 		}
 		std::string result;
+		int withVideos = 0;
 		const std::vector<std::string> folders = videoFolders();
-		const std::string names[2] = { clean(job.first), clean(job.second) };
+		const std::string names[2] = { job.first, job.second };
 		for (const std::string& folder : folders)
 		{
-			for (const std::string& name : names)
-			{
-				if (name.empty())
-					continue;
-				for (const char *ext : { ".mp4", ".m4v", ".mov" })
+			const Index& index = indexOf(folder);
+			if (index.any)
+				withVideos++;
+			for (int pass = 0; pass < 2 && result.empty(); pass++)
+				for (const std::string& name : names)
 				{
-					const std::string file = folder + "/" + name + ext;
-					try
+					if (name.empty())
+						continue;
+					const auto& table = pass == 0 ? index.exact : index.loose;
+					const auto at = table.find(pass == 0 ? lowerCase(clean(name)) : plain(name));
+					if (at != table.end())
 					{
-						if (hostfs::storage().exists(file))
-						{
-							result = file;
-							break;
-						}
+						result = at->second;
+						break;
 					}
-					catch (...) {}
 				}
-				if (!result.empty())
-					break;
-			}
 			if (!result.empty())
 				break;
 		}
 		if (!result.empty())
 			ps5::diag::mark("video: %s -> %s", job.first.c_str(), result.c_str());
+		else
+			ps5::diag::mark("video: none for \"%s\" / \"%s\" (%d of %d folders have videos; first: %s)", job.first.c_str(),
+					job.second.c_str(), withVideos, (int)folders.size(), folders.empty() ? "-" : folders[0].c_str());
 		std::lock_guard<std::mutex> lock(findMutex);
-		found[job.first] = result;
-		foundGeneration++;
+		found[job.first] = Found{ result, secondsNow() };
 	}
 }
 
@@ -790,8 +889,8 @@ std::string find(const std::string& stem, const std::string& title)
 {
 	std::unique_lock<std::mutex> lock(findMutex);
 	const auto at = found.find(stem);
-	if (at != found.end())
-		return at->second;
+	if (at != found.end() && (!at->second.file.empty() || secondsNow() - at->second.at < 60))
+		return at->second.file;
 	for (const auto& job : wanted)
 		if (job.first == stem)
 			return "";
