@@ -37,6 +37,8 @@ public:
 
 	ArchiveFile* OpenFile(const char* name) override;
 	ArchiveFile *OpenFileByCrc(u32 crc) override;
+	bool list(std::vector<ArchiveEntry>& entries) override;
+	bool extract(const std::string& name, const std::function<bool(const void *, size_t)>& sink) override;
 
 protected:
 	bool Open(hostfs::File *file) override;

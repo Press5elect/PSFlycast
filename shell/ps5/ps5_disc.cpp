@@ -25,6 +25,10 @@
 #include <set>
 #include <thread>
 #include <unistd.h>
+#include <cstdio>
+#include <functional>
+#include <sys/stat.h>
+#include <sys/statvfs.h>
 
 namespace ps5::disc
 {
@@ -159,6 +163,8 @@ public:
 		return false;
 	}
 	drive::Drive& drv() { return *dr; }
+	const std::vector<std::pair<uint32_t, uint32_t>>& trackRanges() const { return ranges; }
+	void keepNothing() { keepBlocks = false; }
 
 	// The sector at `lba`, `stride()` bytes into `out`.
 	bool readSector(uint32_t lba, uint8_t *out)
@@ -242,6 +248,7 @@ private:
 	unsigned appliedSetting = ~0u;
 	std::string appliedFor;
 	bool told = false;
+	bool keepBlocks = true;
 
 	uint32_t blockCount() const { return (sectors + Block - 1) / Block; }
 
@@ -387,7 +394,7 @@ private:
 		for (uint32_t lba : failed)
 			bad.insert(lba);
 		// A block with a sector that will not read is not kept as if it were whole.
-		if (failed.empty() && (size_t)used.load() * Block * each < BudgetBytes)
+		if (keepBlocks && failed.empty() && (size_t)used.load() * Block * each < BudgetBytes)
 		{
 			std::unique_ptr<uint8_t[]> kept(new (std::nothrow) uint8_t[(size_t)Block * each]);
 			if (kept)
@@ -767,6 +774,487 @@ void watch()
 	}
 }
 
+
+// ---- copying the disc to an image file (CDI or CHD)
+
+struct CopyState
+{
+	std::mutex mutex;
+	std::thread thread;
+	std::atomic<bool> running{ false };
+	std::atomic<bool> cancel{ false };
+	CopyStatus status;
+};
+CopyState copyState;
+
+// A sector as a drive that gives only the 2048 bytes of user data would have it: sync, header and
+// subheader are rebuilt (Mode 2 Form 1); the error codes at the end are not.
+void rebuildSector(uint8_t *out, const uint8_t *user, uint32_t lba)
+{
+	static const uint8_t sync[12] = { 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0 };
+	std::memcpy(out, sync, 12);
+	const uint32_t fad = lba + Pregap;
+	auto bcd = [](uint32_t v) { return (uint8_t)(((v / 10) << 4) | (v % 10)); };
+	out[12] = bcd(fad / 75 / 60);
+	out[13] = bcd(fad / 75 % 60);
+	out[14] = bcd(fad % 75);
+	out[15] = 2;
+	static const uint8_t sub[8] = { 0, 0, 8, 0, 0, 0, 8, 0 };
+	std::memcpy(out + 16, sub, 8);
+	std::memcpy(out + 24, user, 2048);
+	std::memset(out + 2072, 0, 280);
+}
+
+struct DumpTrack
+{
+	uint32_t first = 0;		// the first address
+	uint32_t count = 0;		// sectors
+	bool data = false;
+};
+
+// Reads the sectors of one track, whole (2352 bytes), to `sink`.
+bool readTrack(Source& source, const DumpTrack& track, const std::function<bool(const uint8_t *)>& sink, uint32_t& unreadable)
+{
+	std::vector<uint8_t> in(source.stride());
+	std::vector<uint8_t> out(drive::RawSector);
+	for (uint32_t i = 0; i < track.count; i++)
+	{
+		if (copyState.cancel)
+			return false;
+		const uint32_t lba = track.first + i;
+		if (!source.readSector(lba, in.data()))
+		{
+			std::fill(out.begin(), out.end(), 0);
+			unreadable++;
+		}
+		else if (source.raw())
+			std::memcpy(out.data(), in.data(), drive::RawSector);
+		else
+			rebuildSector(out.data(), in.data(), lba);
+		if (!sink(out.data()))
+			return false;
+	}
+	return true;
+}
+
+// ---- SHA-1, for the CHD's checksums
+struct Sha1
+{
+	uint32_t h[5] = { 0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0 };
+	uint8_t buffer[64];
+	uint64_t length = 0;
+	size_t used = 0;
+
+	static uint32_t rol(uint32_t v, int n) { return (v << n) | (v >> (32 - n)); }
+	void block(const uint8_t *p)
+	{
+		uint32_t w[80];
+		for (int i = 0; i < 16; i++)
+			w[i] = (uint32_t)p[i * 4] << 24 | (uint32_t)p[i * 4 + 1] << 16 | (uint32_t)p[i * 4 + 2] << 8 | p[i * 4 + 3];
+		for (int i = 16; i < 80; i++)
+			w[i] = rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+		uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+		for (int i = 0; i < 80; i++)
+		{
+			uint32_t f, k;
+			if (i < 20) { f = (b & c) | (~b & d); k = 0x5A827999; }
+			else if (i < 40) { f = b ^ c ^ d; k = 0x6ED9EBA1; }
+			else if (i < 60) { f = (b & c) | (b & d) | (c & d); k = 0x8F1BBCDC; }
+			else { f = b ^ c ^ d; k = 0xCA62C1D6; }
+			const uint32_t t = rol(a, 5) + f + e + k + w[i];
+			e = d; d = c; c = rol(b, 30); b = a; a = t;
+		}
+		h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+	}
+	void add(const void *data, size_t size)
+	{
+		const uint8_t *p = (const uint8_t *)data;
+		length += size;
+		while (size > 0)
+		{
+			const size_t n = std::min(size, sizeof(buffer) - used);
+			std::memcpy(buffer + used, p, n);
+			used += n; p += n; size -= n;
+			if (used == sizeof(buffer))
+			{
+				block(buffer);
+				used = 0;
+			}
+		}
+	}
+	void finish(uint8_t out[20])
+	{
+		const uint64_t bits = length * 8;
+		const uint8_t one = 0x80;
+		add(&one, 1);
+		const uint8_t zero = 0;
+		while (used != 56)
+			add(&zero, 1);
+		uint8_t len[8];
+		for (int i = 0; i < 8; i++)
+			len[i] = (uint8_t)(bits >> (56 - 8 * i));
+		add(len, 8);
+		for (int i = 0; i < 5; i++)
+		{
+			out[i * 4] = (uint8_t)(h[i] >> 24);
+			out[i * 4 + 1] = (uint8_t)(h[i] >> 16);
+			out[i * 4 + 2] = (uint8_t)(h[i] >> 8);
+			out[i * 4 + 3] = (uint8_t)h[i];
+		}
+	}
+};
+
+void put32(std::vector<uint8_t>& v, uint32_t x, bool big)
+{
+	for (int i = 0; i < 4; i++)
+		v.push_back((uint8_t)(x >> (big ? 24 - 8 * i : 8 * i)));
+}
+
+void put16(std::vector<uint8_t>& v, uint16_t x)
+{
+	v.push_back((uint8_t)x);
+	v.push_back((uint8_t)(x >> 8));
+}
+
+void zeros(std::vector<uint8_t>& v, size_t n)
+{
+	v.insert(v.end(), n, 0);
+}
+
+// DiscJuggler (3.5) image: the tracks' sectors one after the other, then the descriptor Flycast's reader
+// (core/deps/chdpsr/cdipsr.cpp) takes the tracks from. Sessions: a data track after audio starts one.
+bool writeCdi(FILE *f, Source& source, const std::vector<DumpTrack>& tracks, const std::function<void(uint32_t)>& progress, uint32_t& unreadable, std::string& error)
+{
+	uint32_t done = 0;
+	for (const DumpTrack& t : tracks)
+	{
+		const bool ok = readTrack(source, t, [&](const uint8_t *sector) {
+			if (fwrite(sector, 1, drive::RawSector, f) != drive::RawSector)
+			{
+				error = "the file could not be written (is the disk full?)";
+				return false;
+			}
+			progress(++done);
+			return true;
+		}, unreadable);
+		if (!ok)
+			return false;
+	}
+	std::vector<std::vector<size_t>> sessions;
+	for (size_t i = 0; i < tracks.size(); i++)
+	{
+		if (i == 0 || (tracks[i].data && !tracks[i - 1].data))
+			sessions.emplace_back();
+		sessions.back().push_back(i);
+	}
+	std::vector<uint8_t> d;
+	put16(d, (uint16_t)sessions.size());
+	static const uint8_t mark[10] = { 0, 0, 0x01, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF };
+	for (const auto& session : sessions)
+	{
+		put16(d, (uint16_t)session.size());
+		for (size_t index : session)
+		{
+			const DumpTrack& t = tracks[index];
+			put32(d, 0, false);
+			d.insert(d.end(), mark, mark + 10);
+			d.insert(d.end(), mark, mark + 10);
+			zeros(d, 4);
+			d.push_back(0);				// the file name's length
+			zeros(d, 11);
+			zeros(d, 4);
+			zeros(d, 4);
+			put32(d, 0, false);
+			zeros(d, 2);
+			put32(d, 0, false);			// pregap
+			put32(d, t.count, false);	// length
+			zeros(d, 6);
+			put32(d, t.data ? 2 : 0, false);	// mode: audio, or Mode 2
+			zeros(d, 12);
+			put32(d, t.first + Pregap, false);	// start address
+			put32(d, t.count, false);	// total length
+			zeros(d, 16);
+			put32(d, 2, false);			// 2352 bytes a sector
+			zeros(d, 29);
+			zeros(d, 5);
+			put32(d, 0, false);
+		}
+		zeros(d, 4 + 8 + 1);
+	}
+	const uint32_t offset = (uint32_t)d.size() + 8;
+	put32(d, 0x80000006, false);
+	put32(d, offset, false);
+	if (fwrite(d.data(), 1, d.size(), f) != d.size())
+	{
+		error = "the file could not be written (is the disk full?)";
+		return false;
+	}
+	return true;
+}
+
+// CHD version 5, not compressed (every hunk is eight frames of 2352 bytes of sector and 96 of subcode, the
+// way chdman lays out a CD; chdman can compress it afterwards).
+bool writeChd(FILE *f, Source& source, const std::vector<DumpTrack>& tracks, const std::function<void(uint32_t)>& progress, uint32_t& unreadable, std::string& error)
+{
+	constexpr uint32_t FrameBytes = 2352 + 96;
+	constexpr uint32_t FramesPerHunk = 8;
+	constexpr uint32_t HunkBytes = FrameBytes * FramesPerHunk;
+	uint32_t totalFrames = 0;
+	for (const DumpTrack& t : tracks)
+		totalFrames += (t.count + 3) / 4 * 4;
+	const uint32_t hunks = (totalFrames + FramesPerHunk - 1) / FramesPerHunk;
+	const uint64_t logical = (uint64_t)totalFrames * FrameBytes;
+
+	// Metadata: one CHT2 entry a track.
+	struct Meta { std::string text; uint8_t hash[20]; };
+	std::vector<Meta> meta;
+	for (size_t i = 0; i < tracks.size(); i++)
+	{
+		char line[200];
+		snprintf(line, sizeof(line), "TRACK:%zu TYPE:%s SUBTYPE:NONE FRAMES:%u PREGAP:0 PGTYPE:MODE1 PGSUB:NONE POSTGAP:0", i + 1,
+				tracks[i].data ? "MODE2_RAW" : "AUDIO", tracks[i].count);
+		Meta m;
+		m.text = line;
+		Sha1 sha;
+		sha.add(m.text.c_str(), m.text.size() + 1);
+		sha.finish(m.hash);
+		meta.push_back(m);
+	}
+	const uint64_t mapOffset = 124;
+	const uint64_t metaOffset = mapOffset + (uint64_t)hunks * 4;
+	uint64_t metaEnd = metaOffset;
+	for (const Meta& m : meta)
+		metaEnd += 16 + m.text.size() + 1;
+	const uint64_t dataStart = (metaEnd + HunkBytes - 1) / HunkBytes * HunkBytes;
+
+	// The map and the metadata first (their places are known), the hunks after, the header last.
+	std::vector<uint8_t> front;
+	for (uint32_t i = 0; i < hunks; i++)
+		put32(front, (uint32_t)(dataStart / HunkBytes + i), true);
+	uint64_t at = metaOffset;
+	for (size_t i = 0; i < meta.size(); i++)
+	{
+		const Meta& m = meta[i];
+		front.push_back('C'); front.push_back('H'); front.push_back('T'); front.push_back('2');
+		front.push_back(1);		// checksummed
+		const uint32_t len = (uint32_t)m.text.size() + 1;
+		front.push_back((uint8_t)(len >> 16)); front.push_back((uint8_t)(len >> 8)); front.push_back((uint8_t)len);
+		const uint64_t next = i + 1 < meta.size() ? at + 16 + len : 0;
+		for (int b = 0; b < 8; b++)
+			front.push_back((uint8_t)(next >> (56 - 8 * b)));
+		front.insert(front.end(), m.text.begin(), m.text.end());
+		front.push_back(0);
+		at += 16 + len;
+	}
+	if (fseek(f, 124, SEEK_SET) != 0 || fwrite(front.data(), 1, front.size(), f) != front.size())
+	{
+		error = "the file could not be written (is the disk full?)";
+		return false;
+	}
+	if (fseek(f, (long)dataStart, SEEK_SET) != 0)
+	{
+		error = "the file could not be written";
+		return false;
+	}
+
+	Sha1 raw;
+	std::vector<uint8_t> hunk;
+	hunk.reserve(HunkBytes);
+	uint64_t written = 0;
+	auto flushFrames = [&](bool last) -> bool {
+		while (hunk.size() >= HunkBytes || (last && !hunk.empty()))
+		{
+			hunk.resize(std::max<size_t>(hunk.size(), HunkBytes), 0);
+			const uint64_t take = std::min<uint64_t>(HunkBytes, logical - written);
+			raw.add(hunk.data(), (size_t)take);
+			written += take;
+			if (fwrite(hunk.data(), 1, HunkBytes, f) != HunkBytes)
+			{
+				error = "the file could not be written (is the disk full?)";
+				return false;
+			}
+			hunk.erase(hunk.begin(), hunk.begin() + HunkBytes);
+		}
+		return true;
+	};
+	auto addFrame = [&](const uint8_t *sector, bool swap) -> bool {
+		const size_t at = hunk.size();
+		hunk.resize(at + FrameBytes, 0);
+		std::memcpy(hunk.data() + at, sector, 2352);
+		if (swap)
+			for (size_t i = 0; i < 2352; i += 2)
+				std::swap(hunk[at + i], hunk[at + i + 1]);
+		return flushFrames(false);
+	};
+	uint32_t done = 0;
+	const uint8_t blank[2352] = {};
+	for (const DumpTrack& t : tracks)
+	{
+		if (!readTrack(source, t, [&](const uint8_t *sector) {
+				progress(++done);
+				return addFrame(sector, !t.data);
+			}, unreadable))
+			return false;
+		for (uint32_t pad = t.count; pad % 4 != 0; pad++)
+			if (!addFrame(blank, false))
+				return false;
+	}
+	if (!flushFrames(true))
+		return false;
+
+	// The checksums: of the data, and of that with the metadata's.
+	uint8_t rawSha[20], overall[20];
+	raw.finish(rawSha);
+	std::vector<std::pair<std::string, int>> order;
+	Sha1 all;
+	all.add(rawSha, 20);
+	std::vector<std::vector<uint8_t>> hashes;
+	for (const Meta& m : meta)
+	{
+		std::vector<uint8_t> entry{ 'C', 'H', 'T', '2' };
+		entry.insert(entry.end(), m.hash, m.hash + 20);
+		hashes.push_back(entry);
+	}
+	std::sort(hashes.begin(), hashes.end());
+	for (const auto& entry : hashes)
+		all.add(entry.data(), entry.size());
+	all.finish(overall);
+
+	std::vector<uint8_t> header;
+	const char tag[8] = { 'M', 'C', 'o', 'm', 'p', 'r', 'H', 'D' };
+	header.insert(header.end(), tag, tag + 8);
+	put32(header, 124, true);
+	put32(header, 5, true);
+	zeros(header, 16);	// no compressors
+	for (int b = 0; b < 8; b++) header.push_back((uint8_t)(logical >> (56 - 8 * b)));
+	for (int b = 0; b < 8; b++) header.push_back((uint8_t)(mapOffset >> (56 - 8 * b)));
+	for (int b = 0; b < 8; b++) header.push_back((uint8_t)(metaOffset >> (56 - 8 * b)));
+	put32(header, HunkBytes, true);
+	put32(header, FrameBytes, true);
+	header.insert(header.end(), rawSha, rawSha + 20);
+	header.insert(header.end(), overall, overall + 20);
+	zeros(header, 20);	// no parent
+	if (fseek(f, 0, SEEK_SET) != 0 || fwrite(header.data(), 1, header.size(), f) != header.size())
+	{
+		error = "the file could not be written";
+		return false;
+	}
+	return true;
+}
+
+std::string safeFileName(const std::string& s)
+{
+	std::string out;
+	for (char c : s)
+		out += (strchr("<>:\"/\\|?*", c) != nullptr || (unsigned char)c < 0x20) ? '-' : c;
+	while (!out.empty() && (out.back() == ' ' || out.back() == '.'))
+		out.pop_back();
+	return out.empty() ? std::string("Dreamcast disc") : out;
+}
+
+void copyWork(std::string device, CopyFormat format, std::string title, std::string id)
+{
+	auto finish = [&](bool ok, const std::string& text, const std::string& result) {
+		std::lock_guard<std::mutex> lock(copyState.mutex);
+		copyState.status.running = false;
+		copyState.status.finished = true;
+		copyState.status.ok = ok;
+		copyState.status.text = text;
+		copyState.status.result = result;
+		copyState.status.progress = ok ? 1.f : copyState.status.progress;
+		copyState.running = false;
+	};
+	{
+		std::lock_guard<std::mutex> lock(listMutex);
+		inUse[device]++;
+	}
+	struct Release
+	{
+		std::string device;
+		~Release()
+		{
+			std::lock_guard<std::mutex> lock(listMutex);
+			inUse[device]--;
+			listGeneration++;
+		}
+	} release{ device };
+
+	auto source = std::make_shared<Source>();
+	std::string error;
+	if (!source->open(device, error))
+		return finish(false, "The disc could not be read: " + error, "");
+	source->keepNothing();
+	std::vector<DumpTrack> tracks;
+	const auto& ranges = source->trackRanges();
+	for (size_t i = 0; i < ranges.size(); i++)
+	{
+		DumpTrack t;
+		t.first = ranges[i].first;
+		t.count = ranges[i].second - ranges[i].first;
+		t.data = (source->toc[i].control & 4) != 0;
+		if (t.count > 0)
+			tracks.push_back(t);
+	}
+	if (tracks.empty())
+		return finish(false, "The disc has no tracks to copy.", "");
+	bool audio = false;
+	uint32_t total = 0;
+	for (const DumpTrack& t : tracks)
+	{
+		audio = audio || !t.data;
+		total += t.count;
+	}
+	if (audio && !source->raw())
+		return finish(false, "This drive gives no audio tracks (only the 2048 bytes of data sectors), so the disc cannot be copied whole.", "");
+
+	const std::string folder = ps5::rootDir + "games/";
+	::mkdir(folder.c_str(), 0777);
+	std::string base = safeFileName(title);
+	if (!id.empty())
+		base += " [" + safeFileName(id) + "]";
+	const char *ext = format == CopyFormat::Cdi ? ".cdi" : ".chd";
+	const std::string finalPath = folder + base + ext;
+	const std::string tempPath = finalPath + ".part";
+	struct statvfs vfs{};
+	const uint64_t need = (uint64_t)total * (format == CopyFormat::Chd ? 2448 : 2352) + (1u << 20);
+	if (statvfs(folder.c_str(), &vfs) == 0 && (uint64_t)vfs.f_bavail * vfs.f_frsize < need)
+		return finish(false, "There is not enough free space: the copy needs " + std::to_string(need >> 20) + " MB, and "
+				+ std::to_string(((uint64_t)vfs.f_bavail * vfs.f_frsize) >> 20) + " MB are free.", "");
+	FILE *f = fopen(tempPath.c_str(), "wb");
+	if (f == nullptr)
+		return finish(false, "The file " + base + ext + " could not be created in the games folder.", "");
+
+	diag::mark("disc: copying %s to %s (%u sectors)", device.c_str(), finalPath.c_str(), total);
+	uint32_t unreadable = 0;
+	auto progress = [&](uint32_t done) {
+		if ((done & 0x3F) == 0 || done == total)
+		{
+			std::lock_guard<std::mutex> lock(copyState.mutex);
+			copyState.status.progress = total ? (float)done / (float)total : 0.f;
+		}
+	};
+	bool ok = format == CopyFormat::Cdi ? writeCdi(f, *source, tracks, progress, unreadable, error)
+			: writeChd(f, *source, tracks, progress, unreadable, error);
+	fclose(f);
+	if (!ok)
+	{
+		unlink(tempPath.c_str());
+		return finish(false, copyState.cancel ? std::string("Cancelled.") : "The copy stopped: " + error, "");
+	}
+	if (rename(tempPath.c_str(), finalPath.c_str()) != 0)
+	{
+		unlink(tempPath.c_str());
+		return finish(false, "The finished copy could not be renamed.", "");
+	}
+	std::string text = "Copied to the games folder as " + base + ext + ".";
+	if (!source->raw())
+		text += " The drive gave only the data of each sector: the error-correction codes were not rebuilt.";
+	if (unreadable > 0)
+		text += " " + std::to_string(unreadable) + " sector(s) could not be read and are zeros.";
+	diag::mark("disc: copy done: %s (%u unreadable)", finalPath.c_str(), unreadable);
+	finish(true, text, finalPath);
+}
+
 }	// namespace
 
 // ---- the public interface
@@ -783,6 +1271,9 @@ void start()
 
 void stop()
 {
+	copyState.cancel = true;
+	if (copyState.thread.joinable())
+		copyState.thread.join();
 	if (!watching.exchange(false))
 		return;
 	stopWatching = true;
@@ -863,6 +1354,52 @@ bool eject(const std::string& device, std::string& why)
 	return ok;
 }
 
+bool copyStart(const std::string& device, CopyFormat format, const std::string& title, const std::string& id, std::string& why)
+{
+	if (copyState.running)
+	{
+		why = "A copy is already running.";
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> lock(listMutex);
+		if (inUse[device] > 0)
+		{
+			why = "A game is playing from this drive.";
+			return false;
+		}
+	}
+	if (copyState.thread.joinable())
+		copyState.thread.join();
+	{
+		std::lock_guard<std::mutex> lock(copyState.mutex);
+		copyState.status = CopyStatus();
+		copyState.status.running = true;
+		copyState.status.text = "Copying the disc";
+	}
+	copyState.cancel = false;
+	copyState.running = true;
+	copyState.thread = std::thread(copyWork, device, format, title, id);
+	return true;
+}
+
+CopyStatus copyStatus()
+{
+	std::lock_guard<std::mutex> lock(copyState.mutex);
+	return copyState.status;
+}
+
+void copyCancel()
+{
+	copyState.cancel = true;
+}
+
+void copyAcknowledge()
+{
+	std::lock_guard<std::mutex> lock(copyState.mutex);
+	if (!copyState.status.running)
+		copyState.status = CopyStatus();
+}
 }	// namespace ps5::disc
 
 // Flycast's disc drivers (core/imgread/common.cpp) ask for the path first.

@@ -143,6 +143,8 @@ bool isNetworkPath(const std::string& path);
 // forgets that a share did not answer a moment ago: the user asked again.
 void beginLoad();
 void endLoad();
+// A local game is starting: the last network game's images, kept in memory for a restart, are let go.
+void forgetImages();
 // The user gave up: the read in progress stops at its next piece.
 void cancelLoad();
 // Forgets that a share did not answer a moment ago (before a scan the user

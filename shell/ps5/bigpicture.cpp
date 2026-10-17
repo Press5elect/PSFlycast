@@ -41,6 +41,9 @@
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
 #include "ps5_disc.h"
+#include "ps5_archive.h"
+#include <sys/statvfs.h>
+#include <tuple>
 #include "ps5_diag.h"
 #include "cheats.h"
 
@@ -2368,6 +2371,8 @@ void launch(Game& g, bool selectDisk, int stateSlot = -1)
 	ps5::games::loadStateAtStart(stateSlot);
 	if (g.source == Network)
 		ps5::smb::beginLoad();
+	else
+		ps5::smb::forgetImages();
 	gameStarted(g.media.path);
 	gui_start_game(g.media.path);
 }
@@ -4577,6 +4582,125 @@ void updateDialog(ImDrawList *dl, const Input& given)
 	}
 }
 
+// ---- copying a disc from the drive (ps5_disc.cpp)
+
+struct CopyUi
+{
+	bool open = false;
+	int format = 0;			// 0 CDI, 1 CHD
+	std::string device, title, id, why;
+} copyUi;
+
+void openCopy(const std::string& path)
+{
+	for (const ps5::disc::Info& d : ps5::disc::list())
+		if (d.path == path && d.playable)
+		{
+			copyUi = CopyUi{};
+			copyUi.open = true;
+			copyUi.device = d.device;
+			copyUi.title = d.title;
+			copyUi.id = d.id;
+			return;
+		}
+}
+
+void copyDialog(ImDrawList *dl, const Input& given)
+{
+	const ps5::disc::CopyStatus now = ps5::disc::copyStatus();
+	std::string title = "Copy the disc to the games folder", sub;
+	std::vector<std::string> lines;
+	struct Button { Glyph glyph; std::string label; bool primary; };
+	std::vector<Button> buttons;
+	float bar = -1;
+	if (now.running)
+	{
+		title = "Copying " + copyUi.title;
+		sub = now.text;
+		bar = now.progress;
+		char percent[32];
+		snprintf(percent, sizeof(percent), "%d%% done", (int)(now.progress * 100));
+		lines.push_back(percent);
+		lines.push_back("It takes a few minutes. The disc stays in the drive; you can leave this open");
+		buttons = { { Glyph::Circle, "Cancel the copy", false } };
+		if (given.back)
+			ps5::disc::copyCancel();
+	}
+	else if (now.finished)
+	{
+		title = now.ok ? "The disc is copied" : "The copy did not go through";
+		sub = now.text;
+		if (now.ok)
+			lines.push_back("It is in the Internal tab now; play it from there, then take the disc out");
+		buttons = { { Glyph::Cross, "Close", true } };
+		if (given.accept || given.back)
+		{
+			ps5::disc::copyAcknowledge();
+			copyUi.open = false;
+			if (now.ok)
+			{
+				scanner().refresh();
+				scannedCount = (size_t)-1;
+			}
+		}
+	}
+	else
+	{
+		sub = copyUi.title + (copyUi.id.empty() ? "" : "   \xc2\xb7   " + copyUi.id);
+		lines.push_back(copyUi.format == 0 ? "CDI: keeps the disc's sessions as they are; the size of the disc"
+				: "CHD: one file in the form emulators and chdman take; not compressed (chdman can do that)");
+		lines.push_back("Left and Right choose the format");
+		lines.push_back("A GDI is not offered: Flycast reads those only as a GD-ROM's layout, which a CD-R does not have");
+		if (!copyUi.why.empty())
+			lines.push_back(copyUi.why);
+		buttons = { { Glyph::Cross, copyUi.format == 0 ? "Copy as CDI" : "Copy as CHD", true }, { Glyph::Circle, "Not now", false } };
+		if (given.left || given.right)
+			copyUi.format = 1 - copyUi.format;
+		if (given.back)
+			copyUi.open = false;
+		else if (given.accept)
+		{
+			std::string why;
+			if (!ps5::disc::copyStart(copyUi.device, copyUi.format == 0 ? ps5::disc::CopyFormat::Cdi : ps5::disc::CopyFormat::Chd,
+					copyUi.title, copyUi.id, why))
+				copyUi.why = why;
+		}
+	}
+	const float w = 940, pad = 52, inner = w - 2 * pad;
+	const float subH = sub.empty() ? 0 : textSize(regular(), 23, sub.c_str(), inner).y + 14;
+	const float h = pad + 50 + subH + (bar >= 0 ? 46 : 0) + (lines.empty() ? 0 : 18 + lines.size() * 42) + 90 + pad - 8;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	float y = at.y + pad;
+	text(dl, bold(), 38, at.x + pad, y - 6, col::text, fit(bold(), 38, title, inner).c_str());
+	y += 50;
+	if (!sub.empty())
+	{
+		text(dl, regular(), 23, at.x + pad, y, col::dim, sub.c_str(), inner);
+		y += subH;
+	}
+	if (bar >= 0)
+	{
+		y += 14;
+		rect(dl, at.x + pad, y, inner, 12, col::rgba(255, 255, 255, 30), 6);
+		rect(dl, at.x + pad, y, std::max(12.f, inner * std::clamp(bar, 0.f, 1.f)), 12, col::accent, 6);
+		y += 32;
+	}
+	if (!lines.empty())
+	{
+		y += 18;
+		for (const std::string& line : lines)
+		{
+			dl->AddCircleFilled(V(at.x + pad + 8, y + 15), 5 * S, col::accent);
+			text(dl, regular(), 23, at.x + pad + 30, y, col::text, fit(regular(), 23, line, inner - 30).c_str());
+			y += 42;
+		}
+	}
+	y += 30;
+	float x = at.x + pad;
+	for (const Button& button : buttons)
+		x += dialogButton(dl, x, y, button.glyph, button.label.c_str(), button.primary) + 20;
+}
+
 // ---- the other player's address, for netplay
 
 struct AddressUi
@@ -5230,6 +5354,12 @@ void libraryScreen(bool selectDisk)
 		in = Input{};
 		updateDialog(ImGui::GetForegroundDrawList(), given);
 	}
+	if (copyUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		copyDialog(ImGui::GetForegroundDrawList(), given);
+	}
 	if (quitUi.open)
 	{
 		const Input given = in;
@@ -5332,7 +5462,12 @@ void libraryScreen(bool selectDisk)
 			launch(*focused, selectDisk);
 		if (in.triangle && focused != nullptr)
 			openDetails(*focused);
-		if (in.square)
+		if (in.square && lib.source == Disc)
+		{
+			if (focused != nullptr)
+				openCopy(focused->media.path);
+		}
+		else if (in.square)
 		{
 			// The open tab's games are looked for again.
 			if (lib.source == Network)
@@ -5488,7 +5623,7 @@ void libraryScreen(bool selectDisk)
 
 	topBar(dl, lib.source, false, selectDisk ? Reach::Sources : Reach::All);
 	const Glyph browse = view() == List ? Glyph::DPadUD : Glyph::DPadLR;
-	const char *scanHint = lib.source == Network ? "Scan the share" : "Rescan";
+	const char *scanHint = lib.source == Network ? "Scan the share" : lib.source == Disc ? "Copy disc" : "Rescan";
 	const bool searching = !librarySearch.empty();
 	const char *leave = searching ? "Clear search" : selectDisk ? "Back" : "Quit";
 	if (lib.details && selectDisk)
@@ -5516,6 +5651,8 @@ void libraryScreen(bool selectDisk)
 	else if (empty && searching)
 		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::R3, "Search" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty && lib.source == Network && (ps5::smb::gameFolders().empty() || net.scanning || net.wanted))
+		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
+	else if (empty && lib.source == Disc)
 		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty)
 		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Square, scanHint }, { Glyph::Options, "Settings" },
@@ -5729,7 +5866,7 @@ namespace
 
 struct Row
 {
-	enum Kind { Toggle, Choice, Slider, Action, Info } kind;
+	enum Kind { Toggle, Choice, Slider, Action, Info, Heading } kind;
 	std::string label;
 	std::string desc;
 	std::vector<std::string> choices;	// Choice: the names
@@ -5740,6 +5877,7 @@ struct Row
 	std::function<void(int)> set;
 	std::function<std::string()> info;	// Info: the value shown
 	std::function<void()> action;
+	bool restart = false;				// the change takes effect when PSFlyCast is started again
 };
 
 struct Category
@@ -5748,6 +5886,11 @@ struct Category
 	const char *name;
 	std::vector<Row> rows;
 };
+
+Row heading(const char *label)
+{
+	return Row{ Row::Heading, label, "" };
+}
 
 template<typename T>
 Row toggle(const char *label, const char *desc, T& opt)
@@ -5776,6 +5919,55 @@ std::shared_ptr<GamepadDevice> pad1()
 			return pad;
 	}
 	return nullptr;
+}
+
+// ---- housekeeping: what PSFlyCast's own folders hold
+
+std::string spaceFolder(int which)
+{
+	switch (which)
+	{
+	case 0: return ps5::archive::cacheFolder();
+	case 1: return ps5::rootDir + "radv-shader-cache";
+	default: return ps5::rootDir + "logs";
+	}
+}
+
+struct SpaceNow
+{
+	std::string sizeText[3];
+	std::string freeText = "...";
+	double at = -100;
+};
+
+SpaceNow& spaceNow(bool force = false)
+{
+	static SpaceNow now;
+	if (force || timeNow - now.at > 10)
+	{
+		now.at = timeNow;
+		for (int i = 0; i < 3; i++)
+		{
+			const unsigned long long bytes = ps5::archive::folderBytes(spaceFolder(i));
+			char text[32];
+			if (bytes < 1024 * 1024)
+				snprintf(text, sizeof(text), bytes == 0 ? "Empty" : "%llu KB", bytes / 1024);
+			else if (bytes < 1024ull * 1024 * 1024)
+				snprintf(text, sizeof(text), "%llu MB", bytes >> 20);
+			else
+				snprintf(text, sizeof(text), "%.1f GB", bytes / 1073741824.0);
+			now.sizeText[i] = text;
+		}
+		struct statvfs vfs{};
+		if (statvfs(ps5::rootDir.c_str(), &vfs) == 0)
+		{
+			const double free = (double)vfs.f_bavail * (double)vfs.f_frsize;
+			char text[48];
+			snprintf(text, sizeof(text), free > 1073741824.0 ? "%.1f GB free" : "%.0f MB free", free > 1073741824.0 ? free / 1073741824.0 : free / 1048576.0);
+			now.freeText = text;
+		}
+	}
+	return now;
 }
 
 std::vector<Category> buildCategories()
@@ -6087,6 +6279,7 @@ std::vector<Category> buildCategories()
 	cats.push_back(look);
 
 	Category storage{ ICON_FA_FOLDER_OPEN, "Library" };
+	storage.rows.push_back(heading("Games"));
 	{
 		Row r{ Row::Action, "Scan for games", "Looks for new games in the games folder, on USB drives and on the network share" };
 		r.action = [] {
@@ -6106,6 +6299,28 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Toggle, "Group the discs of a game",
+			"A game with several discs is one entry; it starts from the disc last played, and Details chooses another" };
+		r.get = [] { return ps5::options().groupDiscs ? 1 : 0; };
+		r.set = [](int v) { ps5::options().groupDiscs = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Show hidden games",
+			"They are listed again, dimmed, so that a game's details, under Manage, can bring it back" };
+		r.get = [] { return ps5::options().showHidden ? 1 : 0; };
+		r.set = [](int v) { ps5::options().showHidden = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "Hidden games", "A game is hidden from its details, under Manage, and is then in none of the lists" };
+		r.info = [] {
+			return hiddenGames == 0 ? std::string("None") : std::to_string(hiddenGames) + (hiddenGames == 1 ? " game" : " games");
+		};
+		storage.rows.push_back(r);
+	}
+	storage.rows.push_back(heading("Covers"));
+	{
 		Row r{ Row::Toggle, "Download covers and descriptions",
 			"Box art from the libretro thumbnails collection; descriptions and dates from TheGamesDB" };
 		r.get = [] { return ps5::options().covers ? 1 : 0; };
@@ -6116,26 +6331,13 @@ std::vector<Category> buildCategories()
 		};
 		storage.rows.push_back(r);
 	}
+	storage.rows.push_back(heading("USB drives"));
 	{
 		Row r{ Row::Toggle, "USB drives",
-			"A USB tab for games in a flycast or dreamcast folder on a drive (needs elfldr; restart to apply)" };
+			"A USB tab for games in a flycast or dreamcast folder on a drive (needs elfldr)" };
+		r.restart = true;
 		r.get = [] { return ps5::options().usb ? 1 : 0; };
 		r.set = [](int v) { ps5::options().usb = v != 0; ps5::saveOptions(); };
-		storage.rows.push_back(r);
-	}
-	{
-		Row r{ Row::Toggle, "USB disc drive",
-			"A Disc Drive tab for a Dreamcast game burned to a CD-R, played from a USB CD or DVD drive (needs elfldr; restart to apply)" };
-		r.get = [] { return ps5::options().discDrive ? 1 : 0; };
-		r.set = [](int v) { ps5::options().discDrive = v != 0; ps5::saveOptions(); };
-		storage.rows.push_back(r);
-	}
-	{
-		Row r{ Row::Choice, "Disc drive speed",
-			"Quiet is 8x, Normal 24x. Maximum lets the drive go as fast as it can. A drive that fails to read is slowed by itself",
-			{ "Quiet", "Normal", "Maximum" }, { 0, 1, 2 } };
-		r.get = [] { return ps5::options().discSpeed; };
-		r.set = [](int v) { ps5::options().discSpeed = v; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{
@@ -6154,27 +6356,24 @@ std::vector<Category> buildCategories()
 		};
 		storage.rows.push_back(r);
 	}
+	storage.rows.push_back(heading("USB CD or DVD drive"));
 	{
-		Row r{ Row::Toggle, "Group the discs of a game",
-			"A game with several discs is one entry; it starts from the disc last played, and Details chooses another" };
-		r.get = [] { return ps5::options().groupDiscs ? 1 : 0; };
-		r.set = [](int v) { ps5::options().groupDiscs = v != 0; ps5::saveOptions(); };
+		Row r{ Row::Toggle, "USB disc drive",
+			"A Disc Drive tab for a Dreamcast game burned to a CD-R, played from a USB CD or DVD drive (needs elfldr)" };
+		r.restart = true;
+		r.get = [] { return ps5::options().discDrive ? 1 : 0; };
+		r.set = [](int v) { ps5::options().discDrive = v != 0; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "Hidden games", "A game is hidden from its details, under Manage, and is then in none of the lists" };
-		r.info = [] {
-			return hiddenGames == 0 ? std::string("None") : std::to_string(hiddenGames) + (hiddenGames == 1 ? " game" : " games");
-		};
+		Row r{ Row::Choice, "Disc drive speed",
+			"Quiet is 8x, Normal 24x. Maximum lets the drive go as fast as it can. A drive that fails to read is slowed by itself",
+			{ "Quiet", "Normal", "Maximum" }, { 0, 1, 2 } };
+		r.get = [] { return ps5::options().discSpeed; };
+		r.set = [](int v) { ps5::options().discSpeed = v; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
-	{
-		Row r{ Row::Toggle, "Show hidden games",
-			"They are listed again, dimmed, so that a game's details, under Manage, can bring it back" };
-		r.get = [] { return ps5::options().showHidden ? 1 : 0; };
-		r.set = [](int v) { ps5::options().showHidden = v != 0; ps5::saveOptions(); };
-		storage.rows.push_back(r);
-	}
+	storage.rows.push_back(heading("Network"));
 	{
 		Row r{ Row::Toggle, "Load network games into memory",
 			"On: the whole game is read before it starts and the NAS can sleep. Off: it is streamed while you play" };
@@ -6195,6 +6394,7 @@ std::vector<Category> buildCategories()
 		};
 		storage.rows.push_back(r);
 	}
+	storage.rows.push_back(heading("Folders"));
 	for (const auto& [label, sub] : std::vector<std::pair<std::string, std::string>>{
 			{ "Games folder", "games/" }, { "BIOS folder", "bios/" }, { "Covers folder", "covers/" },
 			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" },
@@ -6203,6 +6403,27 @@ std::vector<Category> buildCategories()
 		Row r{ Row::Info, label, "" };
 		const std::string path = shownRoot() + sub;
 		r.info = [path] { return path; };
+		storage.rows.push_back(r);
+	}
+	storage.rows.push_back(heading("Free up space"));
+	{
+		Row r{ Row::Info, "Free space", "On the console's disk, where PSFlyCast keeps its files" };
+		r.info = [] { return spaceNow().freeText; };
+		storage.rows.push_back(r);
+	}
+	for (const auto& [label, desc, which] : std::vector<std::tuple<std::string, std::string, int>>{
+			{ "Unpacked archives", "Disc images taken out of zip, 7z and rar archives to play them. Unpacked again when needed", 0 },
+			{ "Shader cache", "Compiled shaders. Games compile them again as they run, and may stutter for a few minutes", 1 },
+			{ "Log files", "What PSFlyCast wrote while it ran: for finding a problem, not needed to play", 2 } })
+	{
+		Row r{ Row::Action, label, desc };
+		const int w = which;
+		r.info = [w] { return spaceNow().sizeText[w]; };
+		r.action = [w, label] {
+			ps5::archive::emptyFolder(spaceFolder(w));
+			spaceNow(true);
+			os_notify((label + " cleared").c_str(), 2500);
+		};
 		storage.rows.push_back(r);
 	}
 	cats.push_back(storage);
@@ -6308,6 +6529,7 @@ struct SettingsState
 	bool inRows = false;
 	float catAnim = 0, rowAnim = 0, scroll = 0;
 	bool dirty = false;
+	std::vector<std::string> restartFor;	// the settings changed that need PSFlyCast started again
 	// The row highlight's place and height, on their way to the focused row's;
 	// the category the rows were last drawn for, and when it changed.
 	float rowY = 0, rowH = 76;
@@ -6360,7 +6582,23 @@ void change(Row& r, int dir)
 	default:
 		return;
 	}
+	if (r.restart && std::find(st.restartFor.begin(), st.restartFor.end(), r.label) == st.restartFor.end())
+		st.restartFor.push_back(r.label);
 	st.dirty = true;
+}
+
+// A heading is not a row to stop on: the focus goes to the nearest row after (dir 1) or before it.
+int settle(const Category& cat, int row, int dir)
+{
+	const int n = (int)cat.rows.size();
+	row = std::clamp(row, 0, std::max(0, n - 1));
+	for (int i = row; i >= 0 && i < n; i += dir)
+		if (cat.rows[i].kind != Row::Heading)
+			return i;
+	for (int i = row; i >= 0 && i < n; i -= dir)
+		if (cat.rows[i].kind != Row::Heading)
+			return i;
+	return 0;
 }
 
 void leaveSettings()
@@ -6429,17 +6667,18 @@ void settings()
 	// ---- input
 	if (!st.inRows)
 	{
-		if (in.up && st.cat > 0) { st.cat--; st.row = 0; }
-		if (in.down && st.cat < (int)st.cats.size() - 1) { st.cat++; st.row = 0; }
+		if (in.up && st.cat > 0) { st.cat--; st.row = settle(st.cats[st.cat], 0, 1); }
+		if (in.down && st.cat < (int)st.cats.size() - 1) { st.cat++; st.row = settle(st.cats[st.cat], 0, 1); }
 		if (in.accept || in.right) st.inRows = true;
 		if (in.back)
 			leaveSettings();
 	}
 	else
 	{
+		st.row = settle(cat, st.row, 1);
 		Row& r = cat.rows[st.row];
-		if (in.up && st.row > 0) st.row--;
-		if (in.down && st.row < (int)cat.rows.size() - 1) st.row++;
+		if (in.up && st.row > 0) st.row = settle(cat, st.row - 1, -1);
+		if (in.down && st.row < (int)cat.rows.size() - 1) st.row = settle(cat, st.row + 1, 1);
 		if (in.left)
 		{
 			if (r.kind == Row::Choice || r.kind == Row::Slider || r.kind == Row::Toggle)
@@ -6458,6 +6697,12 @@ void settings()
 		}
 		if (in.back)
 			st.inRows = false;
+	}
+	if (!dialog && in.square && !st.restartFor.empty())
+	{
+		// Starts PSFlyCast again, as the updater does.
+		ps5::restartOnExit = true;
+		dc_exit();
 	}
 	// OPTIONS, which opened the Settings, closes them from anywhere in them.
 	if (in.options && gui_state == GuiState::Settings)
@@ -6494,7 +6739,7 @@ void settings()
 	float total = 0;
 	for (const auto& r : cat.rows)
 	{
-		const float h = r.desc.empty() ? 76.f : 104.f;
+		const float h = r.kind == Row::Heading ? 70.f : r.desc.empty() ? 76.f : 104.f;
 		heights.push_back(h);
 		total += h;
 	}
@@ -6529,6 +6774,16 @@ void settings()
 		const float h = heights[i];
 		const bool on = st.inRows && i == st.row;
 		const float tx = px + 52;
+		if (r.kind == Row::Heading)
+		{
+			std::string upper = r.label;
+			for (char& c : upper)
+				c = (char)toupper((unsigned char)c);
+			text(dl, bold(), 21, tx, y + 34, col::accent, upper.c_str());
+			rect(dl, tx + textSize(bold(), 21, upper.c_str()).x + 20, y + 46, pw - 104 - textSize(bold(), 21, upper.c_str()).x - 20, 1, col::line);
+			y += h;
+			continue;
+		}
 		text(dl, bold(), 28, tx, y + 16, r.kind == Row::Info ? col::dim : col::text, r.label.c_str());
 		if (!r.desc.empty())
 			text(dl, regular(), 22, tx, y + 56, col::faint, fit(regular(), 22, r.desc, pw * 0.74f).c_str());
@@ -6570,6 +6825,8 @@ void settings()
 			}
 			break;
 		}
+		case Row::Heading:
+			break;
 		case Row::Info:
 		{
 			const std::string v = fit(regular(), 24, valueText(r), pw * 0.55f);
@@ -6600,21 +6857,40 @@ void settings()
 	dl->PopClipRect();
 	endEntrance(content, e);
 
+	// Settings that only take effect when PSFlyCast is started again: said once, with the way to do it.
+	if (!st.restartFor.empty())
+	{
+		std::string names;
+		for (const std::string& n : st.restartFor)
+			names += (names.empty() ? "" : ", ") + n;
+		const float bw = pw - 32, bh = 64, bx = px + 16, by = rowsTop + viewH - bh - 8;
+		rect(dl, bx, by, bw, bh, col::rgba(24, 28, 40, 245), 14);
+		rect(dl, bx, by, bw, bh, alpha(col::accent, 0.22f), 14);
+		text(dl, bold(), 24, bx + 24, by + 16, col::text,
+				fit(bold(), 24, "Start PSFlyCast again to apply: " + names, bw - 330).c_str());
+		const float gx = bx + bw - 290;
+		glyph(dl, Glyph::Square, gx + 16, by + bh / 2, 32);
+		text(dl, bold(), 24, gx + 44, by + 16, col::text, "Restart now");
+	}
+
 	// Over the library's tab, which stays lit: the Settings are not a tab.
 	topBar(dl, lib.source, game_started, Reach::None);
+	std::vector<Hint> hints;
 	if (!st.inRows)
-		hintBar(dl, { { Glyph::DPadUD, "Category" }, { Glyph::Cross, "Select" }, { Glyph::Options, "Close" },
-				{ Glyph::Circle, "Back" } });
+		hints = { { Glyph::DPadUD, "Category" }, { Glyph::Cross, "Select" }, { Glyph::Options, "Close" }, { Glyph::Circle, "Back" } };
 	else
 	{
 		const Row& r = cat.rows[st.row];
 		if (r.kind == Row::Action)
-			hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "Run" }, { Glyph::Circle, "Back" } });
+			hints = { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "Run" }, { Glyph::Circle, "Back" } };
 		else if (r.kind == Row::Info)
-			hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Circle, "Back" } });
+			hints = { { Glyph::DPadUD, "Move" }, { Glyph::Circle, "Back" } };
 		else
-			hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } });
+			hints = { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } };
 	}
+	if (!st.restartFor.empty())
+		hints.push_back({ Glyph::Square, "Restart now" });
+	hintBar(dl, hints);
 	endScreen();
 }
 

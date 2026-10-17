@@ -1153,6 +1153,7 @@ What is in this build, and whose it is:
 | The title's start-up, link layout and `libc.prx`; the platform layer (heap, guest memory, the libc functions a title lacks) | Mihawk-99's fork of the payload SDK; [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) by John Törnblom and contributors | GPL-3.0-or-later |
 | USB drive access (`sandbox-elevator.elf` and its client) | The sandbox-elevation example of ps5-native-app-boilerplate, by BlackBearReloaded | GPL-3.0 |
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
+| RAR archives (`shell/ps5/third_party/unarr`) | [libunarr](https://github.com/selmf/unarr), by the unarr project, unmodified (RAR reader only) | LGPL-3.0 |
 | Frame generation, second way: AMD FSR3's optical flow (`shell/ps5/third_party/ps5-framegen`) | [ps5-framegen](https://github.com/Swordpdf/ps5-framegen) by swordpdf, unmodified, with AMD's FidelityFX SDK 2.3.0 shaders | GPL-3.0-or-later; AMD's shaders MIT |
 | Frame generation, third way: MihawkGen (`shell/ps5/third_party/mihawkgen`) | [PS5_MihawkGen](https://github.com/mihawk-99/PS5_MihawkGen) by Mihawk, unmodified, with its trained network | GPL-3.0-or-later |
 | Upscaling (`shell/ps5/fsr`) | [FidelityFX Super Resolution 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR), by AMD | MIT |

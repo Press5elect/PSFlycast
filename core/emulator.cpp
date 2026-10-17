@@ -591,11 +591,21 @@ int getGamePlatform(const std::string& filename)
 	return DC_PLATFORM_DREAMCAST;
 }
 
+#ifdef USE_PS5
+// A zip, 7z or rar archive with a disc image in it: the image is unpacked, and played.
+bool ps5ResolveArchive(const char *path, std::string& image, LoadProgress *progress);
+#endif
+
 void Emulator::loadGame(const char *path, LoadProgress *progress)
 {
 	init();
 	try {
 		DEBUG_LOG(BOOT, "Loading game %s", path == nullptr ? "(nil)" : path);
+#ifdef USE_PS5
+		std::string archiveImage;
+		if (path != nullptr && ps5ResolveArchive(path, archiveImage, progress))
+			path = archiveImage.c_str();
+#endif
 
 		if (path != nullptr && strlen(path) > 0)
 		{

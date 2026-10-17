@@ -24,6 +24,10 @@
 #include "ZipArchive.h"
 #include "oslib/storage.h"
 
+#ifdef USE_PS5
+Archive *ps5RarArchive();
+#endif
+
 Archive *OpenArchive(const std::string& path)
 {
 	hostfs::File *file = nullptr;
@@ -68,6 +72,21 @@ Archive *OpenArchive(const std::string& path)
 	if (zip_archive->Open(file))
 		return zip_archive;
 	delete zip_archive;
+#ifdef USE_PS5
+	// And as a RAR file.
+	try {
+		file = hostfs::storage().openFile(path, "rb");
+	} catch (const hostfs::StorageException& e) {
+		file = nullptr;
+	}
+	if (file != nullptr)
+	{
+		Archive *rar_archive = ps5RarArchive();
+		if (rar_archive->Open(file))
+			return rar_archive;
+		delete rar_archive;
+	}
+#endif
 
 	return nullptr;
 }

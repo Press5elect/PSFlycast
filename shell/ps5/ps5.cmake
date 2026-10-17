@@ -18,6 +18,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
 	shell/ps5/ps5_disc.cpp
+	shell/ps5/ps5_archive.cpp
+	shell/ps5/ps5_rar.cpp
 	shell/ps5/ps5_drive_cam.cpp
 	shell/ps5/ps5_drive_usb.cpp
 	shell/ps5/ps5_cheats.cpp
@@ -89,6 +91,19 @@ target_include_directories(${PROJECT_NAME} PRIVATE shell/ps5/third_party/mihawkg
 set_source_files_properties(shell/ps5/ps5_mihawkgen_model.cpp PROPERTIES
 	COMPILE_DEFINITIONS "MIHAWKGEN_MODEL_PATH=\"${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/third_party/mihawkgen/model/network.fgw\""
 	OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/third_party/mihawkgen/model/network.fgw")
+
+# RAR archives (shell/ps5/ps5_rar.cpp): libunarr's RAR reader (LGPL-3.0, third_party/unarr, unmodified).
+set(UNARR_DIR shell/ps5/third_party/unarr)
+target_sources(${PROJECT_NAME} PRIVATE
+	${UNARR_DIR}/common/conv.c ${UNARR_DIR}/common/crc32.c ${UNARR_DIR}/common/stream.c ${UNARR_DIR}/common/unarr.c
+	${UNARR_DIR}/rar/filter-rar.c ${UNARR_DIR}/rar/huffman-rar.c ${UNARR_DIR}/rar/parse-rar.c ${UNARR_DIR}/rar/rar.c
+	${UNARR_DIR}/rar/rarvm.c ${UNARR_DIR}/rar/uncompress-rar.c
+	${UNARR_DIR}/lzmasdk/Ppmd7.c ${UNARR_DIR}/lzmasdk/Ppmd7Dec.c ${UNARR_DIR}/lzmasdk/Ppmd7aDec.c)
+set_source_files_properties(${UNARR_DIR}/common/conv.c ${UNARR_DIR}/common/crc32.c ${UNARR_DIR}/common/stream.c
+	${UNARR_DIR}/common/unarr.c ${UNARR_DIR}/rar/filter-rar.c ${UNARR_DIR}/rar/huffman-rar.c ${UNARR_DIR}/rar/parse-rar.c
+	${UNARR_DIR}/rar/rar.c ${UNARR_DIR}/rar/rarvm.c ${UNARR_DIR}/rar/uncompress-rar.c ${UNARR_DIR}/lzmasdk/Ppmd7.c
+	${UNARR_DIR}/lzmasdk/Ppmd7Dec.c ${UNARR_DIR}/lzmasdk/Ppmd7aDec.c PROPERTIES COMPILE_OPTIONS "-w")
+target_include_directories(${PROJECT_NAME} PRIVATE ${UNARR_DIR}/common)
 
 # The sandbox elevation client (ps5-native-app-boilerplate's example) is C++20.
 set_source_files_properties(shell/ps5/elevation/elevation.cpp shell/ps5/elevation/ps5_elevate.cpp

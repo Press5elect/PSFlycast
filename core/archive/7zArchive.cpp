@@ -142,3 +142,78 @@ SzArchive::~SzArchive()
 		SzArEx_Free(&szarchive, &g_Alloc);
 	}
 }
+
+static std::string szName(CSzArEx *archive, UInt32 index)
+{
+	std::vector<u16> name(SzArEx_GetFileNameUtf16(archive, index, nullptr));
+	if (name.empty())
+		return std::string();
+	SzArEx_GetFileNameUtf16(archive, index, name.data());
+	// UTF-16 to UTF-8.
+	std::string out;
+	for (size_t i = 0; i + 1 < name.size(); i++)
+	{
+		u32 c = name[i];
+		if (c >= 0xD800 && c < 0xDC00 && i + 2 < name.size())
+			c = 0x10000 + ((c - 0xD800) << 10) + (name[++i] - 0xDC00);
+		if (c == '\\')
+			c = '/';
+		if (c < 0x80)
+			out += (char)c;
+		else if (c < 0x800)
+		{
+			out += (char)(0xC0 | (c >> 6));
+			out += (char)(0x80 | (c & 0x3F));
+		}
+		else if (c < 0x10000)
+		{
+			out += (char)(0xE0 | (c >> 12));
+			out += (char)(0x80 | ((c >> 6) & 0x3F));
+			out += (char)(0x80 | (c & 0x3F));
+		}
+		else
+		{
+			out += (char)(0xF0 | (c >> 18));
+			out += (char)(0x80 | ((c >> 12) & 0x3F));
+			out += (char)(0x80 | ((c >> 6) & 0x3F));
+			out += (char)(0x80 | (c & 0x3F));
+		}
+	}
+	return out;
+}
+
+bool SzArchive::list(std::vector<ArchiveEntry>& entries)
+{
+	for (UInt32 i = 0; i < szarchive.NumFiles; i++)
+	{
+		if (SzArEx_IsDir(&szarchive, i))
+			continue;
+		ArchiveEntry entry;
+		entry.name = szName(&szarchive, i);
+		entry.size = SzArEx_GetFileSize(&szarchive, i);
+		if (!entry.name.empty())
+			entries.push_back(entry);
+	}
+	return true;
+}
+
+bool SzArchive::extract(const std::string& name, const std::function<bool(const void *, size_t)>& sink)
+{
+	for (UInt32 i = 0; i < szarchive.NumFiles; i++)
+	{
+		if (SzArEx_IsDir(&szarchive, i) || szName(&szarchive, i) != name)
+			continue;
+		// The block the file is in (a solid archive: many files) is unpacked into memory at once.
+		size_t offset = 0;
+		size_t processed = 0;
+		SRes res = SzArEx_Extract(&szarchive, &lookStream.vt, i, &block_idx, &out_buffer, &out_buffer_size, &offset, &processed, &g_Alloc, &g_Alloc);
+		if (res != SZ_OK)
+			return false;
+		const size_t chunk = 1 << 20;
+		for (size_t done = 0; done < processed; done += chunk)
+			if (!sink(out_buffer + offset + done, std::min(chunk, processed - done)))
+				return false;
+		return true;
+	}
+	return false;
+}

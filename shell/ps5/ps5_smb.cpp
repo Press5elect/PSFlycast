@@ -708,6 +708,10 @@ std::mutex imagesMutex;
 std::map<std::string, std::weak_ptr<RamImage>> images;	// by path, while a file has it open
 // The images of the game being loaded, kept between two opens of a file.
 std::vector<std::shared_ptr<RamImage>> pinned;
+// The last game's images, kept after it closes its files: restarting the game (it closes the disc and
+// opens it again) or starting it again finds them in memory instead of reading the share again.
+// They go when another network game needs the room, or a local game is started.
+std::vector<std::shared_ptr<RamImage>> kept;
 std::mutex imageLoadMutex;	// one file is read into memory at a time
 
 std::shared_ptr<RamImage> findImage(const std::string& path)
@@ -733,6 +737,16 @@ std::shared_ptr<RamImage> loadImage(const std::string& path, SmbFile& from, bool
 		return image;
 	const std::string name = lastComponent(path);
 	const u64 bytes = (u64)from.size();
+	if (ramInUse.load() + bytes > RamBudget)
+	{
+		// The room the last game's images take is given back first.
+		std::vector<std::shared_ptr<RamImage>> old;
+		{
+			std::lock_guard<std::mutex> lock(imagesMutex);
+			old.swap(kept);
+		}
+		old.clear();
+	}
 	if (ramInUse.load() + bytes > RamBudget)
 	{
 		diag::mark("smb: %s (%llu MB) is streamed: more than %llu MB would be in memory", name.c_str(),
@@ -1235,7 +1249,21 @@ void endLoad()
 	{
 		std::lock_guard<std::mutex> lock(imagesMutex);
 		done.swap(pinned);
+		// This load's big images are the ones kept; a load that read none (a restart, found in memory) keeps the last.
+		std::vector<std::shared_ptr<RamImage>> big;
+		for (const auto& image : done)
+			if (image->bytes >= (u64)1 << 20)
+				big.push_back(image);
+		if (!big.empty())
+			kept.swap(big);
 	}
+}
+
+void forgetImages()
+{
+	std::vector<std::shared_ptr<RamImage>> old;
+	std::lock_guard<std::mutex> lock(imagesMutex);
+	old.swap(kept);
 }
 
 void cancelLoad()

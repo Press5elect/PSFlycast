@@ -17,6 +17,10 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "boxart.h"
+#ifdef USE_PS5
+#include <string>
+bool ps5ArchiveHoldsDisc(const std::string& path);
+#endif
 #include "gamesdb.h"
 #include "../game_scanner.h"
 #include "oslib/oslib.h"
@@ -104,7 +108,7 @@ GameBoxart Boxart::getBoxartAndLoad(const GameMedia& media)
 			// A game on a network share is not opened for its disc ID and
 			// picture (the NAS is left alone): it counts as read, and is
 			// looked up online by the name its file has.
-			if (hostfs::customStorage().isKnownPath(media.path))
+			if (hostfs::customStorage().isKnownPath(media.path) || ps5ArchiveHoldsDisc(media.path))
 			{
 				boxart.parsed = true;
 				if (!media.arcade)

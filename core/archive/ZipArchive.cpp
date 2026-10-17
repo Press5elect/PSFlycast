@@ -231,3 +231,49 @@ ArchiveFile *ZipArchive::OpenFileByIndex(size_t index)
 	zip_stat_index(zip, index, 0, &stat);
 	return new ZipArchiveFile(zipFile, stat.size, stat.name);
 }
+
+bool ZipArchive::list(std::vector<ArchiveEntry>& entries)
+{
+	const zip_int64_t n = zip_get_num_entries(zip, 0);
+	for (zip_int64_t i = 0; i < n; i++)
+	{
+		zip_stat_t stat;
+		if (zip_stat_index(zip, i, 0, &stat) != 0 || !(stat.valid & ZIP_STAT_NAME))
+			continue;
+		const std::string name = stat.name;
+		if (name.empty() || name.back() == '/')
+			continue;
+		ArchiveEntry entry;
+		entry.name = name;
+		entry.size = (stat.valid & ZIP_STAT_SIZE) ? stat.size : 0;
+		entries.push_back(entry);
+	}
+	return true;
+}
+
+bool ZipArchive::extract(const std::string& name, const std::function<bool(const void *, size_t)>& sink)
+{
+	zip_file_t *file = zip_fopen(zip, name.c_str(), 0);
+	if (file == nullptr)
+		return false;
+	std::vector<u8> buffer(1 << 20);
+	bool ok = true;
+	for (;;)
+	{
+		const zip_int64_t got = zip_fread(file, buffer.data(), buffer.size());
+		if (got < 0)
+		{
+			ok = false;
+			break;
+		}
+		if (got == 0)
+			break;
+		if (!sink(buffer.data(), (size_t)got))
+		{
+			ok = false;
+			break;
+		}
+	}
+	zip_fclose(file);
+	return ok;
+}

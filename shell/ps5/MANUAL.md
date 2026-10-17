@@ -71,8 +71,18 @@ in the library to scan. Folders inside `games/` are scanned too.
 |---|---|
 | Dreamcast | `.chd`, `.gdi` (with its track files), `.cdi`, `.cue` (with its `.bin` files) |
 | NAOMI, NAOMI 2, Atomiswave | `.zip` or `.7z` arcade sets |
+| Dreamcast, packed | a `.zip`, `.7z` or `.rar` with a `.gdi`, `.cue`, `.cdi` or `.chd` inside (see below) |
 
 `.chd` is the best choice for Dreamcast games: one file, and the smallest.
+
+**Games in archives.** A `.zip`, `.7z` or `.rar` that holds a disc image is
+listed in the library like the image itself. When you start it, the image is
+unpacked into `cache/archive/` and played from there; the last one stays, so
+starting it again is quick, and the next archive replaces it. There has to be
+room for the unpacked game (PSFlyCast says how much is needed). A `.7z` is
+unpacked in memory first, so a very large solid `.7z` may not fit: a `.zip`
+or `.rar` has no such limit. Settings > Library > Free up space clears the
+unpacked images.
 
 **BIOS files** go in `bios/`:
 
@@ -591,10 +601,12 @@ Circle goes back.
 | **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
 | **Achievements** | RetroAchievements on or off, and your account on the site |
 | **Interface** | Skin, accent colour, background, motion, the start-up animation and its sound, menu sounds |
-| **Library** | Scan for games, library view, cover downloads, USB drives, disc grouping, hidden games, network game loading |
+| **Library** | In sections: games (scan, view, disc grouping, hidden games), covers, USB drives, the USB CD or DVD drive, the network, the folders, and Free up space (unpacked archives, shader cache, log files) |
 | **About** | The version and build, check for updates, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
-Each setting has a line under it saying what it does.
+Each setting has a line under it saying what it does. A setting that only
+works after PSFlyCast is started again says so in a bar at the bottom, with
+**Square** to restart at once.
 
 **A sharper picture.** A Dreamcast game is drawn at 640 x 480; these raise
 what you see, most useful first:
@@ -845,6 +857,13 @@ asked to read; a drive that fails to read is slowed a step by itself. This
 has not been run on a console yet: the boot log's "disc:" lines say what the
 console lists if no drive shows.
 
+**Copying the disc.** **Square** on a disc in the Disc Drive tab copies it to
+the games folder as a **CDI** (the disc's sessions kept as they are) or a
+**CHD** (not compressed; chdman can do that). It runs in the background, the
+disc stays in the drive, and the copy shows in the Internal tab when it is
+done. A GDI is not offered: Flycast reads those only as a GD-ROM's layout,
+which a CD-R does not have.
+
 ## 20. Playing online
 
 **A game's own online mode** (for the games whose servers were brought back)
@@ -954,6 +973,7 @@ Everything is in `/data/homebrew/PPSA99247/`:
 | `vmu/` | Memory card saves as files: the ones you export, and the ones you want to add to a card |
 | `network.cfg` | The network shares |
 | `sounds/` | The start-up sound |
+| `cache/` | Games unpacked from archives (Settings > Library > Free up space clears it) |
 | `flycast-boot.log` | What happened at start-up, and a crash report if there was one |
 
 **To back up your saves, copy `data/`.**

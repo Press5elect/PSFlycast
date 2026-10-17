@@ -68,6 +68,24 @@ float cached();
 // Opens the tray (the drive's button works again; some consoles lock it).
 bool eject(const std::string& device, std::string& why);
 
+// Copying the disc in a drive to an image in the games folder, in the background.
+// CDI keeps the sessions of a CD-R as they are; CHD is not compressed (chdman can do that). A GDI is
+// not offered: Flycast reads one only as a GD-ROM's layout (data, audio, data at sector 45000).
+enum class CopyFormat { Cdi, Chd };
+struct CopyStatus
+{
+	bool running = false;
+	bool finished = false;		// ended: ok says how
+	bool ok = false;
+	float progress = 0.f;		// 0 to 1
+	std::string text;			// what it is doing, or how it ended
+	std::string result;			// the finished file's path
+};
+bool copyStart(const std::string& device, CopyFormat format, const std::string& title, const std::string& id, std::string& why);
+CopyStatus copyStatus();
+void copyCancel();
+void copyAcknowledge();		// the ending was seen
+
 // The reason the watcher found no drive at all, for the entry that says so; empty when one was found.
 std::string noDriveReason();
 }

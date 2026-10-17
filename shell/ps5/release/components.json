@@ -1106,6 +1106,32 @@
    ]
   },
   {
+   "id": "unarr",
+   "name": "libunarr (reads disc images from RAR archives)",
+   "kind": "code",
+   "licence": "LGPL-3.0-or-later; public domain (the PPMd code of Igor Pavlov's LZMA SDK)",
+   "copyright": [
+    "Copyright the unarr project authors (see AUTHORS: Zeniko, Selmf and contributors)"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/third_party/unarr/COPYING",
+     "to": "unarr-LGPL-3.0.txt"
+    },
+    {
+     "from": "shell/ps5/third_party/unarr/AUTHORS",
+     "to": "unarr-AUTHORS.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: github.com/selmf/unarr at 9c8e898bb3dc2ee9d368b0e945d5bb453e15c187, only its RAR reader and the PPMd files it needs, in shell/ps5/third_party/unarr (unarr.h is made from unarr.h.in with the version filled in). shell/ps5/ps5_rar.cpp gives it Flycast's file stream. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
    "id": "cheats",
    "name": "The Dreamcast cheat files (libretro-database, cht/Sega - Dreamcast)",
    "kind": "data",

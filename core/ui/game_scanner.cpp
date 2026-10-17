@@ -17,6 +17,9 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "game_scanner.h"
+#ifdef USE_PS5
+bool ps5ArchiveHoldsDisc(const std::string& path);
+#endif
 #include "stdclass.h"
 #include "oslib/oslib.h"
 #include "oslib/storage.h"
@@ -72,11 +75,19 @@ void GameScanner::add_game_directory(const std::string& path)
 		std::string fileName(item.name);
 		std::string gameName(get_file_basename(item.name));
 		std::string extension = get_file_extension(item.name);
-		if (extension == "zip" || extension == "7z")
+		if (extension == "zip" || extension == "7z" || extension == "rar")
 		{
 			string_tolower(gameName);
 			auto it = arcade_games.find(gameName);
-			if (it == arcade_games.end())
+#ifdef USE_PS5
+			if (it == arcade_games.end() && ps5ArchiveHoldsDisc(item.path))
+			{
+				// An archive with a disc image in it is a disc game.
+				insert_game(GameMedia{ fileName, item.path, item.name, std::string(), false });
+				continue;
+			}
+#endif
+			if (it == arcade_games.end() || extension == "rar")
 				continue;
 			gameName = it->second->description;
 			fileName = fileName + " (" + gameName + ")";

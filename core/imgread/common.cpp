@@ -13,6 +13,7 @@ Disc* cue_parse(const char* file, std::vector<u8> *digest);
 Disc *cdio_parse(const char *file, std::vector<u8> *digest);
 #ifdef USE_PS5
 Disc *ps5disc_parse(const char *file, std::vector<u8> *digest);
+Disc *ps5archive_parse(const char *file, std::vector<u8> *digest);
 #endif
 
 static u32 NullDriveDiscType;
@@ -23,6 +24,7 @@ constexpr Disc* (*drivers[])(const char* path, std::vector<u8> *digest)
 {
 #ifdef USE_PS5
 	ps5disc_parse,
+	ps5archive_parse,
 #endif
 	chd_parse,
 	gdi_parse,

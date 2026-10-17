@@ -34,6 +34,9 @@ public:
 	bool Open(hostfs::File *file) override;
 	bool Open(const void *data, size_t size);
 
+	bool list(std::vector<ArchiveEntry>& entries) override;
+	bool extract(const std::string& name, const std::function<bool(const void *, size_t)>& sink) override;
+
 	ArchiveFile *OpenFirstFile();
 	ArchiveFile *OpenFileByIndex(size_t index);
 

@@ -23,6 +23,10 @@
 #include "types.h"
 #include "oslib/storage.h"
 
+#include <functional>
+#include <string>
+#include <vector>
+
 class ArchiveFile
 {
 public:
@@ -32,10 +36,20 @@ public:
 	virtual const char *getName() { return nullptr; }
 };
 
+struct ArchiveEntry
+{
+	std::string name;	// the path inside the archive, with '/' as separator
+	u64 size = 0;
+};
+
 class Archive
 {
 public:
 	virtual ~Archive() = default;
+	// The files in the archive (PSFlyCast: to find a disc image inside one), and one of them
+	// handed in pieces to `sink`, which returns false to stop. Not every format offers them.
+	virtual bool list(std::vector<ArchiveEntry>& entries) { return false; }
+	virtual bool extract(const std::string& name, const std::function<bool(const void *, size_t)>& sink) { return false; }
 	virtual ArchiveFile *OpenFile(const char *name) = 0;
 	virtual ArchiveFile *OpenFileByCrc(u32 crc) = 0;
 
