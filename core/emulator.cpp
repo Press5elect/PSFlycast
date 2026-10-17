@@ -919,6 +919,11 @@ void loadGameSpecificSettings()
 	// Reload per-game settings
 	config::Settings::instance().load(true);
 
+#ifdef USE_PS5
+	// Build 58 offered more than 400 MHz, which made games misbehave: a saved value above it is brought back.
+	if (config::Sh4Clock > 400)
+		config::Sh4Clock.set(400);
+#endif
 	if (config::GGPOEnable || settings.raHardcoreMode)
 		config::Sh4Clock.override(200);
 	if (settings.raHardcoreMode)

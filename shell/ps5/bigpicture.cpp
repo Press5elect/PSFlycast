@@ -3082,9 +3082,8 @@ const std::vector<GameOption>& gameOptions()
 					"Overclocking smooths a game that slows down or stutters; some games break or run too fast. The Dreamcast hardware mods run at +10% and +20%",
 					"config.Sh4Clock",
 					{ "100 MHz (half)", "150 MHz", "200 MHz (standard)", "220 MHz (+10%, the hardware mod)",
-						"240 MHz (+20%, the hardware mod)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)",
-						"450 MHz", "500 MHz", "600 MHz", "700 MHz", "800 MHz (4x)" },
-					{ 100, 150, 200, 220, 240, 250, 300, 350, 400, 450, 500, 600, 700, 800 }, config::Sh4Clock, GameOption::System);
+						"240 MHz (+20%, the hardware mod)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)" },
+					{ 100, 150, 200, 220, 240, 250, 300, 350, 400 }, config::Sh4Clock, GameOption::System);
 			o.set = [](int v) {
 				config::Sh4Clock.set(v);
 				// The code already translated was timed for the old clock.
@@ -7047,7 +7046,7 @@ void settings()
 	for (const auto& r : cat.rows)
 	{
 		// A long description wraps onto as many lines as it needs, so all of it can be read.
-		const float descH = r.desc.empty() ? 0.f : textSize(regular(), 22, r.desc.c_str(), pw * 0.74f).y;
+		const float descH = r.desc.empty() ? 0.f : textSize(regular(), 22, r.desc.c_str(), pw * 0.86f).y;
 		const float h = r.kind == Row::Heading ? 70.f : r.desc.empty() ? 76.f : std::max(104.f, 82.f + descH);
 		heights.push_back(h);
 		total += h;
@@ -7095,10 +7094,10 @@ void settings()
 		}
 		text(dl, bold(), 28, tx, y + 16, r.kind == Row::Info ? col::dim : col::text, r.label.c_str());
 		if (!r.desc.empty())
-			text(dl, regular(), 22, tx, y + 56, col::faint, r.desc.c_str(), pw * 0.74f);
+			text(dl, regular(), 22, tx, y + 56, col::faint, r.desc.c_str(), pw * 0.86f);
 
 		const float right = px + pw - 52;
-		const float cy = y + (h - 8) / 2;
+		const float cy = r.desc.empty() ? y + (h - 8) / 2 : y + 34;		// beside the name, above the description
 		switch (r.kind)
 		{
 		case Row::Toggle:
