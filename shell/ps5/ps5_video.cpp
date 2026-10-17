@@ -691,7 +691,8 @@ struct Found
 	double at = 0;
 };
 std::map<std::string, Found> found;		// stem -> the answer, a "none" kept for a minute
-std::deque<std::pair<std::string, std::string>> wanted;	// stem, title
+struct Job { std::string first, second, path; };	// stem, title, the game's file
+std::deque<Job> wanted;
 std::thread finder;
 bool finding = false;
 
@@ -730,9 +731,16 @@ std::string clean(std::string text)
 
 // The folders that may hold videos: beside the games and in every folder above them
 // up to the share's or drive's top, in the layouts ES-DE and plain folders use.
-std::vector<std::string> videoFolders()
+std::vector<std::string> videoFolders(std::string gamePath)
 {
-	std::vector<std::string> bases{ ps5::rootDir };
+	std::vector<std::string> bases;
+	// Where the game itself is, whatever folders were added: its folder and those above it.
+	const size_t hash = gamePath.find('#');
+	if (hash != std::string::npos)
+		gamePath.resize(hash);
+	if (gamePath.rfind("ps5disc:", 0) != 0 && gamePath.find_last_of('/') != std::string::npos)
+		bases.push_back(gamePath.substr(0, gamePath.find_last_of('/')));
+	bases.push_back(ps5::rootDir);
 	for (const std::string& dir : config::ContentPath.get())
 		bases.push_back(dir);
 	for (const std::string& dir : ps5::usbDirs)
@@ -832,7 +840,7 @@ void finderRun()
 {
 	for (;;)
 	{
-		std::pair<std::string, std::string> job;
+		Job job;
 		{
 			std::unique_lock<std::mutex> lock(findMutex);
 			if (wanted.empty())
@@ -845,7 +853,7 @@ void finderRun()
 		}
 		std::string result;
 		int withVideos = 0;
-		const std::vector<std::string> folders = videoFolders();
+		const std::vector<std::string> folders = videoFolders(job.path);
 		const std::string names[2] = { job.first, job.second };
 		for (const std::string& folder : folders)
 		{
@@ -871,8 +879,9 @@ void finderRun()
 		if (!result.empty())
 			ps5::diag::mark("video: %s -> %s", job.first.c_str(), result.c_str());
 		else
-			ps5::diag::mark("video: none for \"%s\" / \"%s\" (%d of %d folders have videos; first: %s)", job.first.c_str(),
-					job.second.c_str(), withVideos, (int)folders.size(), folders.empty() ? "-" : folders[0].c_str());
+			ps5::diag::mark("video: none for \"%s\" / \"%s\" (%d of %d folders have videos; first: %s; game: %s)", job.first.c_str(),
+					job.second.c_str(), withVideos, (int)folders.size(), folders.empty() ? "-" : folders[0].c_str(),
+					job.path.c_str());
 		std::lock_guard<std::mutex> lock(findMutex);
 		found[job.first] = Found{ result, secondsNow() };
 	}
@@ -885,7 +894,7 @@ bool available()
 	return ensureLoaded();
 }
 
-std::string find(const std::string& stem, const std::string& title)
+std::string find(const std::string& stem, const std::string& title, const std::string& gamePath)
 {
 	std::unique_lock<std::mutex> lock(findMutex);
 	const auto at = found.find(stem);
@@ -894,7 +903,7 @@ std::string find(const std::string& stem, const std::string& title)
 	for (const auto& job : wanted)
 		if (job.first == stem)
 			return "";
-	wanted.emplace_back(stem, title);
+	wanted.push_back(Job{ stem, title, gamePath });
 	if (!finding)
 	{
 		finding = true;

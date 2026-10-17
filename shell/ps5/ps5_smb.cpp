@@ -1206,6 +1206,97 @@ void loadConfig()
 		diag::mark("smb: games folder %s (user %s)", folder.c_str(), account.user.c_str());
 }
 
+// Writes network.cfg as the Settings > Library > Network rows leave it.
+static void saveConfig()
+{
+	const std::string file = rootDir + "network.cfg";
+	FILE *f = fopen(file.c_str(), "w");
+	if (f == nullptr)
+	{
+		diag::mark("smb: network.cfg cannot be written");
+		return;
+	}
+	fputs("# PSFlyCast - games on a network share (SMB / Windows sharing).\n"
+			"# Written by Settings > Library > Network; it can also be edited here.\n"
+			"# One \"path\" line for each folder to scan: server/share/folder.\n\n", f);
+	for (const std::string& folder : folders)
+		fprintf(f, "path = %s\n", folder.c_str() + 6);
+	fprintf(f, "user = %s\npassword = %s\n", account.user.c_str(), account.password.c_str());
+	if (!account.domain.empty())
+		fprintf(f, "domain = %s\n", account.domain.c_str());
+	fclose(f);
+}
+
+// Connections made with the old account are let go; the next request connects again.
+static void dropShares()
+{
+	std::lock_guard<std::mutex> lock(sharesMutex);
+	for (auto it = shares.begin(); it != shares.end();)
+	{
+		bool free;
+		{
+			std::unique_lock<std::recursive_mutex> own(it->second->mutex, std::try_to_lock);
+			free = own.owns_lock();
+		}
+		it = free ? shares.erase(it) : std::next(it);
+	}
+}
+
+bool addFolder(const std::string& typed, std::string& why)
+{
+	const std::string folder = normalize(typed);
+	if (folder.empty())
+	{
+		why = "Give it as server/share/folder, the server by its IP address";
+		return false;
+	}
+	for (const std::string& have : folders)
+		if (have == folder)
+		{
+			why = "That folder is in the list already";
+			return false;
+		}
+	folders.push_back(folder);
+	saveConfig();
+	diag::mark("smb: games folder added: %s", folder.c_str());
+	return true;
+}
+
+std::string removeFolder(size_t index)
+{
+	if (index >= folders.size())
+		return "";
+	const std::string gone = folders[index];
+	folders.erase(folders.begin() + index);
+	saveConfig();
+	diag::mark("smb: games folder removed: %s", gone.c_str());
+	return gone;
+}
+
+void setUser(const std::string& user)
+{
+	account.user = user.empty() ? "guest" : user;
+	saveConfig();
+	dropShares();
+}
+
+void setPassword(const std::string& password)
+{
+	account.password = password;
+	saveConfig();
+	dropShares();
+}
+
+std::string user()
+{
+	return account.user;
+}
+
+bool hasPassword()
+{
+	return !account.password.empty();
+}
+
 const std::vector<std::string>& gameFolders()
 {
 	return folders;

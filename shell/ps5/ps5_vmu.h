@@ -191,6 +191,9 @@ std::vector<uint8_t> blankImage();
 // simply made. A file with anything in it is only replaced when erase is
 // true (and is kept as the backup like any other change).
 Result format(const std::string& path, bool erase = false);
+// Takes a card's file away (a damaged card, or one that is no longer wanted): it is renamed to
+// <name>.bak, which replaces an older one, and a game makes a blank card when it next starts.
+Result discard(const std::string& path);
 
 // Before a card is changed for the first time, the image as it was is kept
 // beside it as <card>.bak, replacing an older one; later changes leave that

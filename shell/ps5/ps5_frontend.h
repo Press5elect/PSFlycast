@@ -151,6 +151,14 @@ void loadConfig();
 // The folders it names, as smb://server/share/folder.
 const std::vector<std::string>& gameFolders();
 bool isNetworkPath(const std::string& path);
+// Changed from Settings > Library > Network, and written to network.cfg: a folder (as typed,
+// server/share/folder; false with the reason), removing one (its name), the account.
+bool addFolder(const std::string& typed, std::string& why);
+std::string removeFolder(size_t index);
+void setUser(const std::string& user);
+void setPassword(const std::string& password);
+std::string user();
+bool hasPassword();
 
 // A network game is about to be loaded. Until endLoad(), and with the
 // "load into memory" option on, each of its files is read whole into memory
@@ -297,7 +305,7 @@ namespace video
 bool available();
 // The video file for a game, "" when it has none (looked for on a thread of its own: the
 // answer comes with a later call). `stem` is the game's file name without its extension, `title` its title.
-std::string find(const std::string& stem, const std::string& title);
+std::string find(const std::string& stem, const std::string& title, const std::string& gamePath);
 // Asks for a file to be played; call every frame it is shown, or it stops.
 void play(const std::string& path, bool loop, float volume);
 // The newest picture as an interface texture, nullptr before the first. Also keeps the sound going.

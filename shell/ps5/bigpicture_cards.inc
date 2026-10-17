@@ -55,7 +55,7 @@ struct CardsUi
 {
 	bool open = false;
 	// Where the pad is.
-	enum Level { Cards, Saves, Actions, Destination, Confirm, Import };
+	enum Level { Cards, Saves, Actions, Destination, Confirm, Import, Erase };
 	int level = Cards;
 
 	std::vector<vmu::Card> cards;
@@ -69,6 +69,7 @@ struct CardsUi
 	int action = 0;
 	int target = 0;
 	int file = 0;
+	int erase = 0;						// Erase: 0 format, 1 take the card away
 	float cardScroll = 0, saveScroll = 0, fileScroll = 0;
 
 	std::string note;					// what came of the last thing tried
@@ -566,6 +567,12 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 					: "This card cannot be read, so nothing here changes it", true);
 		else if (given.accept)
 			ps5::sound::cue(Cue::Refuse);
+		else if (given.triangle && card != nullptr)
+		{
+			ui.level = CardsUi::Erase;
+			ui.erase = 0;
+			ui.note.clear();
+		}
 		else if (given.square && card != nullptr && card->readable)
 		{
 			ui.level = CardsUi::Import;
@@ -673,6 +680,22 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 			else
 				cardsNote(result.message, true);		// another card can be chosen
 			readCards();
+		}
+		break;
+	}
+
+	case CardsUi::Erase:
+	{
+		const vmu::Card *card = cardAt(ui.card);
+		ui.erase = std::clamp(ui.erase + step, 0, 1);
+		if (given.back || card == nullptr)
+			ui.level = CardsUi::Cards;
+		else if (given.accept)
+		{
+			const vmu::Result result = ui.erase == 0 ? vmu::format(card->path, true) : vmu::discard(card->path);
+			cardsNote(result.message, !result.ok);
+			readCards();
+			ui.level = CardsUi::Cards;
 		}
 		break;
 	}
@@ -922,7 +945,12 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 			buttons.push_back({ Glyph::Cross, "Saves", true });
 		if (card != nullptr && card->readable)
 			buttons.push_back({ Glyph::Square, "Add a save from a file", ui.saves.empty() });
+		if (card != nullptr)
+			buttons.push_back({ Glyph::Triangle, "Format or delete the card", card != nullptr && !card->readable && !card->unformatted });
 		buttons.push_back({ Glyph::Circle, "Close", false });
+		break;
+	case CardsUi::Erase:
+		buttons = { { Glyph::Cross, "Choose", true }, { Glyph::Circle, "Back", false } };
 		break;
 	case CardsUi::Saves:
 		buttons = { { Glyph::Cross, "Copy, export or delete", true }, { Glyph::Circle, "Cards", false } };
@@ -968,6 +996,32 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 			text(dl, regular(), 24, mx + 46 - ss.x / 2, y + 12, on ? col::text : col::dim, signs[i]);
 			text(dl, bold(), 24, mx + 80, y + 12, on ? col::text : col::dim, names[i]);
 		}
+	}
+
+	// ---- a whole card: formatted, or taken away
+	if (ui.level == CardsUi::Erase && card != nullptr)
+	{
+		const float cw = 900, ch = 420;
+		const ImVec2 ca = dialogPanel(dl, cw, ch);
+		text(dl, bold(), 38, ca.x + pad, ca.y + pad - 6, col::text, "Format or delete this card?");
+		text(dl, regular(), 23, ca.x + pad, ca.y + pad + 50, col::dim,
+				fit(regular(), 23, ui.card < (int)ui.names.size() ? ui.names[ui.card] : std::string("The card"), cw - 2 * pad).c_str());
+		const char *const choices[2] = { "Format: erase every save and make the card blank",
+				"Delete: take the card's file away; a game makes a new one" };
+		for (int i = 0; i < 2; i++)
+		{
+			const float y = ca.y + pad + 96 + i * 60;
+			const bool on = i == ui.erase;
+			if (on)
+				rect(dl, ca.x + pad - 10, y, cw - 2 * pad + 20, 52, col::accent, 12);
+			text(dl, bold(), 24, ca.x + pad + 10, y + 12, on ? col::text : col::dim, choices[i]);
+		}
+		text(dl, regular(), 22, ca.x + pad, ca.y + pad + 230, col::faint,
+				"What the card held is kept beside it as a .bak file. For a card that is damaged, either brings it back.", cw - 2 * pad);
+		float cx = ca.x + pad;
+		const float cy = ca.y + ch - pad - 60 + 8;
+		cx += dialogButton(dl, cx, cy, Glyph::Cross, ui.erase == 0 ? "Format" : "Delete", true) + 20;
+		dialogButton(dl, cx, cy, Glyph::Circle, "Keep it", false);
 	}
 
 	// ---- asked before a save is deleted: a panel of its own, over this one

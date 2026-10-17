@@ -66,6 +66,14 @@ rm -rf -- "$app"
 mkdir -p "$app/sce_sys" "$app/sce_module"
 cp -- "$build/flycast" "$app/eboot.bin"
 cp -- "$src/shell/ps5/sce_sys/param.json" "$src/shell/ps5/sce_sys/icon0.png" "$app/sce_sys/"
+# The version on the console's home screen follows ps5_build.h, so each build can be told apart.
+content_base=$(sed -n 's/^#define PS5_CONTENT_VERSION "\(.*\)"/\1/p' "$src/shell/ps5/ps5_build.h")
+build_number=$(sed -n 's/^#define PS5_BUILD_NUMBER \([0-9]*\).*/\1/p' "$src/shell/ps5/ps5_build.h")
+if [ -n "$content_base" ] && [ -n "$build_number" ]; then
+    content_version=$(printf '%s.%03d' "$content_base" "$build_number")
+    sed -i "s/\"contentVersion\": \"[^\"]*\"/\"contentVersion\": \"$content_version\"/" "$app/sce_sys/param.json"
+    echo "contentVersion $content_version"
+fi
 # The picture the console shows behind the title on the home screen (pic0:
 # the mark and the name) and while it loads (pic1: the first frame of the
 # start-up animation, which is the backdrop alone, so the animation begins

@@ -968,7 +968,8 @@ void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 // The console's own keyboard (ps5_ime.cpp) is up, and what its text is for.
 // The pad is the keyboard's meanwhile.
 enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName, KeyboardRaUser, KeyboardRaPassword,
-		KeyboardMemValue, KeyboardSplitName, KeyboardStartWhen, KeyboardSplitWhen };
+		KeyboardMemValue, KeyboardSplitName, KeyboardStartWhen, KeyboardSplitWhen,
+		KeyboardNetPath, KeyboardNetUser, KeyboardNetPassword };
 int keyboardFor = KeyboardNone;
 
 struct Input
@@ -2935,6 +2936,9 @@ const std::vector<GameOption>& gameOptions()
 				"Carried on: the picture's edges mirrored and blurred outwards",
 				"ps5.SidePicture", { "Black", "The picture's light", "Gradient", "My picture", "Carried on" }, { 0, 1, 2, 3, 4 },
 				ps5::SidePicture, G::Video),
+		range("Frame skipping", "Draws only one frame in this many more: 0 draws every frame. Helps a game that cannot hold full speed, "
+				"and looks choppy", "config.ta.skip", 0, 5, 1, "", G::Video,
+				[] { return (int)config::SkipFrame.get(); }, [](int v) { config::SkipFrame.set(v); }),
 		range("Memory card screen size", "How large the memory card's screen is, with Memory card screen on", "ps5.VmuScreenSize",
 				50, 300, 10, "%", G::Video, [] { return (int)ps5::VmuScreenSize; }, [](int v) { ps5::VmuScreenSize.set(v); }),
 		onOff("Integer scaling", "Whole-number scaling of the picture, no blur", "config.rend.IntegerScale",
@@ -2988,6 +2992,9 @@ const std::vector<GameOption>& gameOptions()
 				[](int v) { config::AudioVolume.set(v); config::AudioVolume.calcDbPower(); }),
 		onOff("DSP emulation", "The sound chip's effects (reverb, echo); needed by some games",
 				"config.aica.DSPEnabled", config::DSPEnabled, G::Audio),
+		pick("Audio buffer", "How much sound is kept ready. A larger buffer stops crackling when a game is slow, and delays the sound a little",
+				"config.aica.BufferSize", { "32 ms", "64 ms", "96 ms", "128 ms", "192 ms", "256 ms" },
+				{ 1411, 2822, 4233, 5644, 8467, 11289 }, config::AudioBufferSize, G::Audio),
 		onOff("VMU sounds", "The beeps of the VMU", "audio.VmuSound", config::VmuSound, G::Audio),
 		pick("VMU sound plays in",
 				"With VMU sounds on: the TV, the speaker of the controller whose memory card beeps, or both. Controller speaker: not tried on a console yet",
@@ -3016,6 +3023,25 @@ const std::vector<GameOption>& gameOptions()
 		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack",
 				"input.device1.2", { "Rumble pack", "Memory card" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
+		pick("Controller slot 1", "What is in the controller's first slot: the memory card the game saves to, or nothing",
+				"input.device1.1", { "Memory card", "Rumble pack", "Nothing" },
+				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
+				config::MapleExpansionDevices[0][0], G::Controls, true),
+		onOff("Own memory card for each game",
+				"On: each game saves to a card of its own, named after it. Off: all games share one card for port A, slot 1",
+				"config.PerGameVmu", config::PerGameVmu, G::System, true),
+		pick("Player 2 memory card", "The first slot of the second controller",
+				"input.device2.1", { "Memory card", "Rumble pack", "Nothing" },
+				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
+				config::MapleExpansionDevices[1][0], G::Controls, true),
+		pick("Player 3 memory card", "The first slot of the third controller",
+				"input.device3.1", { "Memory card", "Rumble pack", "Nothing" },
+				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
+				config::MapleExpansionDevices[2][0], G::Controls, true),
+		pick("Player 4 memory card", "The first slot of the fourth controller",
+				"input.device4.1", { "Memory card", "Rumble pack", "Nothing" },
+				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
+				config::MapleExpansionDevices[3][0], G::Controls, true),
 		pick("Port A", "A light gun in place of the controller, for the Dreamcast games that are played with one",
 				"input.device1", { "Controller", "Light gun" }, { (int)MDT_SegaController, (int)MDT_LightGun },
 				config::MapleMainDevices[0], G::Own, true),
@@ -3053,10 +3079,12 @@ const std::vector<GameOption>& gameOptions()
 		[] {
 			// The Dreamcast's processor, slower or faster than the real one's 200 MHz.
 			GameOption o = pick("CPU clock",
-					"Overclocking smooths a game that slows down or stutters; some games break or run too fast",
+					"Overclocking smooths a game that slows down or stutters; some games break or run too fast. The Dreamcast hardware mods run at +10% and +20%",
 					"config.Sh4Clock",
-					{ "100 MHz (half)", "150 MHz", "200 MHz (standard)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)" },
-					{ 100, 150, 200, 250, 300, 350, 400 }, config::Sh4Clock, GameOption::System);
+					{ "100 MHz (half)", "150 MHz", "200 MHz (standard)", "220 MHz (+10%, the hardware mod)",
+						"240 MHz (+20%, the hardware mod)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)",
+						"450 MHz", "500 MHz", "600 MHz", "700 MHz", "800 MHz (4x)" },
+					{ 100, 150, 200, 220, 240, 250, 300, 350, 400, 450, 500, 600, 700, 800 }, config::Sh4Clock, GameOption::System);
 			o.set = [](int v) {
 				config::Sh4Clock.set(v);
 				// The code already translated was timed for the old clock.
@@ -3065,6 +3093,10 @@ const std::vector<GameOption>& gameOptions()
 			};
 			return o;
 		}(),
+		onOff("Arcade free play", "NAOMI and Atomiswave games: play without putting in credits where the game allows it",
+				"config.ForceFreePlay", config::ForceFreePlay, G::System),
+		onOff("32 MB of memory", "Gives the Dreamcast the 32 MB some homebrew and modded games expect instead of 16 MB. "
+				"Most games do not want it", "config.Dreamcast.RamMod32MB", config::RamMod32MB, G::System, true),
 		onOff("Auto save state", "Saves the game's state when you quit it", "config.Dreamcast.AutoSaveState",
 				config::AutoSaveState, G::System),
 		onOff("Auto load state", "Resumes from that state when the game starts", "config.Dreamcast.AutoLoadState",
@@ -3847,7 +3879,7 @@ ImTextureID heroVideoTexture(const Game *focused, bool shown)
 	}
 	if (timeNow - heroVideo.since < 1.2)
 		return ImTextureID();
-	const std::string file = ps5::video::find(videoStem(*focused), focused->title);
+	const std::string file = ps5::video::find(videoStem(*focused), focused->title, focused->media.path);
 	if (file.empty())
 		return ImTextureID();
 	ps5::video::play(file, true, ps5::GameVideoVolume / 100.f);
@@ -6113,6 +6145,8 @@ SpaceNow& spaceNow(bool force = false)
 	return now;
 }
 
+bool rebuildCategories;		// a row changed what the rows are (the network folders)
+
 std::vector<Category> buildCategories()
 {
 	std::vector<Category> cats;
@@ -6567,15 +6601,68 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "Network folders", "SMB shares, named in network.cfg in PSFlyCast's folder" };
+		Row r{ Row::Info, "Network folders", "SMB shares (Windows sharing, most NAS boxes). Added here, and kept in network.cfg" };
 		r.info = [] {
 			const auto& folders = ps5::smb::gameFolders();
 			if (folders.empty())
 				return std::string("None");
-			std::string all;
-			for (const std::string& folder : folders)
-				all += (all.empty() ? "" : ", ") + folder.substr(6);
-			return all;
+			return std::to_string(folders.size());
+		};
+		storage.rows.push_back(r);
+	}
+	for (const std::string& folder : ps5::smb::gameFolders())
+	{
+		Row r{ Row::Info, folder.substr(6), "" };
+		r.info = [] { return std::string(); };
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Add a network folder",
+				"Type server/share/folder, the server by its IP address: for example 192.168.1.10/Games/Dreamcast. "
+				"The folder and those inside it are scanned for games" };
+		r.action = [] {
+			openKeyboard(KeyboardNetPath, "Network folder: server/share/folder", "192.168.1.10/Games/Dreamcast", "", 200);
+		};
+		storage.rows.push_back(r);
+	}
+	for (size_t i = 0; i < ps5::smb::gameFolders().size(); i++)
+	{
+		Row r{ Row::Action, "Remove " + ps5::smb::gameFolders()[i].substr(6), "Takes this folder off the list. The games stay where they are" };
+		r.action = [i] {
+			const std::string gone = ps5::smb::removeFolder(i);
+			if (!gone.empty())
+			{
+				os_notify("Network folder removed", 3000, gone.substr(6).c_str());
+				rebuildCategories = true;
+				scannedCount = (size_t)-1;
+				scanNetwork();
+			}
+		};
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Network user", "The account for the folders above. guest with no password for an open share" };
+		r.info = [] { return ps5::smb::user(); };
+		r.action = [] {
+			openKeyboard(KeyboardNetUser, "Network user", "guest", ps5::smb::user(), 64, ps5::ime::Kind::Name);
+		};
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Network password", "Typed on the console's keyboard and kept in network.cfg in PSFlyCast's folder" };
+		r.info = [] { return std::string(ps5::smb::hasPassword() ? "Set" : "None"); };
+		r.action = [] {
+			openKeyboard(KeyboardNetPassword, "Network password", "", "", 64, ps5::ime::Kind::Password);
+		};
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Scan the network folders now", "Looks for games again, and shows if the share does not answer" };
+		r.action = [] {
+			ps5::smb::retryNow();
+			scannedCount = (size_t)-1;
+			scanNetwork();
+			os_notify("Scanning the network folders", 2500);
 		};
 		storage.rows.push_back(r);
 	}
@@ -6803,6 +6890,14 @@ void settings()
 {
 	if (st.cats.empty())
 		st.cats = buildCategories();
+	if (rebuildCategories)
+	{
+		rebuildCategories = false;
+		const int keepCat = st.cat, keepRow = st.row;
+		st.cats = buildCategories();
+		st.cat = std::min(keepCat, (int)st.cats.size() - 1);
+		st.row = std::min(keepRow, std::max(0, (int)st.cats[st.cat].rows.size() - 1));
+	}
 	ImDrawList *dl = beginScreen("##bp-settings", true);
 
 	// The console's keyboard takes the pad while it is up; what was typed goes
@@ -6818,6 +6913,33 @@ void settings()
 			typed.erase(std::remove_if(typed.begin(), typed.end(), [](char c) { return c <= ' ' || c > '~'; }), typed.end());
 			config::ISPUsername.set(typed);
 			st.dirty = true;
+		}
+		else if (keyboard == KeyboardNetPath)
+		{
+			std::string why;
+			if (ps5::smb::addFolder(typed, why))
+			{
+				os_notify("Network folder added", 3000, "Scanning it for games");
+				rebuildCategories = true;
+				scannedCount = (size_t)-1;
+				scanNetwork();
+			}
+			else
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("Not added", 5000, why.c_str());
+			}
+		}
+		else if (keyboard == KeyboardNetUser)
+		{
+			ps5::smb::setUser(typed);
+			os_notify("Network user set", 2500);
+		}
+		else if (keyboard == KeyboardNetPassword)
+		{
+			ps5::smb::setPassword(typed);
+			std::fill(typed.begin(), typed.end(), '\0');
+			os_notify("Network password set", 2500);
 		}
 		else if (keyboard == KeyboardRaUser || keyboard == KeyboardRaPassword)
 		{
@@ -6924,7 +7046,9 @@ void settings()
 	float total = 0;
 	for (const auto& r : cat.rows)
 	{
-		const float h = r.kind == Row::Heading ? 70.f : r.desc.empty() ? 76.f : 104.f;
+		// A long description wraps onto as many lines as it needs, so all of it can be read.
+		const float descH = r.desc.empty() ? 0.f : textSize(regular(), 22, r.desc.c_str(), pw * 0.74f).y;
+		const float h = r.kind == Row::Heading ? 70.f : r.desc.empty() ? 76.f : std::max(104.f, 82.f + descH);
 		heights.push_back(h);
 		total += h;
 	}
@@ -6971,7 +7095,7 @@ void settings()
 		}
 		text(dl, bold(), 28, tx, y + 16, r.kind == Row::Info ? col::dim : col::text, r.label.c_str());
 		if (!r.desc.empty())
-			text(dl, regular(), 22, tx, y + 56, col::faint, fit(regular(), 22, r.desc, pw * 0.74f).c_str());
+			text(dl, regular(), 22, tx, y + 56, col::faint, r.desc.c_str(), pw * 0.74f);
 
 		const float right = px + pw - 52;
 		const float cy = y + (h - 8) / 2;

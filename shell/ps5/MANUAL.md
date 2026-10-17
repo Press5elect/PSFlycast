@@ -349,6 +349,17 @@ TV, the speaker of the controller whose card beeps, or both (the controller
 speaker is not tested on a console yet: when the console refuses it the beep
 stays on the TV).
 
+Settings > Controls has the memory cards' slots per controller (**Controller
+slot 1**, **Player 2 / 3 / 4 memory card**: a card, a rumble pack or nothing),
+and Settings > System **Own memory card for each game**. In Settings > System >
+**Memory cards**, Triangle on a card offers **Format** (every save erased, the
+card made blank) or **Delete** (the card's file taken away; a game makes a new
+one). Either way what the card held stays beside it as a `.bak` file.
+
+Settings > Library > Network adds and removes network folders on the console
+itself (**Add a network folder**, **Network user**, **Network password**); they
+are kept in `network.cfg`. Only SMB (Windows sharing) is supported; NFS is not.
+
 Settings > Video > **Beside the picture** chooses what fills the screen beside
 (or above and below) a picture that does not fill it, as in PSSwanStation:
 **Black**; **The picture's light**, the picture blurred wide and soft and

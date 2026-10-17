@@ -1396,6 +1396,16 @@ Result format(const std::string& path, bool erase)
 			: "A blank card was made.");
 }
 
+Result discard(const std::string& path)
+{
+	std::lock_guard<std::mutex> lock(changing);
+	const std::string backup = path + ".bak";
+	::remove(backup.c_str());
+	if (::rename(path.c_str(), backup.c_str()) != 0)
+		return fail(Error::Io, "The card could not be taken away: " + std::string(strerror(errno)));
+	return done("The card was taken away. Its file is kept as " + nameOf(path) + ".bak; a game makes a new one when it starts.");
+}
+
 void beginSession()
 {
 	std::lock_guard<std::mutex> lock(changing);
