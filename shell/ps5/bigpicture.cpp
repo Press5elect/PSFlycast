@@ -40,6 +40,7 @@
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
+#include "ps5_disc.h"
 #include "ps5_diag.h"
 #include "cheats.h"
 
@@ -1074,8 +1075,8 @@ void endScreen() {
 
 // Where a game comes from: each is a tab of the library. Settings is the tab
 // after them.
-enum Source { Internal, Usb, Network };
-constexpr int SourceCount = 3;
+enum Source { Internal, Usb, Network, Disc };
+constexpr int SourceCount = 4;
 constexpr int SettingsTab = SourceCount;
 
 struct TopTab
@@ -1092,6 +1093,8 @@ std::vector<TopTab> topTabs()
 	if (ps5::options().usb)
 		tabs.push_back({ Usb, ICON_FA_PLUG, "USB" });
 	tabs.push_back({ Network, ICON_FA_NETWORK_WIRED, "Network" });
+	if (ps5::options().discDrive)
+		tabs.push_back({ Disc, ICON_FA_COMPACT_DISC, "Disc Drive" });
 	// Settings is not a tab: OPTIONS opens it from the library.
 	return tabs;
 }
@@ -1448,6 +1451,8 @@ bool leftOut(const Game& g, bool selectDisk)
 
 Source sourceOf(const std::string& path)
 {
+	if (ps5::disc::isPath(path))
+		return Disc;
 	if (ps5::smb::isNetworkPath(path))
 		return Network;
 	if (path.rfind("/mnt/usb", 0) == 0)
@@ -1475,6 +1480,7 @@ struct NetworkLibrary
 	unsigned generation = 1;	// bumped when the list changes
 } net;
 unsigned shownNetGeneration;
+unsigned shownDiscGeneration;
 
 std::string networkListFile() {
 	return ps5::rootDir + "data/network-games.txt";
@@ -1704,10 +1710,12 @@ bool refreshGames(bool networkOpen)
 	sc.fetch_game_list();
 	std::lock_guard<std::mutex> lock(sc.get_mutex());
 	const auto& list = sc.get_game_list();
-	if (list.size() == scannedCount && net.generation == shownNetGeneration)
+	const unsigned discGeneration = ps5::options().discDrive ? ps5::disc::generation() : 0;
+	if (list.size() == scannedCount && net.generation == shownNetGeneration && discGeneration == shownDiscGeneration)
 		return false;
 	scannedCount = list.size();
 	shownNetGeneration = net.generation;
+	shownDiscGeneration = discGeneration;
 	games.clear();
 	auto add = [](const GameMedia& m) {
 		Game g;
@@ -1735,6 +1743,17 @@ bool refreshGames(bool networkOpen)
 			add(m);
 	for (const auto& m : net.games)
 		add(m);
+	if (ps5::options().discDrive)
+		for (const ps5::disc::Info& d : ps5::disc::list())
+			if (d.playable)
+			{
+				GameMedia m;
+				m.name = d.title;
+				m.path = d.path;
+				m.fileName = ps5::disc::fileName(d.path);
+				add(m);
+				games.back().title = games.back().fullTitle = games.back().setTitle = d.title;
+			}
 	findDiscSets();
 	return true;
 }
@@ -2032,6 +2051,8 @@ void chooseSource()
 		lib.source = std::clamp(ps5::options().source, 0, SourceCount - 1);
 	}
 	if (lib.source == Usb && !ps5::options().usb)
+		switchSource(Internal);
+	if (lib.source == Disc && !ps5::options().discDrive)
 		switchSource(Internal);
 }
 
@@ -2505,6 +2526,32 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 			title = selectDisk ? "No disc images on the share" : "No games on the share";
 			body = named + "\n\nDisc images: .chd  .gdi  .cdi  .cue     Arcade: .zip  .7z";
 		}
+	}
+	else if (lib.source == Disc)
+	{
+		title = "No disc in a drive";
+		const std::string reason = ps5::disc::noDriveReason();
+		if (!reason.empty())
+		{
+			title = "No disc drive found";
+			body = reason;
+		}
+		else
+		{
+			for (const ps5::disc::Info& d : ps5::disc::list())
+			{
+				if (d.onUsb == false)
+					continue;
+				body += (body.empty() ? "" : "\n\n") + (d.drive.empty() ? d.device : d.drive) + ": " + d.state;
+				if (!d.problem.empty())
+					body += "\n" + d.problem;
+			}
+			if (body.empty())
+				body = "Put a Dreamcast game burned to a CD-R in the drive.";
+			body += "\n\nA Dreamcast game can be read from a CD-R (a self-boot disc or a game on a data CD). "
+					"A Dreamcast's own GD-ROM cannot be read by a CD or DVD drive.";
+		}
+		foot = "The drive is looked at every two seconds.";
 	}
 	else if (lib.source == Usb)
 	{
@@ -6074,6 +6121,21 @@ std::vector<Category> buildCategories()
 			"A USB tab for games in a flycast or dreamcast folder on a drive (needs elfldr; restart to apply)" };
 		r.get = [] { return ps5::options().usb ? 1 : 0; };
 		r.set = [](int v) { ps5::options().usb = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "USB disc drive",
+			"A Disc Drive tab for a Dreamcast game burned to a CD-R, played from a USB CD or DVD drive (needs elfldr; restart to apply)" };
+		r.get = [] { return ps5::options().discDrive ? 1 : 0; };
+		r.set = [](int v) { ps5::options().discDrive = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Choice, "Disc drive speed",
+			"Quiet is 8x, Normal 24x. Maximum lets the drive go as fast as it can. A drive that fails to read is slowed by itself",
+			{ "Quiet", "Normal", "Maximum" }, { 0, 1, 2 } };
+		r.get = [] { return ps5::options().discSpeed; };
+		r.set = [](int v) { ps5::options().discSpeed = v; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{

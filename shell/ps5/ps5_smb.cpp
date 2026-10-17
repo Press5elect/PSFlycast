@@ -58,6 +58,7 @@
 */
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
+#include "ps5_disc.h"
 
 #include "oslib/storage.h"
 #include "log/Log.h"
@@ -902,7 +903,7 @@ class SmbStorage : public hostfs::CustomStorage
 public:
 	bool isKnownPath(const std::string& path) override
 	{
-		return isNetworkPath(path);
+		return isNetworkPath(path) || ps5::disc::isPath(path);
 	}
 
 	std::vector<hostfs::FileInfo> listContent(const std::string& path) override
@@ -1009,6 +1010,12 @@ public:
 
 	hostfs::FileInfo getFileInfo(const std::string& path) override
 	{
+		if (ps5::disc::isPath(path))
+		{
+			if (!ps5::disc::exists(path))
+				throw hostfs::StorageException("There is no disc in the drive");
+			return hostfs::FileInfo(ps5::disc::fileName(path), path, false, 0, false, 0);
+		}
 		std::string relative;
 		Share *share = locate(path, relative);
 		if (share == nullptr)
@@ -1025,6 +1032,8 @@ public:
 
 	bool exists(const std::string& path) override
 	{
+		if (ps5::disc::isPath(path))
+			return ps5::disc::exists(path);
 		std::string relative;
 		Share *share = locate(path, relative);
 		if (share == nullptr)

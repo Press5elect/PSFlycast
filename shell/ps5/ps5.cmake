@@ -17,6 +17,9 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_covers.cpp
 	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
+	shell/ps5/ps5_disc.cpp
+	shell/ps5/ps5_drive_cam.cpp
+	shell/ps5/ps5_drive_usb.cpp
 	shell/ps5/ps5_cheats.cpp
 	shell/ps5/ps5_patches.cpp
 	shell/ps5/ps5_mods.cpp

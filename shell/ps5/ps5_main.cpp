@@ -32,6 +32,7 @@
 #include "ps5_build.h"
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
+#include "ps5_disc.h"
 #include "ps5_rewind.h"
 #include "cfg/option.h"
 
@@ -96,6 +97,10 @@ void loadOptions(const std::string& dir)
 			currentOptions.covers = value != 0;
 		else if (!strcmp(key, "usb"))
 			currentOptions.usb = value != 0;
+		else if (!strcmp(key, "disc_drive"))
+			currentOptions.discDrive = value != 0;
+		else if (!strcmp(key, "disc_speed"))
+			currentOptions.discSpeed = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "ram_cache"))
 			currentOptions.ramCache = value != 0;
 		else if (!strcmp(key, "source"))
@@ -156,7 +161,8 @@ void saveOptions()
 	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
-			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n",
+			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
+			"disc_drive = %d\ndisc_speed = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -164,7 +170,8 @@ void saveOptions()
 			(int)currentOptions.menuSounds, (int)currentOptions.lightBar, (int)currentOptions.usbInput,
 			(int)currentOptions.vrr, (int)currentOptions.notifications, (int)currentOptions.showHidden,
 			(int)currentOptions.rewind, currentOptions.splashLast, currentOptions.uiScale,
-			(int)currentOptions.highContrast, (int)currentOptions.colourBlind);
+			(int)currentOptions.highContrast, (int)currentOptions.colourBlind, (int)currentOptions.discDrive,
+			currentOptions.discSpeed);
 	fclose(f);
 }
 
@@ -448,7 +455,7 @@ int main(int argc, char *argv[])
 	// The system's modules for a USB keyboard and mouse and for the keyboard on
 	// the screen, while the sandbox's paths are still this process's.
 	ps5::usb::preload();
-	if (ps5::options().usb)
+	if (ps5::options().usb || ps5::options().discDrive)
 	{
 		// Before any other thread exists, as the helper's protocol asks.
 		const unsigned status = ps5::elevateFilesystem("/app0/sandbox-elevator.elf");
@@ -495,6 +502,7 @@ int main(int argc, char *argv[])
 		if (!ps5::elevated)
 			ps5::diag::notify("PSFlyCast: USB drives need elfldr running (port 9021). Continuing without them.");
 	}
+	ps5::disc::start();
 	ps5::smb::loadConfig();
 	redirectLogs(ps5::rootDir);
 	ps5::diag::mark("the emulator's log: %slogs/flycast.log", ps5::rootDir.c_str());

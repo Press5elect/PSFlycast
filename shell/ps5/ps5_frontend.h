@@ -75,6 +75,8 @@ struct Options
 	int view = 0;			// 0 shelves, 1 grid, 2 list
 	bool covers = true;		// download missing covers
 	bool usb = false;		// leave the sandbox at start to read USB drives
+	bool discDrive = false;	// a USB CD or DVD drive: leave the sandbox at start to read it (ps5_disc.cpp)
+	int discSpeed = 2;		// its speed: 0 quiet (8x a CD), 1 normal (24x), 2 as fast as it goes
 	bool ramCache = true;	// read a network game whole into memory before it starts
 	int source = 0;			// the library tab last open: 0 internal, 1 USB, 2 network
 	bool hz120 = true;		// take the display's 119.88 Hz mode where it has one

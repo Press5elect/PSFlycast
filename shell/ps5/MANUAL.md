@@ -101,7 +101,7 @@ The library is what you see when PSFlyCast starts.
 | OPTIONS | Open or close the Settings |
 
 - **Tabs.** Internal is the `games/` folder. The USB tab is there only when
-  USB drives are turned on. Each tab remembers where you were, and PSFlyCast
+  USB drives are turned on, and the Disc Drive tab only when USB disc drive is. Each tab remembers where you were, and PSFlyCast
   opens on the tab you used last.
 - **Views.** Shelves (with a Recently played row and, once you have made
   some, a Favourites row), a compact grid, or a list.
@@ -828,6 +828,22 @@ This needs the payload loader **elfldr** running on the console (port 9021).
 If the tab says it has no access, start elfldr and then PSFlyCast again.
 Cover downloads may stop working while USB drives are on, and so may the
 update check and the sign-in for achievements.
+
+### A game on a CD-R in a USB CD or DVD drive
+
+1. Turn on Settings > Library > **USB disc drive** and restart PSFlyCast
+   (it needs elfldr, as USB drives do).
+2. Plug the drive in (a full-size drive needs its own power adapter) and put
+   the disc in. A **Disc Drive** tab lists it by the name in its header.
+3. Press Cross. The drive is read as the game asks; behind it the rest of the
+   disc is read into memory in order, so that after a while the drive rests.
+
+This reads a Dreamcast game burned to a **CD-R** (a self-boot disc, or a game
+on a data CD). A Dreamcast's own GD-ROM cannot be read by a CD or DVD drive.
+**Disc drive speed** (Quiet, Normal, Maximum) sets how fast the drive is
+asked to read; a drive that fails to read is slowed a step by itself. This
+has not been run on a console yet: the boot log's "disc:" lines say what the
+console lists if no drive shows.
 
 ## 20. Playing online
 
