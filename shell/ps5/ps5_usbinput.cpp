@@ -31,10 +31,14 @@
 #include "cfg/option.h"
 #include "input/keyboard_device.h"
 #include "input/mouse.h"
+#include "emulator.h"
+#include "ui/settings.h"
 #include "hw/maple/maple_cfg.h"
 
 #include <algorithm>
 #include <atomic>
+#include <bitset>
+#include <cmath>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -171,6 +175,42 @@ void feedMouse(uint32_t& before, const MouseData& report)
 		mouse->setWheel(std::clamp(report.wheel, -100, 100));
 }
 
+// Flycast keeps a device for each: made when a real one is plugged in, or when
+// the pad is asked to be one.
+void ensureKeyboard()
+{
+	if (keyboard)
+		return;
+	keyboard = std::make_shared<UsbKeyboard>();
+	GamepadDevice::Register(keyboard);
+}
+
+void ensureMouse()
+{
+	if (mouse)
+		return;
+	// Flycast keeps a pointer on the screen for each mouse and moves it
+	// within the screen's size, which it learns from a pointer's place:
+	// the middle of the display, once.
+	const int width = ::settings.display.width > 0 ? ::settings.display.width : 1920;
+	const int height = ::settings.display.height > 0 ? ::settings.display.height : 1080;
+	SetMousePosition(width / 2, height / 2, width, height, 0);
+	mouse = std::make_shared<UsbMouse>();
+	GamepadDevice::Register(mouse);
+}
+
+// Whether the game asks for the pad to be a mouse or a keyboard: a Dreamcast
+// game only, as the arcade ones have their own controls.
+bool padMouseWanted()
+{
+	return ::settings.platform.isConsole() && ps5::pad::PadMouse == ps5::pad::PadMouseOn;
+}
+
+bool padKeysWanted()
+{
+	return ::settings.platform.isConsole() && ps5::pad::PadKeys != ps5::pad::PadKeysOff;
+}
+
 // Opens what is not open yet: at the first poll, and every three seconds
 // after it for a keyboard or a mouse that is plugged in later.
 void open()
@@ -211,22 +251,10 @@ void open()
 				(unsigned)moduleResult[0], (unsigned)keyboardInit, keyboards, Slots, (unsigned)moduleResult[1],
 				(unsigned)mouseInit, mice, Slots);
 	said = true;
-	if (keyboards > 0 && !keyboard)
-	{
-		keyboard = std::make_shared<UsbKeyboard>();
-		GamepadDevice::Register(keyboard);
-	}
-	if (mice > 0 && !mouse)
-	{
-		// Flycast keeps a pointer on the screen for each mouse and moves it
-		// within the screen's size, which it learns from a pointer's place:
-		// the middle of the display, once.
-		const int width = ::settings.display.width > 0 ? ::settings.display.width : 1920;
-		const int height = ::settings.display.height > 0 ? ::settings.display.height : 1080;
-		SetMousePosition(width / 2, height / 2, width, height, 0);
-		mouse = std::make_shared<UsbMouse>();
-		GamepadDevice::Register(mouse);
-	}
+	if (keyboards > 0)
+		ensureKeyboard();
+	if (mice > 0)
+		ensureMouse();
 }
 
 } // namespace
@@ -294,7 +322,11 @@ void poll()
 void plugPorts(uint32_t taken)
 {
 	int keyboardAt = -1, mouseAt = -1;
-	if (options().usbInput && (keyboardThere || mouseThere))
+	// What the Dreamcast gets: the real ones plugged into the console, and the
+	// pad's own when the game's settings ask for them.
+	const bool wantKeyboard = (options().usbInput && keyboardThere) || padKeysWanted();
+	const bool wantMouse = (options().usbInput && mouseThere) || padMouseWanted();
+	if (wantKeyboard || wantMouse)
 	{
 		if (settings.platform.isConsole())
 		{
@@ -310,20 +342,21 @@ void plugPorts(uint32_t taken)
 			{
 				if ((taken & (1u << port)) != 0 || config::MapleMainDevices[port] != MDT_None)
 					continue;
-				if (keyboardThere && keyboardAt < 0)
+				if (wantKeyboard && keyboardAt < 0)
 				{
 					config::MapleMainDevices[port].override(MDT_Keyboard);
 					keyboardAt = port;
 				}
-				else if (mouseThere && mouseAt < 0)
+				else if (wantMouse && mouseAt < 0)
 				{
 					config::MapleMainDevices[port].override(MDT_Mouse);
 					mouseAt = port;
 				}
 			}
 			static const char *const letters[] = { "none", "A", "B", "C", "D" };
-			diag::mark("usb: the Dreamcast's keyboard is in port %s, its mouse in port %s",
-					letters[keyboardThere ? keyboardAt + 1 : 0], letters[mouseThere ? mouseAt + 1 : 0]);
+			diag::mark("usb: the Dreamcast's keyboard is in port %s, its mouse in port %s (the pad as a keyboard: %s, as a mouse: %s)",
+					letters[wantKeyboard ? keyboardAt + 1 : 0], letters[wantMouse ? mouseAt + 1 : 0],
+					padKeysWanted() ? "yes" : "no", padMouseWanted() ? "yes" : "no");
 		}
 		else
 		{
@@ -332,12 +365,98 @@ void plugPorts(uint32_t taken)
 			mouseAt = mouseThere ? 0 : -1;
 		}
 	}
-	keyboardPort = keyboardThere ? keyboardAt : -1;
-	mousePort = mouseThere ? mouseAt : -1;
+	if (wantKeyboard && settings.platform.isConsole())
+		ensureKeyboard();
+	if (wantMouse && settings.platform.isConsole())
+		ensureMouse();
+	keyboardPort = (wantKeyboard || keyboardThere) ? keyboardAt : -1;
+	mousePort = (wantMouse || mouseThere) ? mouseAt : -1;
 	if (keyboard)
 		keyboard->set_maple_port(keyboardPort);
 	if (mouse)
 		mouse->set_maple_port(mousePort);
+}
+
+// The first pad as a mouse and a keyboard. Called once a frame, and does
+// nothing unless a game is running and its settings ask for it.
+void padInput(const ps5::pad::State& pad)
+{
+	using namespace ps5::pad;
+	static uint32_t mouseHeld;			// the buttons the pad holds down on the mouse
+	static std::bitset<256> keysHeld;	// the keys it holds down
+	static float carryX, carryY;
+	const bool active = game_started && pad.connected;
+	const bool mouseOn = active && padMouseWanted() && mouse && mouse->maple_port() >= 0;
+	const bool keysOn = active && padKeysWanted() && keyboard && keyboard->maple_port() >= 0;
+
+	if (mouse)
+	{
+		uint32_t now = 0;
+		if (mouseOn)
+			now = (pad.r2 > 0.5f ? 1u : 0u) | (pad.l2 > 0.5f ? 2u : 0u) | ((pad.buttons & R3) ? 4u : 0u);
+		static const Mouse::Button buttons[3] = { Mouse::LEFT_BUTTON, Mouse::RIGHT_BUTTON, Mouse::MIDDLE_BUTTON };
+		for (int bit = 0; bit < 3; bit++)
+			if (((mouseHeld ^ now) >> bit) & 1)
+				mouse->setButton(buttons[bit], ((now >> bit) & 1) != 0);
+		mouseHeld = now;
+		if (mouseOn)
+		{
+			const float magnitude = std::min(1.f, std::hypot(pad.rx, pad.ry));
+			if (magnitude > 0.f)
+			{
+				// Pixels a frame at full push: 4 for speed 1, 40 for speed 10. The curve
+				// makes a small push slow and a full one fast, for aiming.
+				const float full = 4.f * std::clamp((int)PadMouseSpeed, 1, 10);
+				const float scale = full * (PadMouseCurve != 0 ? magnitude : 1.f);
+				carryX += pad.rx * scale;
+				carryY += (PadMouseInvertY != 0 ? -pad.ry : pad.ry) * scale;
+				const float dx = std::trunc(carryX), dy = std::trunc(carryY);
+				carryX -= dx;
+				carryY -= dy;
+				if (dx != 0.f || dy != 0.f)
+					mouse->setRelPos(dx, dy);
+			}
+			else
+				carryX = carryY = 0.f;
+			// L1 and R1 turn the wheel: the weapon before and after.
+			if ((pad.pressed & R1) != 0 && PadKeys != PadKeysOff)
+				mouse->setWheel(1);
+			if ((pad.pressed & L1) != 0 && PadKeys != PadKeysOff)
+				mouse->setWheel(-1);
+		}
+	}
+	if (keyboard)
+	{
+		std::bitset<256> want;
+		if (keysOn)
+		{
+			// USB usage codes: A 04, D 07, E 08, S 16, W 1a, 1 to 4 1e to 21, Enter 28, Escape 29,
+			// Space 2c, C 06, right, left, down, up arrows 4f to 52, Control e0, Shift e1, Alt e2.
+			const bool wasd = PadKeys == PadKeysWasd;
+			if (pad.ly < -0.5f) want[wasd ? 0x1a : 0x52] = true;
+			if (pad.ly > 0.5f) want[wasd ? 0x16 : 0x51] = true;
+			if (pad.lx < -0.5f) want[wasd ? 0x04 : 0x50] = true;
+			if (pad.lx > 0.5f) want[wasd ? 0x07 : 0x4f] = true;
+			if (pad.buttons & Cross) want[0x2c] = true;				// Space: jump
+			if (pad.buttons & Circle) want[wasd ? 0x06 : 0xe0] = true;	// C: crouch (Control)
+			if (pad.buttons & Square) want[wasd ? 0x08 : 0xe2] = true;	// E: use (Alt)
+			if (pad.buttons & Triangle) want[0x15] = true;			// R: reload
+			if (pad.buttons & L3) want[0xe1] = true;				// Shift: walk
+			if (pad.buttons & ps5::pad::Options) want[0x29] = true;			// Escape
+			if (pad.buttons & Up) want[0x1e] = true;				// 1 to 4: weapons
+			if (pad.buttons & Right) want[0x1f] = true;
+			if (pad.buttons & Down) want[0x20] = true;
+			if (pad.buttons & Left) want[0x21] = true;
+		}
+		const std::bitset<256> changed = keysHeld ^ want;
+		if (changed.any())
+		{
+			for (int code = 1; code < 256; code++)
+				if (changed[code])
+					keyboard->key((uint8_t)code, want[code]);
+			keysHeld = want;
+		}
+	}
 }
 
 std::string text()

@@ -210,6 +210,20 @@ or a light gun it stays the analog stick. Settings > Controls >
 have its own choice (Details > Options, or Game options in the quick menu):
 on suits a Dreamcast game that only reads the D-pad.
 
+**The controller as a mouse and a keyboard** (build 65 on, not tried on a
+console yet). Dreamcast games that aim with a mouse and move with a keyboard
+can be played with the DualSense. In Settings > Controls (or a game's own
+options), **Right stick as mouse** makes the right stick the Dreamcast's mouse:
+R2 is the left button, L2 the right one, R3 the middle one; Mouse speed, Mouse
+response and Mouse up and down swapped tune it. **Controller as keyboard**
+presses keys: with WASD, the left stick is W A S D, Cross Space, Circle C,
+Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, and L1 and R1
+turn the mouse wheel; with Arrow keys the stick is the arrows, Circle is
+Control and Square Alt. Each takes one of the Dreamcast's free ports and starts
+with the next game. A game that does not read a mouse or a keyboard ignores
+them. **Controller type** > Second stick makes the controller report the right
+stick as a second stick, which only software written for one reads.
+
 Any of these can be changed: see [Changing the controls](#14-changing-the-controls).
 
 **Starting a game from a forwarder.** A PS5 forwarder (an icon on the home

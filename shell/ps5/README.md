@@ -118,6 +118,22 @@ right.
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
+## In development (v1.3.0)
+
+Not released; nothing here has been run on a console yet.
+
+Added:
+
+- **Right stick as mouse** (Settings > Controls, for one game if wanted): the
+  right stick moves the Dreamcast's mouse, R2 is its left button, L2 the right
+  one and R3 the middle one, for games that aim with a mouse. Mouse speed,
+  Mouse response (even, or slow near the centre for fine aim) and Mouse up and
+  down swapped.
+- **Controller as keyboard:** the left stick and the buttons press keys, as
+  WASD or as the arrow keys; L1 and R1 turn the mouse wheel.
+- **Controller type:** the standard Dreamcast controller, or one that reports
+  the right stick as a second stick, for software that reads one.
+
 ## New in v1.2.0
 
 Status, above, says which of it has been run on a console.

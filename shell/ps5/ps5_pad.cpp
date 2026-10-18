@@ -64,6 +64,12 @@ config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
 config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
 config::Option<int> TurboButtons("TurboButtons", 0, "ps5");
 config::Option<int> TurboRate("TurboRate", 1, "ps5");
+config::Option<int> PadMouse("PadMouse", PadMouseOff, "ps5");
+config::Option<int> PadMouseSpeed("PadMouseSpeed", 5, "ps5");
+config::Option<int> PadMouseCurve("PadMouseCurve", 1, "ps5");
+config::Option<int> PadMouseInvertY("PadMouseInvertY", 0, "ps5");
+config::Option<int> PadKeys("PadKeys", PadKeysOff, "ps5");
+config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
 
 namespace
 {
@@ -735,6 +741,15 @@ void plugPorts()
 		ps5::diag::mark("pads: port %s gets a controller, a memory card and a rumble pack for player %d",
 				portLetters[port], port + 1);
 	}
+	// The controller with a second stick, where the game is asked to have it.
+	if (PadType == PadTypeSecondStick && ::settings.platform.isConsole())
+		for (int port = 0; port < MaxPads; port++)
+			if ((present & (1u << port)) != 0 || port == 0)
+				if (config::MapleMainDevices[port] == MDT_SegaController)
+				{
+					config::MapleMainDevices[port].override(MDT_SegaControllerXL);
+					ps5::diag::mark("pads: port %s has the controller with a second stick", portLetters[port]);
+				}
 	// A USB keyboard and mouse take the ports after the pads'.
 	ps5::usb::plugPorts(present | 1u);
 }
@@ -798,6 +813,8 @@ void poll()
 		pad->lightBar(ps5::options().lightBar);
 		pad->update_rumble();
 	}
+	// The first pad is also a mouse and a keyboard, when the game asks for it.
+	ps5::usb::padInput(player1());
 }
 
 const State& player1()

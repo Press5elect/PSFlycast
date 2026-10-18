@@ -85,6 +85,23 @@ extern config::Option<int> MotionAimDirection;
 extern config::Option<int> TurboButtons;
 extern config::Option<int> TurboRate;
 
+// The pad as a mouse and a keyboard, for the Dreamcast games that read those
+// (a first-person game's mouse look): the right stick moves a mouse, R2 and L2
+// are its buttons, and the left stick and the buttons can be keys. Settings,
+// and a game can have its own. Dreamcast games only.
+enum { PadMouseOff, PadMouseOn };
+enum { PadKeysOff, PadKeysWasd, PadKeysArrows };
+extern config::Option<int> PadMouse;			// the right stick moves a mouse
+extern config::Option<int> PadMouseSpeed;		// 1 to 10
+extern config::Option<int> PadMouseCurve;		// 0 linear, 1 slow near the centre
+extern config::Option<int> PadMouseInvertY;
+extern config::Option<int> PadKeys;				// the keys the left stick and buttons press
+// The controller the Dreamcast sees: the standard one (one stick), or the one
+// with a second stick (Flycast's "Sega Controller XL", six axes), which only
+// software that reads a second stick makes use of.
+enum { PadTypeStandard, PadTypeSecondStick };
+extern config::Option<int> PadType;
+
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();
 void term();
@@ -108,4 +125,11 @@ std::string portsText();
 // The user whose pad is on a port (0 to 3); the first pad's user for a port without one; -1 for none.
 int userOfPort(int port);
 
+}
+
+namespace ps5::usb
+{
+// The first pad as the Dreamcast's mouse and keyboard (ps5_usbinput.cpp), once
+// a frame, when the game's settings ask for it.
+void padInput(const ps5::pad::State& pad);
 }
