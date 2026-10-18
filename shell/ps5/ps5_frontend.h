@@ -215,7 +215,7 @@ int download(const std::string& url, const std::string& file, const std::functio
 int lastError();
 // This console's address on its network ("192.168.1.23"), or empty.
 std::string localAddress();
-// What every request says it comes from: "PSFlyCast/1.1.0 (PlayStation 5)
+// What every request says it comes from: "PSFlyCast/1.2.0 (PlayStation 5)
 // Flycast/2.5".
 std::string userAgent();
 // A game is being unloaded (true, until false): the pictures its achievements

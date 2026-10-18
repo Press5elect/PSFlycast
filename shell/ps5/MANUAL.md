@@ -3,10 +3,8 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.1.0 (build 47). Of what is new in it, these have not
-been run on a console yet: achievements, rewind, fast forward, the memory
-card's screen and Stretch to fill. The README's Status says what has been
-played on one.
+This manual is for v1.2.0 (build 64). The README's Status says what has been
+played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
 > Use only backups you made yourself of games you own, and BIOS files dumped

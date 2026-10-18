@@ -42,8 +42,18 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.1.0** (build 47). It is built
+Latest release: **v1.2.0** (build 64). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
+
+On the test builds that led to v1.2.0 (builds 55 to 63), on a 3840x2160
+display at 119.88 Hz: games from a network share played at 98% to 100% of
+full speed (a game for 244 s, 100%); the library's video was found on the
+share and played; the memory cards were copied to the share when a game
+ended (20 copied); and the slowness of Windows CE games was gone. Nothing
+else new in v1.2.0 has been run on a console yet: [New in v1.2.0](#new-in-v120)
+lists it. The controller's speaker for the VMU, Beside the picture, OLED
+care, the frame generation methods beyond PSFlyCast's own, the USB disc
+drive and the network folders added on the console are among it.
 
 Played on a PS5 over the builds that led to v1.0.2: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; save states made
@@ -108,32 +118,88 @@ right.
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
-## In development: the next version
+## New in v1.2.0
 
-Builds after v1.1.0 add the following. **None of it has run on a console
-yet**; it compiles, the picture shaders were checked offline with a
-validator, and the rest is read over. It is listed here so that the manual
-and this page say the same.
+Status, above, says which of it has been run on a console.
 
-- Picture: Sharp bilinear, NIS and CAS upscaling; Sharpening; Film grain;
-  Brightness, Contrast, Colour and Gamma, each for one game if wanted.
-- Interface size (100% to 130%), high contrast and colour-blind safe colours.
-- Turbo for the face buttons and the shoulder buttons, per game.
-- Frame generation has two more ways of making the pictures, beside
-  PSFlyCast's own: AMD FSR3's optical flow (through swordpdf's
-  ps5-framegen) and MihawkGen (Mihawk's trained network), as PSSwanStation
-  has them; Settings > Video > Generation method, for one game if wanted.
-- Mods: text files that change a game a feature at a time.
-- Find in memory, and a speedrun timer with splits (L3 and R3 together
-  start and split).
-- Forwarder arguments (`--rom`, `--exit-after-game`).
-- Achievements unlocked while the site cannot be reached are kept and sent
-  later; `PRIVACY.md` says what leaves the console.
-- A "What's new" notice with the release notes after PSFlyCast has updated
-  itself.
+Added:
+
+- **Game videos in the library:** the focused game's video plays where its
+  cover is, on the Shelves, List and Grid views. Videos are found the way
+  ES-DE keeps them (an `.mp4` named like the game or its file, in a `videos`
+  folder beside the games or above them, on the console, a USB drive or a
+  network share). Settings > Interface > Game videos: Off, Silent or a
+  volume. H.264 video with AAC or MP3 sound.
+- **Beside the picture** (Settings > Video, for one game if wanted): what
+  fills the screen beside a 4:3 picture: black, the picture's own light, a
+  gradient in the interface's colour, a picture of your own
+  (`borders/<game ID>.png` or `default.png`), or the picture carried on past
+  its edges.
+- **OLED care** (Settings > Interface): the picture and the interface move a
+  few pixels in a slow loop; with dim, the library darkens after two minutes
+  without a button.
+- **Picture:** Sharp bilinear, NIS and CAS upscaling; Sharpening; Film
+  grain; Brightness, Contrast, Colour and Gamma, each for one game if wanted;
+  Super widescreen; Horizontal stretching; Rotate screen 90 degrees; Fog,
+  Shadows, Translucent depth mask and Fix edge bleeding as options; Frame
+  skipping; Memory card screen size (50% to 300%).
+- **Frame generation:** two more ways of making the pictures beside
+  PSFlyCast's own: AMD FSR3's optical flow and MihawkGen
+  (Settings > Video > Generation method).
+- **A USB CD/DVD drive:** play a Dreamcast game burned to a CD-R (Disc Drive
+  tab), ported from PSSwanStation.
+- **Disc images from zip, 7z and rar archives**, and copying a disc to CDI
+  or CHD.
+- **Memory cards:** backed up to the network share when a game ends and on
+  demand; Format or Delete a card from the memory card manager (Triangle);
+  Controller slot 1 and Player 2, 3 and 4 memory card; Own memory card for
+  each game; the VMU's beeps through the controller's speaker or the TV
+  (Settings > Audio > VMU sound plays in).
+- **Network folders added on the console** (Settings > Library > Network):
+  Add a network folder, Remove, Network user, Network password, Scan now.
+  They are kept in `network.cfg`.
+- **Settings:** Interface size, high contrast and colour-blind safe colours;
+  settings in sections; a bar that says what needs a restart; Free up space
+  (unpacked archives, shader cache, logs); Arcade free play; 32 MB of memory;
+  Audio buffer; CPU clock steps of 220 and 240 MHz, the Dreamcast hardware
+  mods' +10% and +20%.
+- **Turbo** for the face and shoulder buttons, per game.
+- **Mods:** text files that change a game a feature at a time.
+- **Find in memory,** and a speedrun timer with splits.
+- **Forwarder arguments** (`--rom`, `--exit-after-game`).
+- **Achievements** unlocked while the site cannot be reached are kept and
+  sent later; `PRIVACY.md` says what leaves the console.
+- **A "What's new" notice** with the release notes after PSFlyCast has
+  updated itself.
+- The version on the console's home screen follows the build
+  (`01.002.064` for this one).
+
+Changed:
+
+- The emulator is Flycast's `dev` branch at `91c3084d5` (v1.1.0 had
+  `4dca1988d`): Capcom's online games, Bleemcast sector conversion, a
+  renamed button in one arcade game.
+- PSFlyCast is built on the newest RADV stack, and its clock is the
+  processor's counter.
+- A setting's description is shown whole, wrapped, beside its name.
+- A network game stays in memory across Restart game.
+- Flycast's compiled-pipeline file (`data/vulkan_pipeline.cache`) is saved
+  when a game ends, and counts as the shader cache in Settings.
+- The CPU clock goes up to 400 MHz.
+- `flycast-boot.log` records the shader cache's size and the pipeline counts.
 - NIS and CAS are from NVIDIA and AMD (both MIT); their licences are in
-  `licenses/`. PSFlyCast's own files carry the additional term in
-  `licenses/psflycast/ADDITIONAL-TERMS.txt`: keep the credit to Press5elect.
+  `licenses/`. FFmpeg (LGPL) plays the videos. PSFlyCast's own files carry
+  the additional term in `licenses/psflycast/ADDITIONAL-TERMS.txt`: keep the
+  credit to Press5elect.
+
+Fixed:
+
+- **Windows CE games ran slowly.** Flycast's latest `dev` removed the extra
+  cycles a memory access costs with the MMU on; PSFlyCast keeps them.
+- **Restarting a game read it into memory again** from the network share.
+- **Descriptions in Settings were cut to one line** and overlapped the
+  settings' values.
+- Picture options that were missing from Settings.
 
 ## New in v1.1.0
 
@@ -1131,7 +1197,10 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
-v1.1.0 and its two candidates are made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
+v1.2.0 is made with PS5_Vulkan `f410e67` (with one line changed in
+`tools/build-radv.sh`: the Mesa revision), PS5_Mesa `1ba9874` plus the two
+patches in `shell/ps5/mesa`, the payload SDK fork at `b5efad5` and libsmb2
+`7e4ff97`; RADV's archive is compiled with the SDK at `b83202b`. v1.1.0 and its two candidates are made with PS5_Vulkan `5b5e4fc`, PS5_Mesa `7b59ef2` plus the
 two patches, the payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; RADV's
 archive is compiled with the SDK at `b83202b`. (PS5_Mesa's two commits after
 `7b59ef2` change its OpenGL-on-Vulkan driver, which is not in the title:
@@ -1153,6 +1222,7 @@ What is in this build, and whose it is:
 | The title's start-up, link layout and `libc.prx`; the platform layer (heap, guest memory, the libc functions a title lacks) | Mihawk-99's fork of the payload SDK; [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) by John Törnblom and contributors | GPL-3.0-or-later |
 | USB drive access (`sandbox-elevator.elf` and its client) | The sandbox-elevation example of ps5-native-app-boilerplate, by BlackBearReloaded | GPL-3.0 |
 | Network shares | [libsmb2](https://github.com/sahlberg/libsmb2), by Ronnie Sahlberg | LGPL-2.1 |
+| Game videos | [FFmpeg](https://ffmpeg.org) n9.0.2 (libavformat, libavcodec, libavutil; H.264, AAC and MP3 decoding only), built from its source by `shell/ps5/tools/build-ffmpeg.sh` | LGPL-2.1-or-later |
 | RAR archives (`shell/ps5/third_party/unarr`) | [libunarr](https://github.com/selmf/unarr), by the unarr project, unmodified (RAR reader only) | LGPL-3.0 |
 | Frame generation, second way: AMD FSR3's optical flow (`shell/ps5/third_party/ps5-framegen`) | [ps5-framegen](https://github.com/Swordpdf/ps5-framegen) by swordpdf, unmodified, with AMD's FidelityFX SDK 2.3.0 shaders | GPL-3.0-or-later; AMD's shaders MIT |
 | Frame generation, third way: MihawkGen (`shell/ps5/third_party/mihawkgen`) | [PS5_MihawkGen](https://github.com/mihawk-99/PS5_MihawkGen) by Mihawk, unmodified, with its trained network | GPL-3.0-or-later |
