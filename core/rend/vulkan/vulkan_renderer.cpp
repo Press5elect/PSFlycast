@@ -20,6 +20,9 @@
 */
 #include "vulkan.h"
 #include "vulkan_renderer.h"
+#ifdef USE_PS5
+#include "ps5_texdump.h"
+#endif
 #include "drawer.h"
 #include "hw/pvr/ta.h"
 #include "rend/transform_matrix.h"
@@ -125,6 +128,10 @@ bool BaseVulkanRenderer::softwareProcess(TA_context *ctx)
 		const bool saved;
 	} noBleedingFix;
 	ta_parse(ctx, true);
+#ifdef USE_PS5
+	// Textures the game dumper decoded in this frame are sorted by how they were drawn.
+	ps5::texdump::frame(ctx->rend);
+#endif
 
 	return true;
 }

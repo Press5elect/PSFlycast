@@ -45,6 +45,9 @@
 #include "stbi.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
+#ifdef USE_PS5
+#include "ps5_texdump.h"
+#endif
 
 namespace
 {
@@ -738,6 +741,13 @@ void CustomTexture::dumpTexture(BaseTextureCacheData* texture, int w, int h, voi
 	if (!config::DumpReplacedTextures.get() && isTextureReplaced(texture))
 		return;
 
+#ifdef USE_PS5
+	// PSFlyCast sorts the picture into 2D and 3D and writes it where it is asked to.
+	const std::string gameId = getGameId();
+	if (gameId.length() == 0)
+		return;
+	const u32 dumpHash = texture->texture_hash;
+#else
 	std::string baseDumpDir = hostfs::getTextureDumpPath();
 	if (!file_exists(baseDumpDir))
 		make_directory(baseDumpDir);
@@ -752,6 +762,8 @@ void CustomTexture::dumpTexture(BaseTextureCacheData* texture, int w, int h, voi
 	std::ostringstream path;
 	path.imbue(std::locale::classic());
 	path << baseDumpDir << std::hex << texture->texture_hash << ".png";
+
+#endif
 
 	u16 *src = (u16 *)srcBuffer;
 	u8 *dstBuffer = (u8 *)malloc(w * h * 4);	// 32-bit per pixel
@@ -851,6 +863,11 @@ void CustomTexture::dumpTexture(BaseTextureCacheData* texture, int w, int h, voi
 		}
 	}
 
+#ifdef USE_PS5
+	ps5::texdump::submit(gameId, dumpHash, w, h, dstBuffer);
+	free(dstBuffer);
+	return;
+#else
 	stbi_flip_vertically_on_write(1);
 	const auto& savefunc = [](void *context, void *data, int size) {
 		FILE *f = nowide::fopen((const char *)context, "wb");
@@ -867,6 +884,7 @@ void CustomTexture::dumpTexture(BaseTextureCacheData* texture, int w, int h, voi
 	stbi_write_png_to_func(savefunc, (void *)path.str().c_str(), w, h, STBI_rgb_alpha, dstBuffer, 0);
 
 	free(dstBuffer);
+#endif
 }
 
 void CustomTexture::prepareSource(BaseCustomTextureSource* source, bool shouldPreload)

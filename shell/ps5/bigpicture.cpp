@@ -34,6 +34,7 @@
 */
 #include "bigpicture.h"
 #include "ps5_pad.h"
+#include "ps5_texdump.h"
 #include "ps5_build.h"
 #include "ps5_rewind.h"
 #include "ps5_vmu.h"
@@ -2909,6 +2910,18 @@ const std::vector<GameOption>& gameOptions()
 				config::MaxFilteredTextureSize, G::Video),
 		onOff("Custom textures", "Replacement textures from data/textures/<the game's ID>, for a texture pack you have",
 				"config.rend.CustomTextures", config::CustomTextures, G::Video),
+		pick("Texture dump",
+				"Saves the textures the game loads as PNG pictures named by their hash, to be redrawn in higher resolution and put back with Custom textures. 2D: drawn flat on the screen (menus, HUD, sprites); 3D: the rest. Takes effect when a game starts. Not tried on a console yet",
+				"ps5.TextureDump", { "Off", "2D and 3D", "2D only", "3D only" },
+				{ ps5::texdump::ModeOff, ps5::texdump::ModeAll, ps5::texdump::Mode2D, ps5::texdump::Mode3D },
+				ps5::texdump::Mode, G::Video, true),
+		pick("Dump textures to",
+				"The console's own storage (the app's data folder, texdump), the first USB drive that can be written to (PSFlyCast/Texture dumps), or the network share (PSFlyCast/Texture dumps beside the games). In folders named for the game, with 2D and 3D inside",
+				"ps5.TextureDumpTo", { "Console storage", "USB drive", "Network share" },
+				{ ps5::texdump::ToInternal, ps5::texdump::ToUsb, ps5::texdump::ToNetwork }, ps5::texdump::Where,
+				G::Video, true),
+		onOff("Skip changing textures", "Leaves out textures that the game redraws as it plays (video, animated pictures), which would fill the folder with copies",
+				"config.rend.DumpUniqueTextures", config::DumpUniqueTextures, G::Video),
 		onOff("Mipmaps", "Smaller copies of a texture for far surfaces; off for a game whose textures look wrong",
 				"config.rend.UseMipmaps", config::UseMipmaps, G::Video),
 		pick("Automatic frame skipping", "Skips rendering frames when the game runs slow", "config.pvr.AutoSkipFrame",
@@ -6217,6 +6230,11 @@ std::vector<Category> buildCategories()
 
 	Category video{ ICON_FA_DISPLAY, "Video" };
 	addOptions(video, GameOption::Video);
+	{
+		Row r{ Row::Info, "Textures saved", "While a game runs with Texture dump on" };
+		r.info = [] { return ps5::texdump::status(); };
+		video.rows.push_back(r);
+	}
 	{
 		// The front end's own: the driver takes the mode, or not, when Flycast starts.
 		Row r{ Row::Toggle, "120 Hz output",

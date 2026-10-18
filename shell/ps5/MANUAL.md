@@ -737,6 +737,23 @@ what you see, most useful first:
 - **Custom textures.** If you have a texture pack for a game, put it in
   `data/textures/<the game's ID>/` and turn this on. Game details shows the
   ID. No packs come with PSFlyCast.
+- **Texture dump** (build 66 on, not tried on a console yet) saves the
+  textures a game loads as PNG pictures named by their hash, to be redrawn in
+  higher resolution and put back with Custom textures. Choose 2D and 3D, only
+  2D or only 3D, and **Dump textures to**: the console's own storage (the
+  app's `data/texdump` folder), the first USB drive that can be written to
+  (`PSFlyCast/Texture dumps`), or the network share in `network.cfg`
+  (`PSFlyCast/Texture dumps` beside the games). Each game has its own folder
+  with `2D` and `3D` inside. A texture is 2D when the polygons that draw it lie
+  flat on the screen (menus, the HUD, sprites) and 3D otherwise; one the game
+  loads and does not draw in four seconds goes with 3D. Pictures are written by
+  a thread of their own, so the game does not wait. Start the game with it on
+  and play through the parts you want; **Textures saved** counts them.
+  **Skip changing textures** leaves out video and animated pictures. When the
+  pictures have been redrawn, keep the file names, put them in
+  `data/textures/<the game's ID>/` (the `2D` and `3D` folders can stay) and
+  turn Custom textures on. A dump can be large: a game can have thousands of
+  textures.
 
 **The look of an old TV.** **Upscaling** has two more choices after FSR 1,
 which are picture filters and not upscalers:

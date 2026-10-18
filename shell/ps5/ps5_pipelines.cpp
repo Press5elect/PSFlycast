@@ -18,6 +18,7 @@
 #include "log/Log.h"
 #include "ps5_diag.h"
 #include "ps5_archive.h"
+#include "ps5_texdump.h"
 
 #include <atomic>
 #include <cstdio>
@@ -155,5 +156,8 @@ void pipelineWarmInit()
 	EventManager::listen(Event::Start, pipelinewarm::onStart);
 	EventManager::listen(Event::Pause, pipelinewarm::onSave);
 	EventManager::listen(Event::Terminate, pipelinewarm::onSave);
+	// The texture dumper goes on when a game starts and writes what is left when it ends.
+	EventManager::listen(Event::Start, [](Event, void *) { texdump::apply(); });
+	EventManager::listen(Event::Terminate, [](Event, void *) { texdump::stop(); });
 }
 }

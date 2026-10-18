@@ -48,6 +48,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_vmu.cpp
 	shell/ps5/ps5_vmu.h
 	shell/ps5/ps5_usbinput.cpp
+	shell/ps5/ps5_texdump.cpp
 	shell/ps5/ps5_ime.cpp
 	shell/ps5/ps5_fsr.h
 	shell/ps5/ps5_frontend.h

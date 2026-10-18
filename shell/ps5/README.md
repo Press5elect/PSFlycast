@@ -133,6 +133,10 @@ Added:
   WASD or as the arrow keys; L1 and R1 turn the mouse wheel.
 - **Controller type:** the standard Dreamcast controller, or one that reports
   the right stick as a second stick, for software that reads one.
+- **Texture dump** (Settings > Video, for one game if wanted): saves the
+  textures a game loads as PNG pictures, sorted into 2D (drawn flat on the
+  screen) and 3D, to the console's storage, a USB drive or the network share,
+  for making a texture pack. Skip changing textures; Textures saved.
 
 ## New in v1.2.0
 
