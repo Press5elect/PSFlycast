@@ -35,6 +35,12 @@
 	notes (ps5_library.cpp): any other is the user's, and is never deleted. It
 	is put aside in covers/.yours while another choice has its place.
 
+	Once the title has left its sandbox (USB drives, the disc drive) the
+	console's client refuses every public certificate (0x8095f00c): from then
+	on every request goes through the title's own TLS (ps5_tls.cpp, mbedTLS,
+	as PSSwanStation does it), from the start when the sandbox was left, or
+	from the first refusal.
+
 	The same client is Flycast's HTTP client on the console (http::get, at the
 	end of this file; core/oslib/http_client.cpp has none for the PS5), which
 	is what Flycast's own scraper needs to ask TheGamesDB for a game's
@@ -43,6 +49,7 @@
 */
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
+#include "ps5_tls.h"
 #include "ps5_build.h"
 #include "version.h"
 #include "types.h"
@@ -159,9 +166,37 @@ std::map<std::string, Alternatives> choices;
 // Why the worker's last request could not be made, for the screen.
 std::string failure;
 
+// The console's client's answer to a certificate it will not take, outside the sandbox.
+constexpr int CertificateRefused = (int)0x8095f00c;
+
+void tlsLog(const char *line)
+{
+	diag::mark("%s", line);
+}
+
 struct Http
 {
 	bool tried = false, ok = false;
+	// The title's own TLS instead of the console's client (see above).
+	bool ownTls = false;
+
+	void useOwnTls(const char *why)
+	{
+		if (ownTls)
+			return;
+		ownTls = true;
+		tls::setLog(tlsLog);
+		tls::setUserAgent(net::userAgent());
+		tls::addCertificateFile(ps5::rootDir + "certs/cacert.pem");
+		diag::mark("https: the title's own TLS from now on (%s)", why);
+	}
+
+	// What of a URL goes into the log: never what follows a '?', where a
+	// request can carry a name or a key.
+	static std::string shown(const std::string& url)
+	{
+		return url.substr(0, std::min(url.find('?'), (size_t)60));
+	}
 	bool noNetwork = false;		// the console was not connected when last asked
 	int templateId = -1;
 	int reported = 0;
@@ -187,6 +222,8 @@ struct Http
 		}
 		noNetwork = false;
 		const int net = sceNetInit();	// an error only means it was up already
+		if (ps5::elevated)
+			useOwnTls("the sandbox was left for USB drives or the disc drive");
 		const int pool = sceNetPoolCreate("flycast-covers", 64 * 1024, 0);
 		const int ssl = pool >= 0 ? sceSslInit(256 * 1024) : -1;
 		const int context = ssl >= 0 ? sceHttp2Init(pool, ssl, 256 * 1024, 1) : -1;
@@ -215,8 +252,10 @@ struct Http
 	{
 		out.clear();
 		lastError = 0;
-		if (!init())
+		if (!init() && !ownTls)
 			return -1;
+		if (ownTls)
+			return ownRequest(method, url, headers, body, bodySize, out, seconds, anyStatus);
 		const int request = sceHttp2CreateRequestWithURL(templateId, method, url.c_str(), bodySize);
 		if (request < 0)
 		{
@@ -246,7 +285,14 @@ struct Http
 			lastError = sent != 0 ? sent : got;
 			if (reported++ < 6)
 				diag::mark("covers: request failed: send %#x, status %#x (%s)", (unsigned)sent, (unsigned)got,
-						url.substr(0, 48).c_str());
+						shown(url).c_str());
+			if (lastError == CertificateRefused)
+			{
+				// Outside the sandbox: the title's own TLS, for this request and every one after it.
+				sceHttp2DeleteRequest(request);
+				useOwnTls("the console's client refused a certificate");
+				return ownRequest(method, url, headers, body, bodySize, out, seconds, anyStatus);
+			}
 			status = -1;
 		}
 		else if ((status >= 200 && status < 300) || anyStatus)
@@ -284,8 +330,10 @@ struct Http
 	int download(const std::string& url, const std::string& file, const std::function<bool(uint64_t)>& progress)
 	{
 		lastError = 0;
-		if (!init())
+		if (!init() && !ownTls)
 			return -1;
+		if (ownTls)
+			return ownDownload(url, file, progress);
 		const int request = sceHttp2CreateRequestWithURL(templateId, "GET", url.c_str(), 0);
 		if (request < 0)
 		{
@@ -306,7 +354,13 @@ struct Http
 		{
 			lastError = sent != 0 ? sent : got;
 			diag::mark("download: request failed: send %#x, status %#x (%s)", (unsigned)sent, (unsigned)got,
-					url.substr(0, 80).c_str());
+					shown(url).c_str());
+			if (lastError == CertificateRefused)
+			{
+				sceHttp2DeleteRequest(request);
+				useOwnTls("the console's client refused a certificate");
+				return ownDownload(url, file, progress);
+			}
 			status = -1;
 		}
 		else if (status >= 200 && status < 300)
@@ -354,6 +408,34 @@ struct Http
 		}
 		sceHttp2DeleteRequest(request);
 		return status;
+	}
+
+	// The same through the title's own TLS.
+	int ownRequest(const char *method, const std::string& url,
+			const std::vector<std::pair<std::string, std::string>>& headers, const void *body, size_t bodySize,
+			std::vector<uint8_t>& out, unsigned seconds, bool anyStatus)
+	{
+		std::string why;
+		const int status = tls::request(method, url, headers, body, bodySize, out, seconds, anyStatus, &why);
+		if (status < 0)
+		{
+			lastError = -1;
+			if (reported++ < 12)
+				diag::mark("https: request failed: %s (%s)", why.c_str(), shown(url).c_str());
+		}
+		return status;
+	}
+
+	int ownDownload(const std::string& url, const std::string& file, const std::function<bool(uint64_t)>& progress)
+	{
+		std::string why;
+		const int status = tls::download(url, file, progress, &why);
+		if (status != 200 && status != -2)
+		{
+			lastError = -1;
+			diag::mark("download: failed: %d%s%s (%s)", status, why.empty() ? "" : ", ", why.c_str(), shown(url).c_str());
+		}
+		return status == 200 ? 200 : status;
 	}
 };
 

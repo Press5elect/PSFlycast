@@ -111,6 +111,9 @@ else
     echo "No cheat files staged: $cheats is not there" >&2
 fi
 # The start-up sound (shell/ps5/sounds: the file and the page that makes it).
+# Mozilla's root certificates, for the title's own TLS outside the sandbox (shell/ps5/ps5_tls.cpp).
+mkdir -p "$app/certs"
+cp -- "$src/shell/ps5/certs/cacert.pem" "$app/certs/cacert.pem"
 mkdir -p "$app/sounds"
 cp -- "$src/shell/ps5/sounds/startup.wav" "$app/sounds/startup.wav"
 cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$src/shell/ps5/PRIVACY.md" "$app/"

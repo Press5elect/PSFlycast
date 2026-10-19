@@ -208,6 +208,14 @@ def main():
         add(f"libsmb2-{smb['revision'][:12]}.tar.xz", f"libsmb2, {smb['url']} at {smb['revision']}, unmodified.",
             [archive_members(names["SMB"], smb["revision"], f"libsmb2-{smb['revision'][:12]}/")])
 
+        if "mbedtls" in parts:
+            mbedtls = parts["mbedtls"]["source"]
+            clean(names["MBEDTLS"])
+            add(f"mbedtls-{mbedtls['revision'][:12]}.tar.xz",
+                f"mbedTLS, {mbedtls['url']} at {mbedtls['revision']} (v3.6.7), unmodified; shell/ps5/ps5.cmake in the title's source "
+                f"archive compiles its library/ with shell/ps5/ps5_mbedtls_config.h.",
+                [archive_members(names["MBEDTLS"], mbedtls["revision"], f"mbedtls-{mbedtls['revision'][:12]}/")])
+
         if "ffmpeg" in parts:
             ffmpeg = parts["ffmpeg"]["source"]
             clean(names["FFMPEG"])

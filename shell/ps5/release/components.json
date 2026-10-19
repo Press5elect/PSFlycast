@@ -1106,6 +1106,58 @@
    ]
   },
   {
+   "id": "mbedtls",
+   "name": "mbedTLS 3.6 LTS (HTTPS once the sandbox has been left for USB drives or the disc drive: RetroAchievements, covers, the update check)",
+   "kind": "code",
+   "licence": "Apache-2.0",
+   "copyright": [
+    "Copyright The Mbed TLS Contributors"
+   ],
+   "texts": [
+    {
+     "from": "${MBEDTLS}/LICENSE",
+     "to": "LICENSE"
+    }
+   ],
+   "source": {
+    "kind": "git",
+    "path": "${MBEDTLS}",
+    "url": "https://github.com/Mbed-TLS/mbedtls"
+   },
+   "modifications": "Unmodified (release v3.6.7): its library/ compiled with this title's shell/ps5/ps5_mbedtls_config.h over the default configuration. It is linked statically.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "cacert",
+   "name": "Mozilla's root certificates (certs/cacert.pem), as certifi 2026.07.22 carries them, unchanged: read beside the console's list by the title's own TLS",
+   "kind": "data",
+   "licence": "MPL-2.0",
+   "copyright": [
+    "The Mozilla Foundation and the certifi contributors"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/release/texts/MPL-2.0.txt",
+     "to": "MPL-2.0.txt"
+    },
+    {
+     "from": "shell/ps5/release/texts/certifi-LICENSE.txt",
+     "to": "certifi-LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "fixed",
+    "revision": "2026.07.22",
+    "url": "https://pypi.org/project/certifi/2026.7.22/"
+   },
+   "modifications": "Unmodified.",
+   "files": [
+    "certs/cacert.pem"
+   ]
+  },
+  {
    "id": "ffmpeg",
    "name": "FFmpeg (plays the game videos: libavformat, libavcodec, libavutil)",
    "kind": "code",

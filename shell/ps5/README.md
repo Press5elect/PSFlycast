@@ -142,6 +142,12 @@ Added:
   wheel, or any of about 80 keys. An input a profile gives away is not the
   controller's as well, so nothing is pressed twice. The profile in use is a
   setting, and a game can have its own (quick menu > Controls).
+- **HTTPS with USB drives on:** outside its sandbox the console's HTTPS
+  client refuses every certificate, so the update check, covers and
+  RetroAchievements failed with USB drives on. Requests now go through a TLS
+  of PSFlyCast's own (mbedTLS 3.6.7, ported from PSSwanStation), checked
+  against the console's certificate list and Mozilla's. Not tried on a
+  console in PSFlyCast yet.
 - **Microphone:** the Dreamcast's microphone in a controller slot, hearing the
   DualSense's microphone, for the games that listen. Not tried on a console.
 - **Controller type:** the standard Dreamcast controller, or one that reports
@@ -982,8 +988,8 @@ account on the site, and the console's network.
   there is nothing to list the row says why: "Not signed in", or "None for
   this game".
 
-With **USB drives** on, the console may refuse the connection to the site,
-as it may refuse the update check: the sign-in's dialog says so.
+With **USB drives** on, the connection goes through PSFlyCast's own TLS
+(mbedTLS), since the console's own client refuses it outside the sandbox.
 
 ## Updates
 
@@ -1018,9 +1024,9 @@ version** there waits for the release.
 If a step is refused, the dialog says so and names the reason,
 `flycast-boot.log` has every step ("update: ..."), and updating by copying
 the ZIP works as before. With **USB drives** on, PSFlyCast runs outside its
-sandbox, where the console can refuse it HTTPS: if the update check, the
-cover downloads or the achievements' sign-in fail, turn USB drives off and
-start it again.
+sandbox, where the console's HTTPS client refuses every certificate; there
+PSFlyCast uses a TLS of its own (mbedTLS, as PSSwanStation does), so the
+update check, covers and achievements work with USB drives on too.
 
 ## What has been verified
 

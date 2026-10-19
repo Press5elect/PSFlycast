@@ -860,9 +860,10 @@ Only the site's **softcore** mode is offered. Save states, cheats, rewind
 and fast forward stay as they are; hardcore mode, which forbids them, is
 not available.
 
-With **USB drives** turned on, the console may refuse PSFlyCast the
-connection to the site. If you cannot sign in, turn USB drives off
-(Settings > Library) and start PSFlyCast again.
+With **USB drives** turned on, PSFlyCast is outside its sandbox, where the
+console's own HTTPS refuses the site; the connection then goes through
+PSFlyCast's own TLS, so signing in works the same. If it still fails, the
+boot log's "tls:" and "https:" lines say why.
 
 ## 18. Games on a network share
 
@@ -1003,9 +1004,10 @@ A version whose name ends in `-rc` and a number (`v1.1.0-rc1`) is a
 fault. A released version is offered released versions only. A candidate is
 offered the next candidate, and the release when it is out.
 
-With **USB drives** turned on, the check and the download may not reach the
-internet. If they fail, turn USB drives off (Settings > Library), start
-PSFlyCast again, update, and turn them back on.
+With **USB drives** turned on, the check and the download go through
+PSFlyCast's own TLS (the console's refuses them outside the sandbox). If they
+still fail, turning USB drives off (Settings > Library) and starting
+PSFlyCast again uses the console's own.
 
 ## 22. The look
 
@@ -1132,8 +1134,8 @@ Show in the library again.
 
 **Achievements do not sign in.** The Account dialog says what the site
 answered. Check the user name and the password, and that the console is
-online. With USB drives on the console may refuse the connection: turn them
-off and start PSFlyCast again.
+online. With USB drives on, the boot log's "tls:" and "https:" lines say
+whether PSFlyCast's own TLS reached the site.
 
 **The quick menu has no Rewind, or it says "Nothing yet".** Rewind has to be
 on in Settings > System. The first moment is kept a few seconds after the

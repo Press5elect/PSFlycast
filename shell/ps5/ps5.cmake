@@ -15,6 +15,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_stdio.cpp
 	shell/ps5/ps5_pipelines.cpp
 	shell/ps5/ps5_covers.cpp
+	shell/ps5/ps5_tls.cpp
 	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
 	shell/ps5/ps5_disc.cpp
@@ -146,6 +147,29 @@ target_compile_definitions(smb2ps5 PRIVATE HAVE_CONFIG_H "_U_=__attribute__((unu
 target_compile_options(smb2ps5 PRIVATE -w)
 target_include_directories(${PROJECT_NAME} PRIVATE "${LIBSMB2_DIR}/include")
 target_link_libraries(${PROJECT_NAME} PRIVATE smb2ps5)
+
+# HTTPS once the sandbox has been left (shell/ps5/ps5_tls.cpp, as PSSwanStation
+# does it): mbedTLS 3.6 LTS (Apache-2.0), compiled from a checkout beside this
+# repository (../deps-src/mbedtls-3.6.7) or the one MBEDTLS_DIR names, its
+# library/ as it is, with shell/ps5/ps5_mbedtls_config.h over the default
+# configuration.
+if(DEFINED ENV{MBEDTLS_DIR})
+	set(MBEDTLS_DIR "$ENV{MBEDTLS_DIR}")
+else()
+	set(MBEDTLS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../deps-src/mbedtls-3.6.7")
+endif()
+if(NOT EXISTS "${MBEDTLS_DIR}/library/ssl_tls.c")
+	message(FATAL_ERROR "mbedTLS was not found at ${MBEDTLS_DIR}: git clone --branch v3.6.7 https://github.com/Mbed-TLS/mbedtls there, or set MBEDTLS_DIR")
+endif()
+file(GLOB MBEDTLS_SOURCES "${MBEDTLS_DIR}/library/*.c")
+add_library(mbedtlsps5 STATIC ${MBEDTLS_SOURCES})
+target_include_directories(mbedtlsps5 PUBLIC "${MBEDTLS_DIR}/include" PRIVATE "${MBEDTLS_DIR}/library")
+target_compile_definitions(mbedtlsps5 PUBLIC
+	"MBEDTLS_USER_CONFIG_FILE=\"${CMAKE_CURRENT_SOURCE_DIR}/shell/ps5/ps5_mbedtls_config.h\"")
+get_filename_component(MBEDTLS_REAL_DIR "${MBEDTLS_DIR}" REALPATH)
+target_compile_options(mbedtlsps5 PRIVATE -w "-ffile-prefix-map=${MBEDTLS_REAL_DIR}/=mbedtls/"
+	"-ffile-prefix-map=${MBEDTLS_DIR}/=mbedtls/")
+target_link_libraries(${PROJECT_NAME} PRIVATE mbedtlsps5)
 
 # Game videos (shell/ps5/ps5_video.cpp): FFmpeg's libavformat, libavcodec and
 # libavutil (LGPL-2.1-or-later), built for the console by
