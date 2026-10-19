@@ -204,12 +204,12 @@ void ensureMouse()
 // game only, as the arcade ones have their own controls.
 bool padMouseWanted()
 {
-	return ::settings.platform.isConsole() && ps5::pad::PadMouse == ps5::pad::PadMouseOn;
+	return ::settings.platform.isConsole() && ps5::pad::bind::wantsMouse(ps5::pad::bind::current());
 }
 
 bool padKeysWanted()
 {
-	return ::settings.platform.isConsole() && ps5::pad::PadKeys != ps5::pad::PadKeysOff;
+	return ::settings.platform.isConsole() && ps5::pad::bind::wantsKeyboard(ps5::pad::bind::current());
 }
 
 // Opens what is not open yet: at the first poll, and every three seconds
@@ -398,37 +398,37 @@ Taken padTaken()
 void padInput(const ps5::pad::State& pad)
 {
 	using namespace ps5::pad;
+	namespace B = ps5::pad::bind;
 	static uint32_t mouseHeld;			// the buttons the pad holds down on the mouse
 	static std::bitset<256> keysHeld;	// the keys it holds down
+	static std::bitset<B::Inputs> inputsHeld;
 	static float carryX, carryY;
 	static int sentCounts, sentFrames, biggestStep;
 	static auto lastReport = std::chrono::steady_clock::now();
 	// Not while the quick menu or the settings are up: the pad drives those.
 	const bool active = game_started && pad.connected && !gui_is_open();
+	const B::Profile profile = B::current();
 	const bool mouseOn = active && padMouseWanted() && mouse && mouse->maple_port() >= 0;
 	const bool keysOn = active && padKeysWanted() && keyboard && keyboard->maple_port() >= 0;
 
-	// What each input does: the table the player chose (or a preset): ps5::pad::bind.
-	static std::bitset<ps5::pad::bind::Inputs> inputsHeld;
-	std::bitset<ps5::pad::bind::Inputs> inputsNow;
-	for (int i = 0; i < ps5::pad::bind::Inputs; i++)
-		inputsNow[i] = active && ps5::pad::bind::inputHeld(i, pad);
-	const ps5::pad::bind::Table table = ps5::pad::bind::current();
-	namespace B = ps5::pad::bind;
-	// An input given to the mouse or the keyboard (that is there) is not the controller's too.
+	// What the profile gives away is not the Dreamcast controller's (ps5_pad.cpp takes it out
+	// before the controller sees it): a key or a mouse button only while that device is in a
+	// port, a blocked input always.
+	std::bitset<B::Inputs> inputsNow;
 	{
 		uint32_t buttons = 0, axes = 0;
-		for (int i = 0; i < B::Inputs && active; i++)
+		for (int i = 0; i < B::Inputs; i++)
 		{
-			const int a = table.action[i];
-			const bool takes = (a >= B::MouseLeft && a <= B::WheelDown && mouseOn) || (a >= B::Key && keysOn);
-			if (!takes)
+			const int a = profile.action[i];
+			const bool taken = active && (a == B::Blocked || (a >= B::MouseLeft && a <= B::WheelDown && mouseOn) || (a >= B::Key && keysOn));
+			inputsNow[i] = taken && B::inputHeld(i, pad);
+			if (!taken)
 				continue;
 			buttons |= B::inputButton(i);
-			if (i == 6) axes |= 1;
-			if (i == 7) axes |= 2;
-			if (i == 16 || i == 17) axes |= 8;
-			if (i == 18 || i == 19) axes |= 4;
+			if (i == 6) axes |= 1;			// L2
+			if (i == 7) axes |= 2;			// R2
+			if (i == 16 || i == 17) axes |= 8;	// the left stick up and down
+			if (i == 18 || i == 19) axes |= 4;	// left and right
 		}
 		takenButtons = buttons;
 		takenAxes = axes;
@@ -439,14 +439,14 @@ void padInput(const ps5::pad::State& pad)
 		uint32_t now = 0;
 		if (mouseOn)
 			for (int i = 0; i < B::Inputs; i++)
-				if (inputsNow[i] && table.action[i] >= B::MouseLeft && table.action[i] <= B::MouseMiddle)
-					now |= 1u << (table.action[i] - B::MouseLeft);
+				if (inputsNow[i] && profile.action[i] >= B::MouseLeft && profile.action[i] <= B::MouseMiddle)
+					now |= 1u << (profile.action[i] - B::MouseLeft);
 		static const Mouse::Button buttons[3] = { Mouse::LEFT_BUTTON, Mouse::RIGHT_BUTTON, Mouse::MIDDLE_BUTTON };
 		for (int bit = 0; bit < 3; bit++)
 			if (((mouseHeld ^ now) >> bit) & 1)
 				mouse->setButton(buttons[bit], ((now >> bit) & 1) != 0);
 		mouseHeld = now;
-		if (mouseOn)
+		if (mouseOn && profile.mouse)
 		{
 			// The stick is shaped already (dead zone, response, smoothing, directions): ps5::pad::shapeRight.
 			const float magnitude = std::min(1.f, std::hypot(pad.px, pad.py));
@@ -472,24 +472,27 @@ void padInput(const ps5::pad::State& pad)
 			}
 			else
 				carryX = carryY = 0.f;
+		}
+		else
+			carryX = carryY = 0.f;
+		if (mouseOn)
 			// The wheel turns once for each push of an input that has it.
 			for (int i = 0; i < B::Inputs; i++)
 				if (inputsNow[i] && !inputsHeld[i])
 				{
-					if (table.action[i] == B::WheelUp)
+					if (profile.action[i] == B::WheelUp)
 						mouse->setWheel(1);
-					else if (table.action[i] == B::WheelDown)
+					else if (profile.action[i] == B::WheelDown)
 						mouse->setWheel(-1);
 				}
-		}
 	}
 	if (keyboard)
 	{
 		std::bitset<256> want;
 		if (keysOn)
 			for (int i = 0; i < B::Inputs; i++)
-				if (inputsNow[i] && table.action[i] >= B::Key && table.action[i] < B::Key + 256)
-					want[table.action[i] - B::Key] = true;
+				if (inputsNow[i] && profile.action[i] >= B::Key && profile.action[i] < B::Key + 256)
+					want[profile.action[i] - B::Key] = true;
 		const std::bitset<256> changed = keysHeld ^ want;
 		if (changed.any())
 		{
@@ -507,8 +510,8 @@ void padInput(const ps5::pad::State& pad)
 		const auto now = std::chrono::steady_clock::now();
 		if (now - lastReport >= std::chrono::seconds(4))
 		{
-			diag::mark("mouse: speed %d, dead zone %d%%, curve %d, smoothing %d%%; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
-					(int)PadMouseSpeed, (int)PadMouseDeadZone, (int)PadMouseCurve, (int)PadSmoothing, sentCounts, sentFrames,
+			diag::mark("mouse: profile %d, speed %d, dead zone %d%%, curve %d, smoothing %d%%; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
+					B::chosen(), (int)PadMouseSpeed, (int)PadMouseDeadZone, (int)PadMouseCurve, (int)PadSmoothing, sentCounts, sentFrames,
 					biggestStep, pad.px, pad.py);
 			lastReport = now;
 			sentCounts = sentFrames = biggestStep = 0;

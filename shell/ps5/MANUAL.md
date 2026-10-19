@@ -218,18 +218,22 @@ R2 is the left button, L2 the right one, R3 the middle one; **Mouse speed**
 tunes it. The right stick's own settings shape the mouse, the turning and a second stick alike: **Right stick dead zone** (round the centre, so a stick
 that rests off it is still), **Right stick response** (Linear; Precise, fine near the centre for aiming; Aggressive; S-curve), **Right stick smoothing**, and
 **Right stick left and right** and **up and down**, each Normal, Inverted or Off. **Right stick turns like the left stick**
-adds the right stick, left and right, to the left stick's, so the game turns with it as it does with the left stick and its own sensitivity; use it instead of the mouse in a game that takes a mouse badly. **Controller as keyboard**
-presses keys: with WASD, the left stick is W A S D, Cross Space, Circle C,
-Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, and L1 and R1
-turn the mouse wheel; with Arrow keys the stick is the arrows, Circle is
-Control and Square Alt. In the quick menu, **Controls > Controller** chooses for the game how the controller is used: only as the Dreamcast's controller, with the right stick as a mouse (R2, L2 and R3 are its buttons), or as a mouse and keyboard. Whatever the mouse or keyboard has of the controller leaves the Dreamcast's controller, so nothing is pressed twice. **Mouse and keyboard bindings** (Settings > Controls) lists every
-button, trigger, D-pad direction and left-stick direction with what it does as the
-mouse and keyboard; Cross picks one, then gives it nothing, a mouse button, the mouse
-wheel or any key (L1 and R1 page the list). Square and OPTIONS go back to the WASD
-or arrow layout. Changing one makes the layout your own ("Own bindings"); it is kept like the other settings, for the game when it has settings of its own. Each takes one of the Dreamcast's free ports and starts
-with the next game. A game that does not read a mouse or a keyboard ignores
-them. **Controller type** > Second stick makes the controller report the right
-stick as a second stick, which only software written for one reads.
+adds the right stick, left and right, to the left stick's, so the game turns with it as it does with the left stick and its own sensitivity; use it instead of the mouse in a game that takes a mouse badly. **Controller profile** chooses what the controller is in the
+Dreamcast's ports beside its controller. *Controller* is the controller alone. *Controller and mouse*
+adds the mouse on the right stick, and the controller keeps every button. *Mouse and keyboard, WASD* and
+*arrows* are for a game played with those: the right stick is the mouse, R2, L2 and R3 its buttons, L1
+and R1 the wheel, the left stick W A S D (or the arrows), Cross Space, Circle C (Control), Square E
+(Alt), Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4. *Custom 1* to *4* are your own.
+**Controller profiles** (Settings > Controls, and the quick menu's Controls) shows each profile: L1 and
+R1 go from one to the next, Cross changes an entry of your own (the right stick as the mouse or the
+controller's; each input the controller's, nothing, a mouse button, the wheel, or any key; L1 and R1
+page the keys), Square copies a built-in profile into one of your own, Triangle makes the shown profile
+the one in use. An input a profile gives away is not the Dreamcast controller's as well, so nothing is
+pressed twice, and what stays "Controller" is the controller's as before. The mouse and keyboard take
+a free port each when a game starts, so restart the game after changing the profile. The profile in use
+is kept like the other settings: for the game, when it has settings of its own. **Controller slot 1**
+and **2** can hold the Dreamcast's microphone, which hears the DualSense's, for the games that
+listen; not tried on a console.
 
 Any of these can be changed: see [Changing the controls](#14-changing-the-controls).
 

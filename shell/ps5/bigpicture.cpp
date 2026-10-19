@@ -3033,12 +3033,12 @@ const std::vector<GameOption>& gameOptions()
 				ps5::pad::TurboButtons, G::Controls),
 		pick("Turbo speed", "How fast a button with turbo is pressed while it is held",
 				"ps5.TurboRate", { "7 a second", "10 a second", "15 a second" }, { 0, 1, 2 }, ps5::pad::TurboRate, G::Controls),
-		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack",
-				"input.device1.2", { "Rumble pack", "Memory card" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU },
+		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack. Microphone: the Dreamcast's, hearing the DualSense's microphone, for the games that listen. Not tried on a console yet",
+				"input.device1.2", { "Rumble pack", "Memory card", "Microphone" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU, (int)MDT_Microphone },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
-		pick("Controller slot 1", "What is in the controller's first slot: the memory card the game saves to, or nothing",
-				"input.device1.1", { "Memory card", "Rumble pack", "Nothing" },
-				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
+		pick("Controller slot 1", "What is in the controller's first slot: the memory card the game saves to, the rumble pack, the microphone (the DualSense's), or nothing",
+				"input.device1.1", { "Memory card", "Rumble pack", "Microphone", "Nothing" },
+				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_Microphone, (int)MDT_None },
 				config::MapleExpansionDevices[0][0], G::Controls, true),
 		onOff("Own memory card for each game",
 				"On: each game saves to a card of its own, named after it. Off: all games share one card for port A, slot 1",
@@ -3055,10 +3055,10 @@ const std::vector<GameOption>& gameOptions()
 				"input.device4.1", { "Memory card", "Rumble pack", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
 				config::MapleExpansionDevices[3][0], G::Controls, true),
-		pick("Right stick as mouse",
-				"The right stick moves the Dreamcast's mouse, R2 is its left button, L2 the right one, R3 the middle: for games that aim with a mouse. It takes a free port. Not tried on a console yet",
-				"ps5.PadMouse", { "Off", "On" }, { ps5::pad::PadMouseOff, ps5::pad::PadMouseOn }, ps5::pad::PadMouse,
-				G::Controls, true),
+		pick("Controller profile",
+				"What the controller is in the Dreamcast's ports beside its controller: alone; with the right stick as a mouse; as a mouse and a keyboard with the keys an FPS on a PC expects (WASD or the arrows); or one of your own (Controller profiles, below). An input the profile gives away is not the controller's as well. The mouse and keyboard take a free port each when a game starts. Not tried on a console yet",
+				"ps5.PadProfile", { "Controller", "Controller and mouse", "Mouse and keyboard, WASD", "Mouse and keyboard, arrows", "Custom 1", "Custom 2", "Custom 3", "Custom 4" },
+				{ 0, 1, 2, 3, 4, 5, 6, 7 }, ps5::pad::PadProfile, G::Controls, true),
 		range("Mouse speed", "How fast the mouse moves for a full push of the right stick. 1 sends a step every ten frames, 10 one a frame, 20 five a frame; a game turns a long way for each step, so start low", "ps5.PadMouseSpeed", 1, 20, 1, "",
 				G::Controls, [] { return (int)ps5::pad::PadMouseSpeed; }, [](int v) { ps5::pad::PadMouseSpeed.set(v); }),
 		range("Right stick dead zone", "How far the right stick must be pushed before it does anything (the mouse, the turning, a second stick), on top of the stick's own; raise it if it drifts",
@@ -3081,11 +3081,6 @@ const std::vector<GameOption>& gameOptions()
 		onOff("Right stick turns like the left stick",
 				"The right stick, left and right, adds to the left stick's: the game turns with it exactly as it does with the left stick, with the game's own sensitivity. For games that read no second stick; use it instead of Right stick as mouse. Not tried on a console yet",
 				"ps5.PadRightTurns", ps5::pad::PadRightTurns, G::Controls),
-		pick("Controller as keyboard",
-				"The left stick and the buttons press keys. WASD: stick W A S D, Cross Space, Circle C, Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, L1 and R1 the mouse wheel. Own bindings: what Mouse and keyboard bindings says. Arrows: the stick is the arrow keys, Circle Control, Square Alt. It takes a free port. Not tried on a console yet",
-				"ps5.PadKeys", { "Off", "WASD", "Arrow keys", "Own bindings" },
-				{ ps5::pad::PadKeysOff, ps5::pad::PadKeysWasd, ps5::pad::PadKeysArrows, ps5::pad::PadKeysCustom }, ps5::pad::PadKeys,
-				G::Controls, true),
 		pick("Controller type",
 				"Standard: the Dreamcast controller. Second stick: a controller that reports the right stick, which only software written for one reads; a game made for the standard controller does not. Not tried on a console yet",
 				"ps5.PadType", { "Standard", "Second stick" }, { ps5::pad::PadTypeStandard, ps5::pad::PadTypeSecondStick },
@@ -6278,8 +6273,8 @@ std::vector<Category> buildCategories()
 	Category controls{ ICON_FA_GAMEPAD, "Controls" };
 	addOptions(controls, GameOption::Controls);
 	{
-		Row r{ Row::Action, "Mouse and keyboard bindings",
-				"What each button, trigger and direction of the left stick does when the controller is the Dreamcast's mouse and keyboard: a key, a mouse button, the wheel, or nothing. Changing one makes the layout your own" };
+		Row r{ Row::Action, "Controller profiles",
+				"The four built-in profiles and four of your own: for each, whether the right stick is the mouse, and what every button, trigger and direction of the left stick does: stays the controller's, nothing, a mouse button, the wheel, or a key" };
 		r.action = [] { openBinds(); };
 		controls.rows.push_back(r);
 	}
@@ -8055,9 +8050,9 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		in = Input{};
 		bindsDialog(ImGui::GetForegroundDrawList(), given);
 	}
-	const int controllerMode = B::mode();
-	// The first rows: whose layout this is, how the controller is used, and with the mouse and keyboard its bindings.
-	const int head = controllerMode == B::ModeMouseKeys ? 3 : 2;
+	const int profileNow = B::chosen();
+	// The first rows: whose layout this is, the profile, and the profiles' screen.
+	const int head = 3;
 	const int rows = count + head;
 	const bool own = pad != nullptr && pad->isPerGameMapping();
 	// The focused row is one of the emulator's own controls, and is on a button.
@@ -8095,17 +8090,17 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		}
 		else if (qm.controlFocus == 1 && (in.accept || in.left || in.right))
 		{
-			// How the controller is used: one of three, and the mouse and keyboard take their ports with the game's next start.
-			int next = controllerMode + (in.left ? -1 : 1);
+			// The profile: the mouse and keyboard take their ports with the game's next start.
+			int next = profileNow + (in.left ? -1 : 1);
 			if (in.accept)
-				next = (controllerMode + 1) % 3;
-			if (next >= 0 && next <= B::ModeMouseKeys && next != controllerMode)
+				next = (profileNow + 1) % B::Profiles;
+			if (next >= 0 && next < B::Profiles && next != profileNow)
 			{
-				B::setMode(next);
+				ps5::pad::PadProfile.set(next);
 				qm.optionsDirty = true;
 			}
 		}
-		else if (qm.controlFocus == 2 && head == 3 && in.accept)
+		else if (qm.controlFocus == 2 && in.accept)
 			openBinds();
 		else if (pad != nullptr && qm.controlFocus >= head && in.accept)
 		{
@@ -8154,14 +8149,13 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		}
 		else if (i == 1)
 		{
-			label = "Controller";
-			value = controllerMode == B::ModeController ? "Controller only"
-					: controllerMode == B::ModeMouse ? "Controller and mouse" : "Mouse and keyboard";
+			label = "Profile";
+			value = B::profileName(profileNow);
 		}
-		else if (i == 2 && head == 3)
+		else if (i == 2)
 		{
-			label = "Mouse and keyboard bindings";
-			value = "Change...";
+			label = "Controller profiles";
+			value = "Open";
 		}
 		else
 		{
@@ -8182,10 +8176,9 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	dl->PopClipRect();
 	const bool emulators = qm.controlFocus >= head && qm.controlFocus < head + count && controls[qm.controlFocus - head].emulator;
 	const char *note = qm.listening >= 0 ? "Press the DualSense button for it. The touch pad leaves it as it is."
-			: qm.controlFocus == 1 ? (controllerMode == B::ModeController ? "The controller is only the Dreamcast's controller. Left or right: the right stick as a mouse, or a mouse and a keyboard.\nThe mouse and keyboard take their ports when the game starts: restart it after a change."
-					: controllerMode == B::ModeMouse ? "The right stick moves the Dreamcast's mouse; R2, L2 and R3 are its buttons and leave the controller. Restart the game after a change."
-					: "The right stick is the mouse, and every input with a key, a mouse button or the wheel on it leaves the controller. Restart the game after a change.")
-			: qm.controlFocus == 2 && head == 3 ? "What each button, trigger and direction of the left stick does as the mouse and keyboard. What has something there is not the controller's too."
+			: qm.controlFocus == 1 ? "What the controller is beside the Dreamcast's controller, for this game: alone, with the right stick as a mouse, a mouse and keyboard, or one of your own.\n"
+					"What a profile gives away leaves the controller. The mouse and keyboard take their ports when the game starts: restart it after a change."
+			: qm.controlFocus == 2 ? "The profiles themselves: the four built in, and four of your own to change."
 			: qm.controlFocus == 0 ? (own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 					: "This game uses the layout every game has. Changing a button below gives it one of its own.")
 			: emulators ? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"

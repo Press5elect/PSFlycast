@@ -133,16 +133,17 @@ Added:
   left and right and up and down each Normal, Inverted or Off.
 - **Right stick turns like the left stick:** the right stick, left and right,
   adds to the left stick's, for games that read no second stick.
-- **Controller as keyboard:** the left stick and the buttons press keys, as
-  WASD or as the arrow keys; L1 and R1 turn the mouse wheel.
-- **Mouse and keyboard bindings** (Settings > Controls): what every button,
-  trigger, D-pad direction and left-stick direction does as the Dreamcast's
-  mouse and keyboard: nothing, a mouse button, the wheel, or any of about 80
-  keys. A change makes the layout your own, starting from WASD or the arrows.
-- **Controller mode** (quick menu > Controls, for the game): the controller as
-  only the Dreamcast's controller, with the right stick as a mouse, or as a
-  mouse and keyboard; an input given to the mouse or keyboard leaves the
-  Dreamcast controller, so nothing is bound twice.
+- **Controller profiles:** what the controller is in the Dreamcast's ports
+  beside its controller. Four built in (Controller; Controller and mouse, the
+  right stick aiming while the controller keeps every button; Mouse and
+  keyboard with WASD or the arrows, the keys an FPS on a PC expects) and four
+  of your own, where every button, trigger, D-pad direction and left-stick
+  direction can stay the controller's, do nothing, be a mouse button, the
+  wheel, or any of about 80 keys. An input a profile gives away is not the
+  controller's as well, so nothing is pressed twice. The profile in use is a
+  setting, and a game can have its own (quick menu > Controls).
+- **Microphone:** the Dreamcast's microphone in a controller slot, hearing the
+  DualSense's microphone, for the games that listen. Not tried on a console.
 - **Controller type:** the standard Dreamcast controller, or one that reports
   the right stick as a second stick, for software that reads one.
 - **Texture dump** (Settings > Video, for one game if wanted): saves the

@@ -1,16 +1,19 @@
 /*
-	PSFlyCast - the bindings screen for the pad as a mouse and a keyboard: a
-	part of bigpicture.cpp, which includes it (its helpers are that file's).
+	PSFlyCast - the controller profiles' screen: a part of bigpicture.cpp,
+	which includes it (its helpers are that file's).
 
 	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-2.0-or-later
 
-	A dialog over the Settings, in two panes. On the left every input that can
-	be given something to do: the buttons, the triggers, the D-pad and the four
-	directions of the left stick, each with what it does now. Cross picks one;
-	the right pane then lists what it can do (nothing, a mouse button, the wheel,
-	or any key) and Cross gives it. The table is ps5::pad::bind's; a change makes
-	it the player's own, starting from the preset that was in use.
+	A dialog over the Settings or the quick menu, in two panes. On the left the
+	profile being looked at: whether the right stick is the mouse, then every
+	input that can be given something to do (the buttons, the triggers, the
+	D-pad, the four directions of the left stick), each with what it does. On
+	the right, once Cross picks an entry, what it can do: stay the controller's,
+	nothing, a mouse button, the wheel, or any key. L1 and R1 go from profile
+	to profile. The four built-in profiles cannot change: Square copies the one
+	shown into one of the player's own, which can. Triangle makes the shown
+	profile the one in use. The profiles are ps5::pad::bind's.
 */
 
 namespace
@@ -20,16 +23,18 @@ struct BindsUi
 {
 	bool open = false;
 	bool picking = false;		// the pad is in the right pane
-	int input = 0;
+	int shown = 0;				// the profile looked at
+	int row = 0;				// 0 the right stick, 1.. the inputs
 	int choice = 0;				// in the right pane
 	std::vector<int> choices;	// the actions the right pane lists
 	std::string note;
+	bool noteBad = false;
 } bindsUi;
 
 void bindsMakeChoices()
 {
 	namespace B = ps5::pad::bind;
-	bindsUi.choices = { B::None, B::MouseLeft, B::MouseRight, B::MouseMiddle, B::WheelUp, B::WheelDown };
+	bindsUi.choices = { B::Controller, B::Blocked, B::MouseLeft, B::MouseRight, B::MouseMiddle, B::WheelUp, B::WheelDown };
 	for (const B::KeyName& k : B::keys())
 		bindsUi.choices.push_back(B::Key + k.code);
 }
@@ -38,6 +43,7 @@ void openBinds()
 {
 	bindsUi = BindsUi{};
 	bindsUi.open = true;
+	bindsUi.shown = ps5::pad::bind::chosen();
 	bindsMakeChoices();
 }
 
@@ -47,18 +53,37 @@ int bindsWindow(int focus, int count, int shown)
 	return std::clamp(focus - shown / 2, 0, std::max(0, count - shown));
 }
 
+void bindsNote(const std::string& text, bool bad = false)
+{
+	bindsUi.note = text;
+	bindsUi.noteBad = bad;
+	if (bad)
+		ps5::sound::cue(ps5::sound::Cue::Refuse);
+}
+
 void bindsDialog(ImDrawList *dl, const Input& given)
 {
 	namespace B = ps5::pad::bind;
 	BindsUi& ui = bindsUi;
 	const int step = given.up ? -1 : given.down ? 1 : 0;
-	const B::Table table = B::current();
+	const int rows = B::Inputs + 1;
+	B::Profile p = B::profile(ui.shown);
+	const bool own = B::profileIsOwn(ui.shown);
 
 	// ---- the pad
 	if (!ui.picking)
 	{
 		if (step != 0)
-			ui.input = std::clamp(ui.input + step, 0, (int)B::Inputs - 1);
+			ui.row = std::clamp(ui.row + step, 0, rows - 1);
+		if (given.l2)
+			ui.row = std::max(0, ui.row - 8);
+		if (given.r2)
+			ui.row = std::min(rows - 1, ui.row + 8);
+		if (given.l1 || given.r1)
+		{
+			ui.shown = (ui.shown + (given.l1 ? B::Profiles - 1 : 1)) % B::Profiles;
+			ui.note.clear();
+		}
 		if (given.back)
 		{
 			ui.open = false;
@@ -67,27 +92,48 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 		}
 		if (given.accept)
 		{
-			ui.picking = true;
-			ui.choice = 0;
-			for (size_t i = 0; i < ui.choices.size(); i++)
-				if (ui.choices[i] == table.action[ui.input])
-					ui.choice = (int)i;
-			ui.note.clear();
-		}
-		if (given.triangle)
-		{
-			B::set(ui.input, B::None);
-			ui.note = std::string(B::inputName(ui.input)) + " does nothing now";
+			if (!own)
+				bindsNote("A built-in profile cannot change: Square copies it into one of your own", true);
+			else if (ui.row == 0)
+			{
+				p.mouse = !p.mouse;
+				B::setProfile(ui.shown, p);
+				bindsNote(p.mouse ? "The right stick moves the mouse" : "The right stick is the controller's");
+			}
+			else
+			{
+				ui.picking = true;
+				ui.choice = 0;
+				for (size_t i = 0; i < ui.choices.size(); i++)
+					if (ui.choices[i] == p.action[ui.row - 1])
+						ui.choice = (int)i;
+				ui.note.clear();
+			}
 		}
 		if (given.square)
 		{
-			B::use(ps5::pad::PadKeysWasd);
-			ui.note = "The WASD layout";
+			// Into the first of the player's own that holds nothing yet, or the last of them.
+			int target = B::Profiles - 1;
+			for (int i = B::BuiltIn; i < B::Profiles; i++)
+			{
+				const B::Profile q = B::profile(i);
+				bool empty = !q.mouse;
+				for (int a : q.action)
+					empty = empty && a == B::Controller;
+				if (empty)
+				{
+					target = i;
+					break;
+				}
+			}
+			B::setProfile(target, p);
+			bindsNote(std::string(B::profileName(ui.shown)) + " copied into " + B::profileName(target));
+			ui.shown = target;
 		}
-		if (given.options)
+		if (given.triangle)
 		{
-			B::use(ps5::pad::PadKeysArrows);
-			ui.note = "The arrow keys layout";
+			ps5::pad::PadProfile.set(ui.shown);
+			bindsNote(std::string(B::profileName(ui.shown)) + " is the profile in use. The mouse and keyboard take their ports when a game starts");
 		}
 	}
 	else
@@ -95,53 +141,66 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 		const int count = (int)ui.choices.size();
 		if (step != 0)
 			ui.choice = std::clamp(ui.choice + step, 0, count - 1);
-		if (given.l1)
+		if (given.l2 || given.l1)
 			ui.choice = std::max(0, ui.choice - 10);
-		if (given.r1)
+		if (given.r2 || given.r1)
 			ui.choice = std::min(count - 1, ui.choice + 10);
 		if (given.back)
 			ui.picking = false;
 		else if (given.accept)
 		{
-			B::set(ui.input, ui.choices[ui.choice]);
-			ui.note = std::string(B::inputName(ui.input)) + ": " + B::actionName(ui.choices[ui.choice]);
+			p.action[ui.row - 1] = ui.choices[ui.choice];
+			B::setProfile(ui.shown, p);
+			bindsNote(std::string(B::inputName(ui.row - 1)) + ": " + B::actionName(ui.choices[ui.choice]));
 			ui.picking = false;
 		}
 	}
 
 	// ---- the dialog
-	const B::Table now = B::current();
-	const float w = 1500, h = 880, pad = 52, inner = w - 2 * pad;
+	p = B::profile(ui.shown);
+	const bool inUse = ui.shown == B::chosen();
+	const float w = 1560, h = 900, pad = 52, inner = w - 2 * pad;
 	const ImVec2 at = dialogPanel(dl, w, h);
 	const float x0 = at.x + pad;
-	text(dl, bold(), 38, x0, at.y + pad - 6, col::text, "Mouse and keyboard bindings");
-	text(dl, regular(), 23, x0, at.y + pad + 50, col::dim,
-			"What the controller's buttons do when it is the Dreamcast's mouse and keyboard. The right stick is the mouse", inner);
+	text(dl, bold(), 38, x0, at.y + pad - 6, col::text, "Controller profiles");
+	{
+		// The profile's name, with L1 and R1 either side of it, and whether it is the one in use.
+		const std::string title = std::string(B::profileName(ui.shown)) + (inUse ? "   (in use)" : "") + (own ? "" : "   (built in)");
+		float x = x0;
+		x += glyph(dl, Glyph::L1, x, at.y + pad + 62) + 16;
+		text(dl, bold(), 26, x, at.y + pad + 48, inUse ? col::accent : col::text, title.c_str());
+		x += textSize(bold(), 26, title.c_str()).x + 16;
+		glyph(dl, Glyph::R1, x, at.y + pad + 62);
+	}
 	const float top = at.y + pad + 104;
 	const float buttonsY = at.y + h - pad - 60 + 8;
 	const float noteY = buttonsY - 20 - 34;
 	const float paneH = noteY - 12 - top;
-	const float leftW = 700, gap = 28;
+	const float leftW = 720, gap = 28;
 	const float rx = x0 + leftW + gap, rw = inner - leftW - gap;
-	const float rowH = 50;
+	const float rowH = 48;
 	const int shown = std::max(4, (int)((paneH - 16) / rowH));
 
-	// the inputs
+	// the profile
 	rect(dl, x0, top, leftW, paneH, col::rgba(0, 0, 0, 48), 16);
 	if (!ui.picking)
 		outline(dl, x0, top, leftW, paneH, col::accent, 16, 2.5f);
 	{
-		const int first = bindsWindow(ui.input, B::Inputs, shown);
-		for (int n = 0; n < shown && first + n < B::Inputs; n++)
+		const int first = bindsWindow(ui.row, rows, shown);
+		for (int n = 0; n < shown && first + n < rows; n++)
 		{
 			const int i = first + n;
 			const float y = top + 8 + n * rowH;
-			const bool on = i == ui.input;
+			const bool on = i == ui.row;
 			if (on)
 				rect(dl, x0 + 8, y, leftW - 16, rowH - 4, ui.picking ? col::panelHi : col::accent, 12);
-			text(dl, bold(), 24, x0 + 24, y + 11, on ? col::text : col::dim, B::inputName(i));
-			text(dl, regular(), 23, x0 + 250, y + 12, on ? col::text : col::dim,
-					fit(regular(), 23, B::actionName(now.action[i]), leftW - 250 - 24).c_str());
+			const char *label = i == 0 ? "Right stick" : B::inputName(i - 1);
+			const std::string value = i == 0 ? (p.mouse ? "Mouse" : "Controller") : B::actionName(p.action[i - 1]);
+			// What stays the controller's is dim: the eye finds what the profile gives away.
+			const bool given_ = i == 0 ? p.mouse : p.action[i - 1] != B::Controller;
+			text(dl, bold(), 23, x0 + 24, y + 11, on ? col::text : col::dim, label);
+			text(dl, regular(), 23, x0 + 250, y + 11, on ? col::text : given_ ? col::text : col::faint,
+					fit(regular(), 23, value, leftW - 250 - 24).c_str());
 		}
 	}
 
@@ -151,11 +210,19 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 		outline(dl, rx, top, rw, paneH, col::accent, 16, 2.5f);
 	{
 		const int count = (int)ui.choices.size();
-		const int focus = ui.picking ? ui.choice : 0;
-		const int first = bindsWindow(focus, count, shown);
+		const int first = bindsWindow(ui.picking ? ui.choice : 0, count, shown);
 		if (!ui.picking)
-			text(dl, regular(), 23, rx + 28, top + 28, col::dim,
-					"Cross picks what the input on the left does.\n\nTriangle: nothing\nSquare: the WASD layout\nOPTIONS: the arrow keys layout", rw - 56);
+			text(dl, regular(), 22, rx + 28, top + 28, col::dim,
+					own ? "Cross changes the entry on the left: the controller keeps it, it does nothing, "
+							"it is a mouse button or the wheel, or it is a key.\n\n"
+							"An input the profile gives away is not the Dreamcast controller's as well, so nothing is pressed twice. "
+							"What stays \"Controller\" is the controller's as before.\n\n"
+							"Triangle makes this profile the one in use."
+						: "A built-in profile, which cannot change. Square copies it into one of your own "
+							"(Custom 1 to 4), which can.\n\n"
+							"Controller: the controller alone. Controller and mouse: the right stick aims, the controller keeps every button. "
+							"Mouse and keyboard: for a game played with those, with the keys an FPS on a PC expects.\n\n"
+							"Triangle makes this profile the one in use.", rw - 56);
 		else
 			for (int n = 0; n < shown && first + n < count; n++)
 			{
@@ -164,23 +231,23 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 				const bool on = i == ui.choice;
 				if (on)
 					rect(dl, rx + 8, y, rw - 16, rowH - 4, col::accent, 12);
-				text(dl, regular(), 24, rx + 24, y + 11, on ? col::text : col::dim,
-						fit(regular(), 24, B::actionName(ui.choices[i]), rw - 48).c_str());
+				text(dl, regular(), 23, rx + 24, y + 11, on ? col::text : col::dim,
+						fit(regular(), 23, B::actionName(ui.choices[i]), rw - 48).c_str());
 			}
 	}
 
 	if (!ui.note.empty())
-		text(dl, regular(), 22, x0, noteY, col::text, ui.note.c_str(), inner);
+		text(dl, regular(), 22, x0, noteY, ui.noteBad ? col::warm : col::text, ui.note.c_str(), inner);
 	else
 		text(dl, regular(), 22, x0, noteY, col::faint,
-				"What has something here leaves the controller. The mouse and keyboard take their ports when a game starts", inner);
+				"The profile in use is a setting, and a game can have its own (quick menu > Controls). The mouse and keyboard take their ports when a game starts", inner);
 	float bx = x0;
 	if (!ui.picking)
 	{
-		bx += dialogButton(dl, bx, buttonsY, Glyph::Cross, "Change", true) + 20;
-		bx += dialogButton(dl, bx, buttonsY, Glyph::Triangle, "Nothing", false) + 20;
-		bx += dialogButton(dl, bx, buttonsY, Glyph::Square, "WASD", false) + 20;
-		bx += dialogButton(dl, bx, buttonsY, Glyph::Options, "Arrows", false) + 20;
+		bx += dialogButton(dl, bx, buttonsY, Glyph::Cross, own ? "Change" : "Look", true) + 20;
+		bx += dialogButton(dl, bx, buttonsY, Glyph::Triangle, inUse ? "In use" : "Use it", false) + 20;
+		bx += dialogButton(dl, bx, buttonsY, Glyph::Square, "Copy to own", false) + 20;
+		bx += dialogButton(dl, bx, buttonsY, Glyph::L1R1, "Profile", false) + 20;
 		dialogButton(dl, bx, buttonsY, Glyph::Circle, "Close", false);
 	}
 	else

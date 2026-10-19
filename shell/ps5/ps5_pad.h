@@ -89,26 +89,22 @@ extern config::Option<int> MotionAimDirection;
 extern config::Option<int> TurboButtons;
 extern config::Option<int> TurboRate;
 
-// The pad as a mouse and a keyboard, for the Dreamcast games that read those
-// (a first-person game's mouse look): the right stick moves a mouse, R2 and L2
-// are its buttons, and the left stick and the buttons can be keys. Settings,
-// and a game can have its own. Dreamcast games only.
-enum { PadMouseOff, PadMouseOn };
+// The pad as the Dreamcast's mouse and keyboard, for the games that read those (a first-person
+// game's mouse look): a profile says whether the right stick moves a mouse and what each button,
+// trigger and direction of the left stick does: stays the controller's, is blocked, a mouse
+// button, the wheel, or a key. Which profile a game uses is a setting, and a game can have its
+// own. Dreamcast games only. The profiles are in bind:: below.
 // How a push of the right stick becomes movement: as it is; fine near the centre (square);
 // quick near the centre (square root); slow at both ends (smoothstep).
 enum { CurveLinear, CurvePrecise, CurveAggressive, CurveS };
 enum { AxisNormal, AxisInverted, AxisOff };
-enum { PadKeysOff, PadKeysWasd, PadKeysArrows, PadKeysCustom };
-extern config::Option<int> PadMouse;			// the right stick moves a mouse
+extern config::Option<int> PadProfile;			// the profile in use: 0 to bind::Profiles - 1
 extern config::Option<int> PadMouseSpeed;		// 1 to 20
 extern config::Option<int> PadMouseDeadZone;	// 0 to 40 percent, beyond the stick's own
 extern config::Option<int> PadMouseCurve;		// the right stick's response: CurveLinear, ...
 extern config::Option<int> PadSmoothing;		// 0 to 90 percent of the last frame's push kept
 extern config::Option<int> PadAxisX;			// left and right: AxisNormal, AxisInverted, AxisOff
 extern config::Option<int> PadAxisY;			// up and down
-extern config::Option<int> PadKeys;				// the keys the left stick and buttons press
-// With PadKeysCustom, what each input does is the list in PadBinds (see bind:: below).
-extern config::Option<std::string> PadBinds;
 // The controller the Dreamcast sees: the standard one (one stick), or the one
 // with a second stick (Flycast's "Sega Controller XL", six axes), which only
 // software that reads a second stick makes use of.
@@ -118,40 +114,45 @@ extern config::Option<int> PadType;
 // left stick), for games that read no second stick and take a mouse badly. Dreamcast games only.
 extern config::Option<int> PadRightTurns;
 
-// What each button, trigger and direction of the left stick does when the pad is a mouse and a
-// keyboard: nothing, a mouse button, the wheel, or a key. The table is one of the presets or the
-// player's own (PadKeysCustom); changing an entry makes it the player's own, starting from the
-// preset that was in use.
+// The profiles. Four are built in and cannot change; four are the player's own, kept in the
+// settings for every game. An input with anything but Controller on it is not the Dreamcast
+// controller's as well: nothing is pressed twice, and a profile that gives nothing away leaves
+// the controller whole.
 namespace bind
 {
 enum { Inputs = 20 };
-// The action of an entry: None, a mouse button or the wheel, or Key + a USB usage code.
-enum { None = 0, MouseLeft = 1, MouseRight = 2, MouseMiddle = 3, WheelUp = 4, WheelDown = 5, Key = 256 };
-struct Table
+// The action of an entry: the input stays the Dreamcast controller's; it does nothing at all;
+// a mouse button or the wheel; or Key + a USB usage code.
+enum { Controller = 0, Blocked = 1, MouseLeft = 2, MouseRight = 3, MouseMiddle = 4, WheelUp = 5, WheelDown = 6, Key = 256 };
+struct Profile
 {
-	int action[Inputs];
+	bool mouse = false;			// the right stick moves the mouse
+	int action[Inputs] = {};
 };
+enum { BuiltIn = 4, Own = 4, Profiles = BuiltIn + Own };
 struct KeyName
 {
 	const char *name;
 	int code;				// USB usage code
 };
+const char *profileName(int index);
+bool profileIsOwn(int index);
+Profile profile(int index);
+// Changes one of the player's own; a built-in one is left as it is.
+void setProfile(int index, const Profile& profile);
+// The profile the setting chooses.
+int chosen();
+Profile current();
+// Whether a profile makes the pad a mouse, or a keyboard, in a Dreamcast port.
+bool wantsMouse(const Profile& profile);
+bool wantsKeyboard(const Profile& profile);
 const char *inputName(int input);
 // The pad's button for an entry (libScePad bit), 0 for a trigger or a stick direction.
 uint32_t inputButton(int input);
 // Whether an entry is held on this pad state.
 bool inputHeld(int input, const State& s);
-Table preset(int kind);				// PadKeysOff (the mouse buttons only), PadKeysWasd, PadKeysArrows
-Table current();					// the table in effect
-void set(int input, int action);	// makes the table the player's own and changes one entry
-void use(int kind);					// a preset (or the player's own, PadKeysCustom) as the setting
 const std::vector<KeyName>& keys();	// every key that can be given, in the order a list shows
 std::string actionName(int action);
-// How the controller is used in a game: only as the Dreamcast's controller; the controller with
-// the right stick as a mouse; or as a mouse and a keyboard (the table decides what each input does).
-enum { ModeController, ModeMouse, ModeMouseKeys };
-int mode();
-void setMode(int mode);
 }
 
 // Opens the pads and registers them with Flycast. Safe to call once.

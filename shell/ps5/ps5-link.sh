@@ -72,6 +72,8 @@ stub libSceAgcDriver "$vk/vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c"
 # the screen starts first (shell/ps5/ps5_ime.cpp).
 stub libSceMouse "$runtime/stubs/mouse_link_stub.c"
 stub libSceCommonDialog "$runtime/stubs/common_dialog_link_stub.c"
+# And the audio input, the DualSense's microphone (shell/ps5/ps5_audio.cpp).
+stub libSceAudioIn "$runtime/stubs/audio_in_link_stub.c"
 # libSceVideoOut: the SDK's import library has no sceVideoOutVrrUnpegFromFixedRate,
 # which the driver calls for variable refresh. One library can have one import
 # library, so this one is made from the names of the SDK's, with that name
@@ -92,7 +94,7 @@ if [[ $(grep -c 'sceVideoOutVrrUnpegFromFixedRate' "$work/obj/videoout_link_stub
 fi
 stub libSceVideoOut "$work/obj/videoout_link_stub.c" sprx
 title_stubs=("$work/stubs/libSceAgc.so" "$work/stubs/libSceAgcDriver.so" "$work/stubs/libSceMouse.so"
-    "$work/stubs/libSceCommonDialog.so" "$work/stubs/libSceVideoOut.so")
+    "$work/stubs/libSceCommonDialog.so" "$work/stubs/libSceAudioIn.so" "$work/stubs/libSceVideoOut.so")
 stub_options=()
 for file in "${title_stubs[@]}"; do
     stub_options+=(--stub "$file")

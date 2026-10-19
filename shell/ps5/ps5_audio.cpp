@@ -54,6 +54,10 @@ int sceAudioOutOpen(int32_t userId, int32_t type, int32_t index, uint32_t len, u
 int sceAudioOutOutput(int32_t handle, const void *p);
 int sceAudioOutClose(int32_t handle);
 int sceAudioOutSetVolume(int32_t handle, int32_t flag, int32_t *vol);
+// libSceAudioIn (shell/ps5/runtime/stubs/audio_in_link_stub.c): the DualSense's microphone.
+int sceAudioInOpen(int32_t userId, uint32_t type, uint32_t index, uint32_t len, uint32_t freq, uint32_t param);
+int sceAudioInInput(int32_t handle, void *dest);
+int sceAudioInClose(int32_t handle);
 }
 
 namespace ps5
@@ -79,6 +83,140 @@ void audioLibrary()
 		INFO_LOG(AUDIO, "PS5: sceAudioOutInit -> %x", rc);
 	});
 }
+
+
+// ------------------------------------------- the Dreamcast's microphone, in a controller
+//
+// A game with the microphone in a controller slot (Settings > Controls) hears
+// the DualSense's microphone: the console's audio input of player 1's pad
+// (libSceAudioIn, type 0 "voice", 16 kHz mono, blocks of 256 samples), read on
+// a thread of its own into a ring, and given to Flycast at the rate the game
+// asked for (8 or 11.025 kHz). Not tried on a console yet: the log says what
+// the console answered when it refuses.
+class PadMicrophone
+{
+public:
+	bool start(u32 rate)
+	{
+		std::lock_guard<std::mutex> hold(lock);
+		outRate = std::max<u32>(rate, 1000);
+		phase = 0.f;
+		readPos.store(0);
+		writePos.store(0);
+		wanted = true;
+		if (!thread.joinable())
+			thread = std::thread([this] { run(); });
+		return true;
+	}
+
+	void stop()
+	{
+		std::lock_guard<std::mutex> hold(lock);
+		wanted = false;
+	}
+
+	// Up to `count` samples the game is to have now, at outRate; how many there are.
+	u32 take(s16 *out, u32 count)
+	{
+		if (!working.load())
+			return 0;
+		const float step = (float)InRate / outRate;
+		u32 n = 0;
+		for (; n < count; n++)
+		{
+			while (phase >= 1.f)
+			{
+				const u32 r = readPos.load(std::memory_order_relaxed);
+				if (r == writePos.load(std::memory_order_acquire))
+					return n;
+				last = ring[r];
+				readPos.store((r + 1) & Mask, std::memory_order_release);
+				phase -= 1.f;
+			}
+			out[n] = last;
+			phase += step;
+		}
+		return n;
+	}
+
+private:
+	static constexpr u32 Size = 1 << 14, Mask = Size - 1;
+	static constexpr u32 InRate = 16000;
+	static constexpr u32 Block = 256;
+	static constexpr u32 TypeVoice = 0, FormatS16Mono = 0;
+
+	void run()
+	{
+		int handle = -1;
+		int user = -1;
+		alignas(64) s16 block[Block];
+		while (true)
+		{
+			if (!wanted.load())
+			{
+				if (handle >= 0)
+				{
+					sceAudioInClose(handle);
+					handle = -1;
+					working = false;
+					ps5::diag::mark("microphone: closed");
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				continue;
+			}
+			if (handle < 0)
+			{
+				user = ps5::pad::userOfPort(0);
+				if (user < 0)
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					continue;
+				}
+				handle = sceAudioInOpen(user, TypeVoice, 0, Block, InRate, FormatS16Mono);
+				ps5::diag::mark("microphone: audio in of user %d, %u Hz -> %x", user, InRate, handle);
+				if (handle < 0)
+				{
+					// The console says no: the game hears silence. Tried again in a while.
+					working = false;
+					std::this_thread::sleep_for(std::chrono::seconds(3));
+					handle = -1;
+					continue;
+				}
+				working = true;
+			}
+			// Blocks until a block is in: 16 ms.
+			const int rc = sceAudioInInput(handle, block);
+			if (rc < 0)
+			{
+				ps5::diag::mark("microphone: input -> %x", rc);
+				sceAudioInClose(handle);
+				handle = -1;
+				working = false;
+				std::this_thread::sleep_for(std::chrono::seconds(1));
+				continue;
+			}
+			for (u32 i = 0; i < Block; i++)
+			{
+				const u32 w = writePos.load(std::memory_order_relaxed);
+				if (((w + 1) & Mask) == readPos.load(std::memory_order_acquire))
+					break;		// the game is not taking them: the newest are dropped
+				ring[w] = block[i];
+				writePos.store((w + 1) & Mask, std::memory_order_release);
+			}
+		}
+	}
+
+	std::array<s16, Size> ring{};
+	std::atomic<u32> readPos{ 0 }, writePos{ 0 };
+	std::atomic<bool> wanted{ false }, working{ false };
+	u32 outRate = 11025;
+	float phase = 0.f;
+	s16 last = 0;
+	std::mutex lock;
+	std::thread thread;
+};
+
+PadMicrophone padMicrophone;
 
 class PS5AudioBackend : public AudioBackend
 {
@@ -120,6 +258,22 @@ public:
 			sceAudioOutClose(port);
 			port = -1;
 		}
+	}
+
+	// The Dreamcast's microphone (hw/maple/maple_devs.cpp asks for 8 or 11.025 kHz).
+	bool initRecord(u32 rate) override
+	{
+		return padMicrophone.start(rate);
+	}
+
+	u32 record(void *buffer, u32 samples) override
+	{
+		return padMicrophone.take((s16 *)buffer, samples);
+	}
+
+	void termRecord() override
+	{
+		padMicrophone.stop();
 	}
 
 	u32 push(const void *data, u32 frames, bool wait) override

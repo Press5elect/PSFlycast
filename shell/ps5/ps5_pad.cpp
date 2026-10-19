@@ -64,15 +64,13 @@ config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
 config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
 config::Option<int> TurboButtons("TurboButtons", 0, "ps5");
 config::Option<int> TurboRate("TurboRate", 1, "ps5");
-config::Option<int> PadMouse("PadMouse", PadMouseOff, "ps5");
+config::Option<int> PadProfile("PadProfile", 0, "ps5");
 config::Option<int> PadMouseSpeed("PadMouseSpeed", 4, "ps5");
 config::Option<int> PadMouseDeadZone("PadMouseDeadZone", 15, "ps5");
 config::Option<int> PadMouseCurve("PadMouseCurve", 1, "ps5");
 config::Option<int> PadSmoothing("PadSmoothing", 0, "ps5");
 config::Option<int> PadAxisX("PadAxisX", AxisNormal, "ps5");
 config::Option<int> PadAxisY("PadAxisY", AxisNormal, "ps5");
-config::Option<int> PadKeys("PadKeys", PadKeysOff, "ps5");
-config::Option<std::string> PadBinds("PadBinds", "", "ps5");
 config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
 config::Option<int> PadRightTurns("PadRightTurns", 0, "ps5");
 
@@ -907,11 +905,18 @@ int userOfPort(int port)
 
 
 // ---- what the buttons do when the pad is a mouse and a keyboard
+
+// ---- the profiles: what the pad is in the Dreamcast's ports beside its controller
 namespace ps5::pad::bind
 {
 
 namespace
 {
+
+// The player's own profiles, in the settings for every game: "m,a0,a1,...,a19".
+config::Option<std::string, false> ownText[Own] = {
+	{ "PadProfile1", "", "ps5" }, { "PadProfile2", "", "ps5" }, { "PadProfile3", "", "ps5" }, { "PadProfile4", "", "ps5" },
+};
 
 // The entries, in the order the bindings page lists them.
 struct InputInfo
@@ -922,30 +927,103 @@ struct InputInfo
 const InputInfo inputs[Inputs] = {
 	{ "Cross", Cross }, { "Circle", Circle }, { "Square", Square }, { "Triangle", Triangle },
 	{ "L1", L1 }, { "R1", R1 }, { "L2", 0 }, { "R2", 0 }, { "L3", L3 }, { "R3", R3 },
-	{ "Options", ps5::pad::Options }, { "Touchpad", TouchPad },
+	{ "OPTIONS", ps5::pad::Options }, { "Touch pad", TouchPad },
 	{ "D-pad up", Up }, { "D-pad right", Right }, { "D-pad down", Down }, { "D-pad left", Left },
 	{ "Left stick up", 0 }, { "Left stick down", 0 }, { "Left stick left", 0 }, { "Left stick right", 0 },
 };
-enum { InL2 = 6, InR2 = 7, InStickUp = 16, InStickDown = 17, InStickLeft = 18, InStickRight = 19 };
+enum { InCross = 0, InCircle, InSquare, InTriangle, InL1, InR1, InL2, InR2, InL3, InR3, InOptions, InTouch,
+	InUp, InRight, InDown, InLeft, InStickUp, InStickDown, InStickLeft, InStickRight };
 
-// USB usage codes (the HID keyboard page).
+const char *const names[Profiles] = {
+	"Controller", "Controller and mouse", "Mouse and keyboard, WASD", "Mouse and keyboard, arrows",
+	"Custom 1", "Custom 2", "Custom 3", "Custom 4",
+};
+
+int key(int usage)
+{
+	return Key + usage;
+}
+
+Profile builtIn(int index)
+{
+	Profile p;
+	if (index <= 0)
+		return p;
+	p.mouse = true;
+	if (index == 1)
+		return p;
+	// USB usage codes: A 04, D 07, E 08, S 16, W 1a, R 15, C 06, 1 to 4 1e to 21, Escape 29,
+	// Space 2c, right, left, down, up arrows 4f to 52, Control e0, Shift e1, Alt e2.
+	const bool wasd = index == 2;
+	p.action[InR2] = MouseLeft;
+	p.action[InL2] = MouseRight;
+	p.action[InR3] = MouseMiddle;
+	p.action[InR1] = WheelUp;				// the next weapon
+	p.action[InL1] = WheelDown;				// the one before
+	p.action[InStickUp] = key(wasd ? 0x1a : 0x52);
+	p.action[InStickDown] = key(wasd ? 0x16 : 0x51);
+	p.action[InStickLeft] = key(wasd ? 0x04 : 0x50);
+	p.action[InStickRight] = key(wasd ? 0x07 : 0x4f);
+	p.action[InCross] = key(0x2c);							// Space: jump
+	p.action[InCircle] = key(wasd ? 0x06 : 0xe0);			// C (Control): crouch
+	p.action[InSquare] = key(wasd ? 0x08 : 0xe2);			// E (Alt): use
+	p.action[InTriangle] = key(0x15);						// R: reload
+	p.action[InL3] = key(0xe1);								// Shift: walk
+	p.action[InOptions] = key(0x29);						// Escape
+	p.action[InUp] = key(0x1e);								// 1 to 4: the weapons
+	p.action[InRight] = key(0x1f);
+	p.action[InDown] = key(0x20);
+	p.action[InLeft] = key(0x21);
+	return p;
+}
+
+bool parse(const std::string& text, Profile& out)
+{
+	Profile p;
+	size_t at = 0;
+	for (int i = -1; i < Inputs; i++)
+	{
+		if (at >= text.size())
+			return false;
+		char *end = nullptr;
+		const long v = strtol(text.c_str() + at, &end, 10);
+		if (end == text.c_str() + at || v < 0 || v > Key + 255)
+			return false;
+		if (i < 0)
+			p.mouse = v != 0;
+		else
+			p.action[i] = (int)v;
+		at = end - text.c_str();
+		if (at < text.size() && text[at] == ',')
+			at++;
+	}
+	out = p;
+	return true;
+}
+
+std::string unparse(const Profile& p)
+{
+	std::string text = p.mouse ? "1" : "0";
+	for (int i = 0; i < Inputs; i++)
+		text += "," + std::to_string(p.action[i]);
+	return text;
+}
+
 std::vector<KeyName> makeKeys()
 {
 	std::vector<KeyName> k;
-	static const char letters[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	static const char *const letters[] = { "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+			"N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z" };
 	for (int i = 0; i < 26; i++)
-		k.push_back({ strdup(std::string(1, letters[i]).c_str()), 0x04 + i });
-	static const char *digits[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
+		k.push_back({ letters[i], 0x04 + i });
+	static const char *const digits[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
 	for (int i = 0; i < 10; i++)
 		k.push_back({ digits[i], 0x1e + i });
-	static const char *fn[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
-	for (int i = 0; i < 12; i++)
-		k.push_back({ fn[i], 0x3a + i });
 	k.push_back({ "Space", 0x2c });
 	k.push_back({ "Enter", 0x28 });
 	k.push_back({ "Escape", 0x29 });
-	k.push_back({ "Backspace", 0x2a });
 	k.push_back({ "Tab", 0x2b });
+	k.push_back({ "Backspace", 0x2a });
 	k.push_back({ "Up arrow", 0x52 });
 	k.push_back({ "Down arrow", 0x51 });
 	k.push_back({ "Left arrow", 0x50 });
@@ -956,6 +1034,9 @@ std::vector<KeyName> makeKeys()
 	k.push_back({ "Right Control", 0xe4 });
 	k.push_back({ "Right Shift", 0xe5 });
 	k.push_back({ "Right Alt", 0xe6 });
+	static const char *const fn[] = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" };
+	for (int i = 0; i < 12; i++)
+		k.push_back({ fn[i], 0x3a + i });
 	k.push_back({ "Insert", 0x49 });
 	k.push_back({ "Delete", 0x4c });
 	k.push_back({ "Home", 0x4a });
@@ -963,55 +1044,75 @@ std::vector<KeyName> makeKeys()
 	k.push_back({ "Page up", 0x4b });
 	k.push_back({ "Page down", 0x4e });
 	k.push_back({ "Caps Lock", 0x39 });
-	k.push_back({ "Minus (-)", 0x2d });
-	k.push_back({ "Equals (=)", 0x2e });
-	k.push_back({ "Left bracket ([)", 0x2f });
-	k.push_back({ "Right bracket (])", 0x30 });
+	k.push_back({ "Minus -", 0x2d });
+	k.push_back({ "Equals =", 0x2e });
+	k.push_back({ "Left bracket [", 0x2f });
+	k.push_back({ "Right bracket ]", 0x30 });
 	k.push_back({ "Backslash", 0x31 });
-	k.push_back({ "Semicolon (;)", 0x33 });
-	k.push_back({ "Apostrophe (')", 0x34 });
-	k.push_back({ "Grave (`)", 0x35 });
-	k.push_back({ "Comma (,)", 0x36 });
-	k.push_back({ "Period (.)", 0x37 });
-	k.push_back({ "Slash (/)", 0x38 });
+	k.push_back({ "Semicolon ;", 0x33 });
+	k.push_back({ "Apostrophe '", 0x34 });
+	k.push_back({ "Grave `", 0x35 });
+	k.push_back({ "Comma ,", 0x36 });
+	k.push_back({ "Period .", 0x37 });
+	k.push_back({ "Slash /", 0x38 });
 	return k;
 }
 
-int keyAction(int usage)
-{
-	return Key + usage;
-}
-
-Table blank()
-{
-	Table t;
-	for (int& a : t.action)
-		a = None;
-	return t;
-}
-
-bool parse(const std::string& text, Table& out)
-{
-	Table t = blank();
-	size_t at = 0;
-	for (int i = 0; i < Inputs; i++)
-	{
-		if (at >= text.size())
-			return false;
-		char *end = nullptr;
-		const long v = strtol(text.c_str() + at, &end, 10);
-		if (end == text.c_str() + at || v < 0 || v > Key + 255)
-			return false;
-		t.action[i] = (int)v;
-		at = end - text.c_str();
-		if (at < text.size() && text[at] == ',')
-			at++;
-	}
-	out = t;
-	return true;
-}
-
 } // namespace
+
+const char *profileName(int index)
+{
+	return index >= 0 && index < Profiles ? names[index] : "";
+}
+
+bool profileIsOwn(int index)
+{
+	return index >= BuiltIn && index < Profiles;
+}
+
+Profile profile(int index)
+{
+	if (!profileIsOwn(index))
+		return builtIn(std::clamp(index, 0, BuiltIn - 1));
+	Profile p;
+	if (parse(ownText[index - BuiltIn].get(), p))
+		return p;
+	return Profile{};
+}
+
+void setProfile(int index, const Profile& p)
+{
+	if (profileIsOwn(index))
+		ownText[index - BuiltIn].set(unparse(p));
+}
+
+int chosen()
+{
+	return std::clamp((int)PadProfile, 0, Profiles - 1);
+}
+
+Profile current()
+{
+	return profile(chosen());
+}
+
+bool wantsMouse(const Profile& p)
+{
+	if (p.mouse)
+		return true;
+	for (int a : p.action)
+		if (a >= MouseLeft && a <= WheelDown)
+			return true;
+	return false;
+}
+
+bool wantsKeyboard(const Profile& p)
+{
+	for (int a : p.action)
+		if (a >= Key)
+			return true;
+	return false;
+}
 
 const char *inputName(int input)
 {
@@ -1025,8 +1126,6 @@ uint32_t inputButton(int input)
 
 bool inputHeld(int input, const State& s)
 {
-	if (input < 0 || input >= Inputs)
-		return false;
 	switch (input)
 	{
 	case InL2: return s.l2 > 0.5f;
@@ -1035,77 +1134,8 @@ bool inputHeld(int input, const State& s)
 	case InStickDown: return s.ly > 0.5f;
 	case InStickLeft: return s.lx < -0.5f;
 	case InStickRight: return s.lx > 0.5f;
-	default: return (s.buttons & inputs[input].button) != 0;
+	default: return input >= 0 && input < Inputs && (s.buttons & inputs[input].button) != 0;
 	}
-}
-
-Table preset(int kind)
-{
-	Table t = blank();
-	// The mouse, in every preset.
-	t.action[InR2] = MouseLeft;
-	t.action[InL2] = MouseRight;
-	t.action[9] = MouseMiddle;			// R3
-	if (kind == PadKeysOff)
-		return t;
-	const bool wasd = kind != PadKeysArrows;
-	t.action[5] = WheelUp;				// R1: the next weapon
-	t.action[4] = WheelDown;			// L1: the one before
-	t.action[InStickUp] = keyAction(wasd ? 0x1a : 0x52);
-	t.action[InStickDown] = keyAction(wasd ? 0x16 : 0x51);
-	t.action[InStickLeft] = keyAction(wasd ? 0x04 : 0x50);
-	t.action[InStickRight] = keyAction(wasd ? 0x07 : 0x4f);
-	t.action[0] = keyAction(0x2c);									// Cross: Space, jump
-	t.action[1] = keyAction(wasd ? 0x06 : 0xe0);					// Circle: C (Control), crouch
-	t.action[2] = keyAction(wasd ? 0x08 : 0xe2);					// Square: E (Alt), use
-	t.action[3] = keyAction(0x15);									// Triangle: R, reload
-	t.action[8] = keyAction(0xe1);									// L3: Shift, walk
-	t.action[10] = keyAction(0x29);									// Options: Escape
-	t.action[12] = keyAction(0x1e);									// D-pad: 1 to 4, the weapons
-	t.action[13] = keyAction(0x1f);
-	t.action[14] = keyAction(0x20);
-	t.action[15] = keyAction(0x21);
-	return t;
-}
-
-Table current()
-{
-	const int kind = PadKeys;
-	if (kind == PadKeysCustom)
-	{
-		Table t;
-		if (parse(PadBinds.get(), t))
-			return t;
-		return preset(PadKeysWasd);
-	}
-	return preset(kind);
-}
-
-void set(int input, int action)
-{
-	if (input < 0 || input >= Inputs)
-		return;
-	Table t = current();
-	t.action[input] = action;
-	std::string text;
-	for (int i = 0; i < Inputs; i++)
-		text += (i ? "," : "") + std::to_string(t.action[i]);
-	PadBinds.set(text);
-	PadKeys.set(PadKeysCustom);
-}
-
-void use(int kind)
-{
-	if (kind == PadKeysCustom && PadBinds.get().empty())
-	{
-		// The player's own table does not exist yet: it starts as what was in use.
-		const Table t = current();
-		std::string text;
-		for (int i = 0; i < Inputs; i++)
-			text += (i ? "," : "") + std::to_string(t.action[i]);
-		PadBinds.set(text);
-	}
-	PadKeys.set(kind);
 }
 
 const std::vector<KeyName>& keys()
@@ -1118,46 +1148,19 @@ std::string actionName(int action)
 {
 	switch (action)
 	{
-	case None: return "Nothing";
-	case MouseLeft: return "Mouse: left button";
-	case MouseRight: return "Mouse: right button";
-	case MouseMiddle: return "Mouse: middle button";
-	case WheelUp: return "Mouse: wheel up";
-	case WheelDown: return "Mouse: wheel down";
+	case Controller: return "Controller";
+	case Blocked: return "Nothing";
+	case MouseLeft: return "Mouse left button";
+	case MouseRight: return "Mouse right button";
+	case MouseMiddle: return "Mouse middle button";
+	case WheelUp: return "Mouse wheel up";
+	case WheelDown: return "Mouse wheel down";
 	}
 	if (action >= Key)
 		for (const KeyName& k : keys())
 			if (k.code == action - Key)
-				return std::string("Key: ") + k.name;
-	return "Nothing";
-}
-
-
-int mode()
-{
-	if (PadKeys != PadKeysOff)
-		return ModeMouseKeys;
-	return PadMouse == PadMouseOn ? ModeMouse : ModeController;
-}
-
-void setMode(int m)
-{
-	if (m == ModeController)
-	{
-		PadMouse.set(PadMouseOff);
-		PadKeys.set(PadKeysOff);
-	}
-	else if (m == ModeMouse)
-	{
-		PadMouse.set(PadMouseOn);
-		PadKeys.set(PadKeysOff);
-	}
-	else
-	{
-		PadMouse.set(PadMouseOn);
-		if (PadKeys == PadKeysOff)
-			PadKeys.set(PadBinds.get().empty() ? PadKeysWasd : PadKeysCustom);
-	}
+				return std::string("Key ") + k.name;
+	return "Controller";
 }
 
 }
