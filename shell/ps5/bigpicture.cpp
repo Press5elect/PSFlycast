@@ -3059,7 +3059,7 @@ const std::vector<GameOption>& gameOptions()
 				"The right stick moves the Dreamcast's mouse, R2 is its left button, L2 the right one, R3 the middle: for games that aim with a mouse. It takes a free port. Not tried on a console yet",
 				"ps5.PadMouse", { "Off", "On" }, { ps5::pad::PadMouseOff, ps5::pad::PadMouseOn }, ps5::pad::PadMouse,
 				G::Controls, true),
-		range("Mouse speed", "How fast the mouse moves for a full push of the right stick; 1 is the slowest. A game's own mouse sensitivity adds to it", "ps5.PadMouseSpeed", 1, 20, 1, "",
+		range("Mouse speed", "How fast the mouse moves for a full push of the right stick. 1 sends a step every ten frames, 10 one a frame, 20 five a frame; a game turns a long way for each step, so start low", "ps5.PadMouseSpeed", 1, 20, 1, "",
 				G::Controls, [] { return (int)ps5::pad::PadMouseSpeed; }, [](int v) { ps5::pad::PadMouseSpeed.set(v); }),
 		range("Mouse dead zone", "How far the right stick must be pushed before the mouse moves, on top of the stick's own; raise it if the mouse drifts",
 				"ps5.PadMouseDeadZone", 0, 60, 5, "%", G::Controls, [] { return (int)ps5::pad::PadMouseDeadZone; },

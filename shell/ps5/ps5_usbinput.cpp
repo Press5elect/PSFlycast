@@ -412,9 +412,11 @@ void padInput(const ps5::pad::State& pad)
 			const float magnitude = raw > zone ? (raw - zone) / (1.f - zone) : 0.f;
 			if (magnitude > 0.f)
 			{
-				// Pixels a frame at full push: half a pixel for speed 1, 10 for speed 20. The
-				// curve makes a small push slow and a full one fast, for aiming.
-				const float full = 0.5f * std::clamp((int)PadMouseSpeed, 1, 20);
+				// Counts a frame at full push. The game takes whole counts and some turn a long way
+				// for each, so the low end is slow: speed 1 is a count every ten frames, speed 10 one
+				// a frame, speed 20 five a frame. The curve makes a small push slower still.
+				const int steps = std::clamp((int)PadMouseSpeed, 1, 20);
+				const float full = steps <= 10 ? 0.1f * steps : 1.f + 0.4f * (steps - 10);
 				const float scale = full * (PadMouseCurve != 0 ? magnitude : 1.f) * magnitude / raw;
 				carryX += pad.rx * scale;
 				carryY += (PadMouseInvertY != 0 ? -pad.ry : pad.ry) * scale;
