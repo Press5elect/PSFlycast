@@ -68,9 +68,12 @@ config::Option<int> PadMouse("PadMouse", PadMouseOff, "ps5");
 config::Option<int> PadMouseSpeed("PadMouseSpeed", 4, "ps5");
 config::Option<int> PadMouseDeadZone("PadMouseDeadZone", 15, "ps5");
 config::Option<int> PadMouseCurve("PadMouseCurve", 1, "ps5");
-config::Option<int> PadMouseInvertY("PadMouseInvertY", 0, "ps5");
+config::Option<int> PadSmoothing("PadSmoothing", 0, "ps5");
+config::Option<int> PadAxisX("PadAxisX", AxisNormal, "ps5");
+config::Option<int> PadAxisY("PadAxisY", AxisNormal, "ps5");
 config::Option<int> PadKeys("PadKeys", PadKeysOff, "ps5");
 config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
+config::Option<int> PadRightTurns("PadRightTurns", 0, "ps5");
 
 namespace
 {
@@ -280,10 +283,17 @@ public:
 		}
 		lastButtons = buttons;
 
-		const int axes[6] = {
+		int axes[6] = {
 			stick(raw.lx), stick(raw.ly), stick(raw.rx), stick(raw.ry),
 			trigger(raw.l2), trigger(raw.r2)
 		};
+		// The right stick, as the settings shape it (Settings > Controls): s.px and s.py.
+		const float rightX = s.px, rightY = s.py;
+		axes[2] = (int)std::lround(std::clamp(rightX, -1.f, 1.f) * 32767.f);
+		axes[3] = (int)std::lround(std::clamp(rightY, -1.f, 1.f) * 32767.f);
+		// The right stick turns as the left one does, where the game is asked to.
+		if (PadRightTurns != 0 && ::settings.platform.isConsole())
+			axes[0] = std::clamp(axes[0] + (int)std::lround(rightX * 32767.f), -32768, 32767);
 		for (u32 i = 0; i < 6; i++)
 			if (axes[i] != lastAxes[i])
 			{
@@ -773,6 +783,40 @@ std::string portsText()
 	return std::to_string(count) + (count == 1 ? ": port " : ": ports ") + ports;
 }
 
+// The right stick for one pad: round the centre its dead zone, then the response curve, then
+// smoothing over the frames, then each direction normal, inverted or off. Used by the second
+// stick, by turning with it, and by the mouse.
+void shapeRight(int pad, State& s)
+{
+	static float keptX[MaxPads], keptY[MaxPads];
+	const float length = std::min(1.f, std::hypot(s.rx, s.ry));
+	const float zone = std::clamp((int)PadMouseDeadZone, 0, 60) / 100.f;
+	float pushed = length > zone ? (length - zone) / (1.f - zone) : 0.f;
+	switch (PadMouseCurve)
+	{
+	case CurvePrecise:
+		pushed *= pushed;
+		break;
+	case CurveAggressive:
+		pushed = std::sqrt(pushed);
+		break;
+	case CurveS:
+		pushed = pushed * pushed * (3.f - 2.f * pushed);
+		break;
+	default:
+		break;
+	}
+	float x = length > 0.f ? s.rx / length * pushed : 0.f;
+	float y = length > 0.f ? s.ry / length * pushed : 0.f;
+	const float keep = std::clamp((int)PadSmoothing, 0, 90) / 100.f;
+	x = keptX[pad] = keptX[pad] * keep + x * (1.f - keep);
+	y = keptY[pad] = keptY[pad] * keep + y * (1.f - keep);
+	if (std::fabs(x) < 0.002f) x = keptX[pad] = 0.f;
+	if (std::fabs(y) < 0.002f) y = keptY[pad] = 0.f;
+	s.px = PadAxisX == AxisOff ? 0.f : PadAxisX == AxisInverted ? -x : x;
+	s.py = PadAxisY == AxisOff ? 0.f : PadAxisY == AxisInverted ? -y : y;
+}
+
 void poll()
 {
 	ps5::usb::poll();
@@ -807,6 +851,7 @@ void poll()
 		s.ly = deadZone((raw.ly - 128) / 127.5f);
 		s.rx = deadZone((raw.rx - 128) / 127.5f);
 		s.ry = deadZone((raw.ry - 128) / 127.5f);
+		shapeRight(i, s);
 		s.l2 = raw.l2 / 255.f;
 		s.r2 = raw.r2 / 255.f;
 		pad->feed(s, raw);

@@ -126,10 +126,13 @@ Added:
 
 - **Right stick as mouse** (Settings > Controls, for one game if wanted): the
   right stick moves the Dreamcast's mouse, R2 is its left button, L2 the right
-  one and R3 the middle one, for games that aim with a mouse. Mouse speed,
-  Mouse dead zone,
-  Mouse response (even, or slow near the centre for fine aim) and Mouse up and
-  down swapped.
+  one and R3 the middle one, for games that aim with a mouse. Mouse speed.
+- **The right stick's own settings** (they shape the mouse, the turning and a
+  second stick alike): Right stick dead zone (round the centre), Right stick
+  response (Linear, Precise, Aggressive, S-curve), Right stick smoothing, and
+  left and right and up and down each Normal, Inverted or Off.
+- **Right stick turns like the left stick:** the right stick, left and right,
+  adds to the left stick's, for games that read no second stick.
 - **Controller as keyboard:** the left stick and the buttons press keys, as
   WASD or as the arrow keys; L1 and R1 turn the mouse wheel.
 - **Controller type:** the standard Dreamcast controller, or one that reports

@@ -214,8 +214,11 @@ on suits a Dreamcast game that only reads the D-pad.
 console yet). Dreamcast games that aim with a mouse and move with a keyboard
 can be played with the DualSense. In Settings > Controls (or a game's own
 options), **Right stick as mouse** makes the right stick the Dreamcast's mouse:
-R2 is the left button, L2 the right one, R3 the middle one; Mouse speed, Mouse
-dead zone, Mouse response and Mouse up and down swapped tune it. **Controller as keyboard**
+R2 is the left button, L2 the right one, R3 the middle one; **Mouse speed**
+tunes it. The right stick's own settings shape the mouse, the turning and a second stick alike: **Right stick dead zone** (round the centre, so a stick
+that rests off it is still), **Right stick response** (Linear; Precise, fine near the centre for aiming; Aggressive; S-curve), **Right stick smoothing**, and
+**Right stick left and right** and **up and down**, each Normal, Inverted or Off. **Right stick turns like the left stick**
+adds the right stick, left and right, to the left stick's, so the game turns with it as it does with the left stick and its own sensitivity; use it instead of the mouse in a game that takes a mouse badly. **Controller as keyboard**
 presses keys: with WASD, the left stick is W A S D, Cross Space, Circle C,
 Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, and L1 and R1
 turn the mouse wheel; with Arrow keys the stick is the arrows, Circle is

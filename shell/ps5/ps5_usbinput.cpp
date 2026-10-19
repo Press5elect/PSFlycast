@@ -405,21 +405,17 @@ void padInput(const ps5::pad::State& pad)
 		mouseHeld = now;
 		if (mouseOn)
 		{
-			// The stick has its own dead zone already; this one is on top of it, so a stick
-			// that rests off the centre does not move the mouse. Past it the push starts from zero.
-			const float raw = std::min(1.f, std::hypot(pad.rx, pad.ry));
-			const float zone = std::clamp((int)PadMouseDeadZone, 0, 60) / 100.f;
-			const float magnitude = raw > zone ? (raw - zone) / (1.f - zone) : 0.f;
+			// The stick is shaped already (dead zone, response, smoothing, directions): ps5::pad::shapeRight.
+			const float magnitude = std::min(1.f, std::hypot(pad.px, pad.py));
 			if (magnitude > 0.f)
 			{
 				// Counts a frame at full push. The game takes whole counts and some turn a long way
 				// for each, so the low end is slow: speed 1 is a count every ten frames, speed 10 one
-				// a frame, speed 20 five a frame. The curve makes a small push slower still.
+				// a frame, speed 20 five a frame.
 				const int steps = std::clamp((int)PadMouseSpeed, 1, 20);
 				const float full = steps <= 10 ? 0.1f * steps : 1.f + 0.4f * (steps - 10);
-				const float scale = full * (PadMouseCurve != 0 ? magnitude : 1.f) * magnitude / raw;
-				carryX += pad.rx * scale;
-				carryY += (PadMouseInvertY != 0 ? -pad.ry : pad.ry) * scale;
+				carryX += pad.px * full;
+				carryY += pad.py * full;
 				const float dx = std::trunc(carryX), dy = std::trunc(carryY);
 				carryX -= dx;
 				carryY -= dy;
@@ -479,9 +475,9 @@ void padInput(const ps5::pad::State& pad)
 		const auto now = std::chrono::steady_clock::now();
 		if (now - lastReport >= std::chrono::seconds(4))
 		{
-			diag::mark("mouse: speed %d, dead zone %d%%, %s; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
-					(int)PadMouseSpeed, (int)PadMouseDeadZone, PadMouseCurve != 0 ? "fine aim" : "even", sentCounts, sentFrames,
-					biggestStep, pad.rx, pad.ry);
+			diag::mark("mouse: speed %d, dead zone %d%%, curve %d, smoothing %d%%; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
+					(int)PadMouseSpeed, (int)PadMouseDeadZone, (int)PadMouseCurve, (int)PadSmoothing, sentCounts, sentFrames,
+					biggestStep, pad.px, pad.py);
 			lastReport = now;
 			sentCounts = sentFrames = biggestStep = 0;
 		}

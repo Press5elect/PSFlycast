@@ -57,6 +57,9 @@ struct State
 	u32 released = 0;		// went up since the previous poll
 	float lx = 0, ly = 0;	// -1..1, dead zone applied
 	float rx = 0, ry = 0;
+	// The right stick as it is used: past its own dead zone (Settings > Controls), shaped by the
+	// response curve, smoothed, and with each direction normal, inverted or off. -1..1.
+	float px = 0, py = 0;
 	float l2 = 0, r2 = 0;	// 0..1
 };
 
@@ -90,18 +93,27 @@ extern config::Option<int> TurboRate;
 // are its buttons, and the left stick and the buttons can be keys. Settings,
 // and a game can have its own. Dreamcast games only.
 enum { PadMouseOff, PadMouseOn };
+// How a push of the right stick becomes movement: as it is; fine near the centre (square);
+// quick near the centre (square root); slow at both ends (smoothstep).
+enum { CurveLinear, CurvePrecise, CurveAggressive, CurveS };
+enum { AxisNormal, AxisInverted, AxisOff };
 enum { PadKeysOff, PadKeysWasd, PadKeysArrows };
 extern config::Option<int> PadMouse;			// the right stick moves a mouse
 extern config::Option<int> PadMouseSpeed;		// 1 to 20
 extern config::Option<int> PadMouseDeadZone;	// 0 to 40 percent, beyond the stick's own
-extern config::Option<int> PadMouseCurve;		// 0 linear, 1 slow near the centre
-extern config::Option<int> PadMouseInvertY;
+extern config::Option<int> PadMouseCurve;		// the right stick's response: CurveLinear, ...
+extern config::Option<int> PadSmoothing;		// 0 to 90 percent of the last frame's push kept
+extern config::Option<int> PadAxisX;			// left and right: AxisNormal, AxisInverted, AxisOff
+extern config::Option<int> PadAxisY;			// up and down
 extern config::Option<int> PadKeys;				// the keys the left stick and buttons press
 // The controller the Dreamcast sees: the standard one (one stick), or the one
 // with a second stick (Flycast's "Sega Controller XL", six axes), which only
 // software that reads a second stick makes use of.
 enum { PadTypeStandard, PadTypeSecondStick };
 extern config::Option<int> PadType;
+// The right stick left and right adds to the left stick's (the game turns with it as it does with the
+// left stick), for games that read no second stick and take a mouse badly. Dreamcast games only.
+extern config::Option<int> PadRightTurns;
 
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();
