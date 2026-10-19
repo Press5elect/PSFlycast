@@ -1,4 +1,6 @@
 #include "maple_cfg.h"
+#include <algorithm>
+#include <cstdlib>
 #include "maple_helper.h"
 #include "maple_if.h"
 #include "hw/naomi/naomi_cart.h"
@@ -12,6 +14,7 @@
 #include "input/mouse.h"
 #ifdef USE_PS5
 #include "../../../shell/ps5/ps5_pad.h"
+void ps5_mouseRead(int reads, long long total, int biggest);
 #endif
 
 MapleInputState mapleInputState[4];
@@ -193,6 +196,23 @@ void MapleConfigMap::GetMouseInput(u8& buttons, int& x, int& y, int& wheel)
 	x = inputState.relPos.x;
 	y = inputState.relPos.y * (invertMouseY ? -1 : 1);
 	wheel = inputState.relPos.wheel;
+#ifdef USE_PS5
+	// What a game asks of its mouse, for the log (ps5::diag).
+	if (x != 0 || y != 0)
+	{
+		static int reads, biggest;
+		static long long total;
+		reads++;
+		total += std::abs(x) + std::abs(y);
+		biggest = std::max(biggest, std::max(std::abs(x), std::abs(y)));
+		if (reads >= 300)
+		{
+			ps5_mouseRead(reads, total, biggest);
+			reads = biggest = 0;
+			total = 0;
+		}
+	}
+#endif
 	inputState.relPos.x = 0;
 	inputState.relPos.y = 0;
 	inputState.relPos.wheel = 0;

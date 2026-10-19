@@ -386,6 +386,8 @@ void padInput(const ps5::pad::State& pad)
 	static uint32_t mouseHeld;			// the buttons the pad holds down on the mouse
 	static std::bitset<256> keysHeld;	// the keys it holds down
 	static float carryX, carryY;
+	static int sentCounts, sentFrames, biggestStep;
+	static auto lastReport = std::chrono::steady_clock::now();
 	// Not while the quick menu or the settings are up: the pad drives those.
 	const bool active = game_started && pad.connected && !gui_is_open();
 	const bool mouseOn = active && padMouseWanted() && mouse && mouse->maple_port() >= 0;
@@ -420,7 +422,12 @@ void padInput(const ps5::pad::State& pad)
 				carryX -= dx;
 				carryY -= dy;
 				if (dx != 0.f || dy != 0.f)
+				{
 					mouse->setRelPos(dx, dy);
+					sentCounts += (int)(std::fabs(dx) + std::fabs(dy));
+					sentFrames++;
+					biggestStep = std::max(biggestStep, (int)std::max(std::fabs(dx), std::fabs(dy)));
+				}
 			}
 			else
 				carryX = carryY = 0.f;
@@ -463,6 +470,20 @@ void padInput(const ps5::pad::State& pad)
 			keysHeld = want;
 		}
 	}
+	// What the stick sent, every few seconds while it moves: to tell, from a log, whether a
+	// mouse that is too fast is too fast here or in the game.
+	if (sentFrames > 0)
+	{
+		const auto now = std::chrono::steady_clock::now();
+		if (now - lastReport >= std::chrono::seconds(4))
+		{
+			diag::mark("mouse: speed %d, dead zone %d%%, %s; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
+					(int)PadMouseSpeed, (int)PadMouseDeadZone, PadMouseCurve != 0 ? "fine aim" : "even", sentCounts, sentFrames,
+					biggestStep, pad.rx, pad.ry);
+			lastReport = now;
+			sentCounts = sentFrames = biggestStep = 0;
+		}
+	}
 }
 
 std::string text()
@@ -478,3 +499,10 @@ std::string text()
 }
 
 } // namespace ps5::usb
+
+// What the running game read from its mouse: every 300 reads that were not zero (maple_cfg.cpp).
+void ps5_mouseRead(int reads, long long total, int biggest)
+{
+	ps5::diag::mark("mouse: the game read %d moves, %.1f counts each on average, the biggest %d", reads,
+			(double)total / std::max(1, reads), biggest);
+}
