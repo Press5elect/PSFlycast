@@ -33,6 +33,7 @@
 #include "input/mouse.h"
 #include "emulator.h"
 #include "ui/settings.h"
+#include "ui/gui.h"
 #include "hw/maple/maple_cfg.h"
 
 #include <algorithm>
@@ -385,7 +386,8 @@ void padInput(const ps5::pad::State& pad)
 	static uint32_t mouseHeld;			// the buttons the pad holds down on the mouse
 	static std::bitset<256> keysHeld;	// the keys it holds down
 	static float carryX, carryY;
-	const bool active = game_started && pad.connected;
+	// Not while the quick menu or the settings are up: the pad drives those.
+	const bool active = game_started && pad.connected && !gui_is_open();
 	const bool mouseOn = active && padMouseWanted() && mouse && mouse->maple_port() >= 0;
 	const bool keysOn = active && padKeysWanted() && keyboard && keyboard->maple_port() >= 0;
 
@@ -401,13 +403,17 @@ void padInput(const ps5::pad::State& pad)
 		mouseHeld = now;
 		if (mouseOn)
 		{
-			const float magnitude = std::min(1.f, std::hypot(pad.rx, pad.ry));
+			// The stick has its own dead zone already; this one is on top of it, so a stick
+			// that rests off the centre does not move the mouse. Past it the push starts from zero.
+			const float raw = std::min(1.f, std::hypot(pad.rx, pad.ry));
+			const float zone = std::clamp((int)PadMouseDeadZone, 0, 60) / 100.f;
+			const float magnitude = raw > zone ? (raw - zone) / (1.f - zone) : 0.f;
 			if (magnitude > 0.f)
 			{
-				// Pixels a frame at full push: 4 for speed 1, 40 for speed 10. The curve
-				// makes a small push slow and a full one fast, for aiming.
-				const float full = 4.f * std::clamp((int)PadMouseSpeed, 1, 10);
-				const float scale = full * (PadMouseCurve != 0 ? magnitude : 1.f);
+				// Pixels a frame at full push: half a pixel for speed 1, 10 for speed 20. The
+				// curve makes a small push slow and a full one fast, for aiming.
+				const float full = 0.5f * std::clamp((int)PadMouseSpeed, 1, 20);
+				const float scale = full * (PadMouseCurve != 0 ? magnitude : 1.f) * magnitude / raw;
 				carryX += pad.rx * scale;
 				carryY += (PadMouseInvertY != 0 ? -pad.ry : pad.ry) * scale;
 				const float dx = std::trunc(carryX), dy = std::trunc(carryY);

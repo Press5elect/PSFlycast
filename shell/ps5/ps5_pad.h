@@ -92,7 +92,8 @@ extern config::Option<int> TurboRate;
 enum { PadMouseOff, PadMouseOn };
 enum { PadKeysOff, PadKeysWasd, PadKeysArrows };
 extern config::Option<int> PadMouse;			// the right stick moves a mouse
-extern config::Option<int> PadMouseSpeed;		// 1 to 10
+extern config::Option<int> PadMouseSpeed;		// 1 to 20
+extern config::Option<int> PadMouseDeadZone;	// 0 to 40 percent, beyond the stick's own
 extern config::Option<int> PadMouseCurve;		// 0 linear, 1 slow near the centre
 extern config::Option<int> PadMouseInvertY;
 extern config::Option<int> PadKeys;				// the keys the left stick and buttons press
