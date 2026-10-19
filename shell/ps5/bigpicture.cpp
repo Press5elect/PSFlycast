@@ -3082,9 +3082,9 @@ const std::vector<GameOption>& gameOptions()
 				"The right stick, left and right, adds to the left stick's: the game turns with it exactly as it does with the left stick, with the game's own sensitivity. For games that read no second stick; use it instead of Right stick as mouse. Not tried on a console yet",
 				"ps5.PadRightTurns", ps5::pad::PadRightTurns, G::Controls),
 		pick("Controller as keyboard",
-				"The left stick and the buttons press keys. WASD: stick W A S D, Cross Space, Circle C, Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, L1 and R1 the mouse wheel. Arrows: the stick is the arrow keys, Circle Control, Square Alt. It takes a free port. Not tried on a console yet",
-				"ps5.PadKeys", { "Off", "WASD", "Arrow keys" },
-				{ ps5::pad::PadKeysOff, ps5::pad::PadKeysWasd, ps5::pad::PadKeysArrows }, ps5::pad::PadKeys,
+				"The left stick and the buttons press keys. WASD: stick W A S D, Cross Space, Circle C, Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, L1 and R1 the mouse wheel. Own bindings: what Mouse and keyboard bindings says. Arrows: the stick is the arrow keys, Circle Control, Square Alt. It takes a free port. Not tried on a console yet",
+				"ps5.PadKeys", { "Off", "WASD", "Arrow keys", "Own bindings" },
+				{ ps5::pad::PadKeysOff, ps5::pad::PadKeysWasd, ps5::pad::PadKeysArrows, ps5::pad::PadKeysCustom }, ps5::pad::PadKeys,
 				G::Controls, true),
 		pick("Controller type",
 				"Standard: the Dreamcast controller. Second stick: a controller that reports the right stick, which only software written for one reads; a game made for the standard controller does not. Not tried on a console yet",
@@ -5196,6 +5196,9 @@ void addressDialog(ImDrawList *dl, const Input& given)
 // ---- the memory card manager (ps5_vmu.cpp): Settings > System > Memory cards
 #include "bigpicture_cards.inc"
 
+// ---- the pad as a mouse and a keyboard: Settings > Controls > Mouse and keyboard bindings
+#include "bigpicture_binds.inc"
+
 // ---- the RetroAchievements account: Settings > Achievements > Account
 #include "bigpicture_achievements.inc"
 
@@ -6275,6 +6278,12 @@ std::vector<Category> buildCategories()
 	Category controls{ ICON_FA_GAMEPAD, "Controls" };
 	addOptions(controls, GameOption::Controls);
 	{
+		Row r{ Row::Action, "Mouse and keyboard bindings",
+				"What each button, trigger and direction of the left stick does when the controller is the Dreamcast's mouse and keyboard: a key, a mouse button, the wheel, or nothing. Changing one makes the layout your own" };
+		r.action = [] { openBinds(); };
+		controls.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Action, "Restore the default layout", "Console games: the standard layout. Arcade games: their button order" };
 		r.action = [] {
 			for (int i = 0; i < GamepadDevice::GetGamepadCount(); i++)
@@ -7026,7 +7035,7 @@ void settings()
 	}
 	// A dialog over the Settings takes the pad.
 	const Input given = in;
-	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open;
+	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open || bindsUi.open;
 	if (dialog)
 		in = Input{};
 	if (updateUi.open)
@@ -7038,6 +7047,8 @@ void settings()
 	}
 	else if (cardsUi.open)
 		cardsDialog(ImGui::GetForegroundDrawList(), given);
+	else if (bindsUi.open)
+		bindsDialog(ImGui::GetForegroundDrawList(), given);
 	else if (accountUi.open)
 	{
 		accountDialog(ImGui::GetForegroundDrawList(), given);
@@ -8025,6 +8036,9 @@ void openControls()
 	qm.controlFocus = 0;
 	qm.controlScroll = 0;
 	qm.listening = -1;
+	qm.optionsDirty = false;
+	// What is changed here is kept for this game: a setting that is the same as the Settings' leaves its section.
+	config::Settings::instance().setPerGameConfig(true);
 }
 
 void controlsPage(ImDrawList *dl, float px, float pw, float top)
@@ -8033,11 +8047,22 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	const std::vector<PadControl> controls = controlsShown();
 	const bool arcade = ::settings.platform.isArcade();
 	const int count = (int)controls.size();
-	const int rows = count + 1;		// the first row: whose layout this is
+	namespace B = ps5::pad::bind;
+	// A dialog over the page (the bindings) takes the pad.
+	if (bindsUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		bindsDialog(ImGui::GetForegroundDrawList(), given);
+	}
+	const int controllerMode = B::mode();
+	// The first rows: whose layout this is, how the controller is used, and with the mouse and keyboard its bindings.
+	const int head = controllerMode == B::ModeMouseKeys ? 3 : 2;
+	const int rows = count + head;
 	const bool own = pad != nullptr && pad->isPerGameMapping();
 	// The focused row is one of the emulator's own controls, and is on a button.
-	const bool removable = pad != nullptr && qm.listening < 0 && qm.controlFocus > 0 && qm.controlFocus <= count
-			&& controls[qm.controlFocus - 1].emulator && boundTo(*pad, controls[qm.controlFocus - 1].key) != "Not set";
+	const bool removable = pad != nullptr && qm.listening < 0 && qm.controlFocus >= head && qm.controlFocus < head + count
+			&& controls[qm.controlFocus - head].emulator && boundTo(*pad, controls[qm.controlFocus - head].key) != "Not set";
 
 	if (qm.listening >= 0)
 	{
@@ -8050,7 +8075,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			qm.listening = -1;
 		else if (const u32 pressed = state.pressed & ~(ps5::pad::Intercepted | ps5::pad::TouchPad); pressed != 0 && pad != nullptr)
 		{
-			bindControl(*pad, controls[qm.listening - 1].key, pressed & (0u - pressed));
+			bindControl(*pad, controls[qm.listening - head].key, pressed & (0u - pressed));
 			qm.listening = -1;
 		}
 		if (qm.listening >= 0 && timeNow > qm.listenAt + 8)
@@ -8068,16 +8093,35 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			pad->setPerGameMapping(false);
 			GamepadDevice::load_system_mappings();
 		}
-		else if (pad != nullptr && qm.controlFocus > 0 && in.accept)
+		else if (qm.controlFocus == 1 && (in.accept || in.left || in.right))
+		{
+			// How the controller is used: one of three, and the mouse and keyboard take their ports with the game's next start.
+			int next = controllerMode + (in.left ? -1 : 1);
+			if (in.accept)
+				next = (controllerMode + 1) % 3;
+			if (next >= 0 && next <= B::ModeMouseKeys && next != controllerMode)
+			{
+				B::setMode(next);
+				qm.optionsDirty = true;
+			}
+		}
+		else if (qm.controlFocus == 2 && head == 3 && in.accept)
+			openBinds();
+		else if (pad != nullptr && qm.controlFocus >= head && in.accept)
 		{
 			qm.listening = qm.controlFocus;
 			qm.listenArmed = false;
 			qm.listenAt = timeNow;
 		}
 		else if (removable && in.square)
-			unbindControl(*pad, controls[qm.controlFocus - 1].key);
+			unbindControl(*pad, controls[qm.controlFocus - head].key);
 		else if (in.back || in.options)
+		{
 			qm.controls = false;
+			if (qm.optionsDirty)
+				SaveSettings();
+			qm.optionsDirty = false;
+		}
 	}
 
 	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_GAMEPAD "   Controls");
@@ -8108,9 +8152,20 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			label = "Layout";
 			value = own ? "This game's own" : "As for every game";
 		}
+		else if (i == 1)
+		{
+			label = "Controller";
+			value = controllerMode == B::ModeController ? "Controller only"
+					: controllerMode == B::ModeMouse ? "Controller and mouse" : "Mouse and keyboard";
+		}
+		else if (i == 2 && head == 3)
+		{
+			label = "Mouse and keyboard bindings";
+			value = "Change...";
+		}
 		else
 		{
-			const PadControl& control = controls[i - 1];
+			const PadControl& control = controls[i - head];
 			label = arcade ? control.arcade : control.console;
 			value = waiting ? "Press a button..." : pad != nullptr ? boundTo(*pad, control.key) : "No controller";
 		}
@@ -8120,13 +8175,17 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		const ImVec2 vs = textSize(regular(), 24, value.c_str());
 		const float pulse = waiting ? 0.6f + 0.4f * std::sin((float)timeNow * 6.f) : 1.f;
 		// A Dreamcast control on no button is amiss; one of the emulator's own is not.
-		const bool amiss = value == "Not set" && !(i > 0 && controls[i - 1].emulator);
+		const bool amiss = value == "Not set" && !(i >= head && controls[i - head].emulator);
 		text(dl, regular(), 24, right - vs.x, cy - vs.y / 2,
 				alpha(on ? col::text : amiss ? col::warm : col::faint, pulse), value.c_str());
 	}
 	dl->PopClipRect();
-	const bool emulators = qm.controlFocus > 0 && qm.controlFocus <= count && controls[qm.controlFocus - 1].emulator;
+	const bool emulators = qm.controlFocus >= head && qm.controlFocus < head + count && controls[qm.controlFocus - head].emulator;
 	const char *note = qm.listening >= 0 ? "Press the DualSense button for it. The touch pad leaves it as it is."
+			: qm.controlFocus == 1 ? (controllerMode == B::ModeController ? "The controller is only the Dreamcast's controller. Left or right: the right stick as a mouse, or a mouse and a keyboard.\nThe mouse and keyboard take their ports when the game starts: restart it after a change."
+					: controllerMode == B::ModeMouse ? "The right stick moves the Dreamcast's mouse; R2, L2 and R3 are its buttons and leave the controller. Restart the game after a change."
+					: "The right stick is the mouse, and every input with a key, a mouse button or the wheel on it leaves the controller. Restart the game after a change.")
+			: qm.controlFocus == 2 && head == 3 ? "What each button, trigger and direction of the left stick does as the mouse and keyboard. What has something there is not the controller's too."
 			: qm.controlFocus == 0 ? (own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 					: "This game uses the layout every game has. Changing a button below gives it one of its own.")
 			: emulators ? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"

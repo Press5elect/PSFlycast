@@ -21,6 +21,7 @@
 #include "cfg/option.h"
 
 #include <string>
+#include <vector>
 
 namespace ps5::pad
 {
@@ -97,7 +98,7 @@ enum { PadMouseOff, PadMouseOn };
 // quick near the centre (square root); slow at both ends (smoothstep).
 enum { CurveLinear, CurvePrecise, CurveAggressive, CurveS };
 enum { AxisNormal, AxisInverted, AxisOff };
-enum { PadKeysOff, PadKeysWasd, PadKeysArrows };
+enum { PadKeysOff, PadKeysWasd, PadKeysArrows, PadKeysCustom };
 extern config::Option<int> PadMouse;			// the right stick moves a mouse
 extern config::Option<int> PadMouseSpeed;		// 1 to 20
 extern config::Option<int> PadMouseDeadZone;	// 0 to 40 percent, beyond the stick's own
@@ -106,6 +107,8 @@ extern config::Option<int> PadSmoothing;		// 0 to 90 percent of the last frame's
 extern config::Option<int> PadAxisX;			// left and right: AxisNormal, AxisInverted, AxisOff
 extern config::Option<int> PadAxisY;			// up and down
 extern config::Option<int> PadKeys;				// the keys the left stick and buttons press
+// With PadKeysCustom, what each input does is the list in PadBinds (see bind:: below).
+extern config::Option<std::string> PadBinds;
 // The controller the Dreamcast sees: the standard one (one stick), or the one
 // with a second stick (Flycast's "Sega Controller XL", six axes), which only
 // software that reads a second stick makes use of.
@@ -114,6 +117,42 @@ extern config::Option<int> PadType;
 // The right stick left and right adds to the left stick's (the game turns with it as it does with the
 // left stick), for games that read no second stick and take a mouse badly. Dreamcast games only.
 extern config::Option<int> PadRightTurns;
+
+// What each button, trigger and direction of the left stick does when the pad is a mouse and a
+// keyboard: nothing, a mouse button, the wheel, or a key. The table is one of the presets or the
+// player's own (PadKeysCustom); changing an entry makes it the player's own, starting from the
+// preset that was in use.
+namespace bind
+{
+enum { Inputs = 20 };
+// The action of an entry: None, a mouse button or the wheel, or Key + a USB usage code.
+enum { None = 0, MouseLeft = 1, MouseRight = 2, MouseMiddle = 3, WheelUp = 4, WheelDown = 5, Key = 256 };
+struct Table
+{
+	int action[Inputs];
+};
+struct KeyName
+{
+	const char *name;
+	int code;				// USB usage code
+};
+const char *inputName(int input);
+// The pad's button for an entry (libScePad bit), 0 for a trigger or a stick direction.
+uint32_t inputButton(int input);
+// Whether an entry is held on this pad state.
+bool inputHeld(int input, const State& s);
+Table preset(int kind);				// PadKeysOff (the mouse buttons only), PadKeysWasd, PadKeysArrows
+Table current();					// the table in effect
+void set(int input, int action);	// makes the table the player's own and changes one entry
+void use(int kind);					// a preset (or the player's own, PadKeysCustom) as the setting
+const std::vector<KeyName>& keys();	// every key that can be given, in the order a list shows
+std::string actionName(int action);
+// How the controller is used in a game: only as the Dreamcast's controller; the controller with
+// the right stick as a mouse; or as a mouse and a keyboard (the table decides what each input does).
+enum { ModeController, ModeMouse, ModeMouseKeys };
+int mode();
+void setMode(int mode);
+}
 
 // Opens the pads and registers them with Flycast. Safe to call once.
 void init();
@@ -145,4 +184,12 @@ namespace ps5::usb
 // The first pad as the Dreamcast's mouse and keyboard (ps5_usbinput.cpp), once
 // a frame, when the game's settings ask for it.
 void padInput(const ps5::pad::State& pad);
+// What the pad gives to the mouse and keyboard in the Dreamcast's ports, and so does not give to
+// its controller: no input is bound twice.
+struct Taken
+{
+	uint32_t buttons = 0;
+	bool l2 = false, r2 = false, lx = false, ly = false;
+};
+Taken padTaken();
 }

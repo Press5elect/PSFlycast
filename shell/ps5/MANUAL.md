@@ -222,7 +222,11 @@ adds the right stick, left and right, to the left stick's, so the game turns wit
 presses keys: with WASD, the left stick is W A S D, Cross Space, Circle C,
 Square E, Triangle R, L3 Shift, OPTIONS Escape, the D-pad 1 to 4, and L1 and R1
 turn the mouse wheel; with Arrow keys the stick is the arrows, Circle is
-Control and Square Alt. Each takes one of the Dreamcast's free ports and starts
+Control and Square Alt. In the quick menu, **Controls > Controller** chooses for the game how the controller is used: only as the Dreamcast's controller, with the right stick as a mouse (R2, L2 and R3 are its buttons), or as a mouse and keyboard. Whatever the mouse or keyboard has of the controller leaves the Dreamcast's controller, so nothing is pressed twice. **Mouse and keyboard bindings** (Settings > Controls) lists every
+button, trigger, D-pad direction and left-stick direction with what it does as the
+mouse and keyboard; Cross picks one, then gives it nothing, a mouse button, the mouse
+wheel or any key (L1 and R1 page the list). Square and OPTIONS go back to the WASD
+or arrow layout. Changing one makes the layout your own ("Own bindings"); it is kept like the other settings, for the game when it has settings of its own. Each takes one of the Dreamcast's free ports and starts
 with the next game. A game that does not read a mouse or a keyboard ignores
 them. **Controller type** > Second stick makes the controller report the right
 stick as a second stick, which only software written for one reads.

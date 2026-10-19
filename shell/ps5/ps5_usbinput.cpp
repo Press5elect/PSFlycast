@@ -380,6 +380,21 @@ void plugPorts(uint32_t taken)
 
 // The first pad as a mouse and a keyboard. Called once a frame, and does
 // nothing unless a game is running and its settings ask for it.
+static std::atomic<uint32_t> takenButtons{ 0 };
+static std::atomic<uint32_t> takenAxes{ 0 };	// bit 0 L2, 1 R2, 2 left stick x, 3 left stick y
+
+Taken padTaken()
+{
+	Taken t;
+	t.buttons = takenButtons.load();
+	const uint32_t axes = takenAxes.load();
+	t.l2 = (axes & 1) != 0;
+	t.r2 = (axes & 2) != 0;
+	t.lx = (axes & 4) != 0;
+	t.ly = (axes & 8) != 0;
+	return t;
+}
+
 void padInput(const ps5::pad::State& pad)
 {
 	using namespace ps5::pad;
@@ -393,11 +408,39 @@ void padInput(const ps5::pad::State& pad)
 	const bool mouseOn = active && padMouseWanted() && mouse && mouse->maple_port() >= 0;
 	const bool keysOn = active && padKeysWanted() && keyboard && keyboard->maple_port() >= 0;
 
+	// What each input does: the table the player chose (or a preset): ps5::pad::bind.
+	static std::bitset<ps5::pad::bind::Inputs> inputsHeld;
+	std::bitset<ps5::pad::bind::Inputs> inputsNow;
+	for (int i = 0; i < ps5::pad::bind::Inputs; i++)
+		inputsNow[i] = active && ps5::pad::bind::inputHeld(i, pad);
+	const ps5::pad::bind::Table table = ps5::pad::bind::current();
+	namespace B = ps5::pad::bind;
+	// An input given to the mouse or the keyboard (that is there) is not the controller's too.
+	{
+		uint32_t buttons = 0, axes = 0;
+		for (int i = 0; i < B::Inputs && active; i++)
+		{
+			const int a = table.action[i];
+			const bool takes = (a >= B::MouseLeft && a <= B::WheelDown && mouseOn) || (a >= B::Key && keysOn);
+			if (!takes)
+				continue;
+			buttons |= B::inputButton(i);
+			if (i == 6) axes |= 1;
+			if (i == 7) axes |= 2;
+			if (i == 16 || i == 17) axes |= 8;
+			if (i == 18 || i == 19) axes |= 4;
+		}
+		takenButtons = buttons;
+		takenAxes = axes;
+	}
+
 	if (mouse)
 	{
 		uint32_t now = 0;
 		if (mouseOn)
-			now = (pad.r2 > 0.5f ? 1u : 0u) | (pad.l2 > 0.5f ? 2u : 0u) | ((pad.buttons & R3) ? 4u : 0u);
+			for (int i = 0; i < B::Inputs; i++)
+				if (inputsNow[i] && table.action[i] >= B::MouseLeft && table.action[i] <= B::MouseMiddle)
+					now |= 1u << (table.action[i] - B::MouseLeft);
 		static const Mouse::Button buttons[3] = { Mouse::LEFT_BUTTON, Mouse::RIGHT_BUTTON, Mouse::MIDDLE_BUTTON };
 		for (int bit = 0; bit < 3; bit++)
 			if (((mouseHeld ^ now) >> bit) & 1)
@@ -429,36 +472,24 @@ void padInput(const ps5::pad::State& pad)
 			}
 			else
 				carryX = carryY = 0.f;
-			// L1 and R1 turn the wheel: the weapon before and after.
-			if ((pad.pressed & R1) != 0 && PadKeys != PadKeysOff)
-				mouse->setWheel(1);
-			if ((pad.pressed & L1) != 0 && PadKeys != PadKeysOff)
-				mouse->setWheel(-1);
+			// The wheel turns once for each push of an input that has it.
+			for (int i = 0; i < B::Inputs; i++)
+				if (inputsNow[i] && !inputsHeld[i])
+				{
+					if (table.action[i] == B::WheelUp)
+						mouse->setWheel(1);
+					else if (table.action[i] == B::WheelDown)
+						mouse->setWheel(-1);
+				}
 		}
 	}
 	if (keyboard)
 	{
 		std::bitset<256> want;
 		if (keysOn)
-		{
-			// USB usage codes: A 04, D 07, E 08, S 16, W 1a, 1 to 4 1e to 21, Enter 28, Escape 29,
-			// Space 2c, C 06, right, left, down, up arrows 4f to 52, Control e0, Shift e1, Alt e2.
-			const bool wasd = PadKeys == PadKeysWasd;
-			if (pad.ly < -0.5f) want[wasd ? 0x1a : 0x52] = true;
-			if (pad.ly > 0.5f) want[wasd ? 0x16 : 0x51] = true;
-			if (pad.lx < -0.5f) want[wasd ? 0x04 : 0x50] = true;
-			if (pad.lx > 0.5f) want[wasd ? 0x07 : 0x4f] = true;
-			if (pad.buttons & Cross) want[0x2c] = true;				// Space: jump
-			if (pad.buttons & Circle) want[wasd ? 0x06 : 0xe0] = true;	// C: crouch (Control)
-			if (pad.buttons & Square) want[wasd ? 0x08 : 0xe2] = true;	// E: use (Alt)
-			if (pad.buttons & Triangle) want[0x15] = true;			// R: reload
-			if (pad.buttons & L3) want[0xe1] = true;				// Shift: walk
-			if (pad.buttons & ps5::pad::Options) want[0x29] = true;			// Escape
-			if (pad.buttons & Up) want[0x1e] = true;				// 1 to 4: weapons
-			if (pad.buttons & Right) want[0x1f] = true;
-			if (pad.buttons & Down) want[0x20] = true;
-			if (pad.buttons & Left) want[0x21] = true;
-		}
+			for (int i = 0; i < B::Inputs; i++)
+				if (inputsNow[i] && table.action[i] >= B::Key && table.action[i] < B::Key + 256)
+					want[table.action[i] - B::Key] = true;
 		const std::bitset<256> changed = keysHeld ^ want;
 		if (changed.any())
 		{
@@ -468,6 +499,7 @@ void padInput(const ps5::pad::State& pad)
 			keysHeld = want;
 		}
 	}
+	inputsHeld = inputsNow;
 	// What the stick sent, every few seconds while it moves: to tell, from a log, whether a
 	// mouse that is too fast is too fast here or in the game.
 	if (sentFrames > 0)

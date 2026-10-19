@@ -135,6 +135,14 @@ Added:
   adds to the left stick's, for games that read no second stick.
 - **Controller as keyboard:** the left stick and the buttons press keys, as
   WASD or as the arrow keys; L1 and R1 turn the mouse wheel.
+- **Mouse and keyboard bindings** (Settings > Controls): what every button,
+  trigger, D-pad direction and left-stick direction does as the Dreamcast's
+  mouse and keyboard: nothing, a mouse button, the wheel, or any of about 80
+  keys. A change makes the layout your own, starting from WASD or the arrows.
+- **Controller mode** (quick menu > Controls, for the game): the controller as
+  only the Dreamcast's controller, with the right stick as a mouse, or as a
+  mouse and keyboard; an input given to the mouse or keyboard leaves the
+  Dreamcast controller, so nothing is bound twice.
 - **Controller type:** the standard Dreamcast controller, or one that reports
   the right stick as a second stick, for software that reads one.
 - **Texture dump** (Settings > Video, for one game if wanted): saves the
