@@ -223,8 +223,6 @@ public:
 		return *this;
 	}
 
-	// The whole file's content (flyinghead/flycast#2513: a hostfs::File pointer
-	// used to fall to the template below, which hashed the pointer's value)
 	MD5Sum& add(hostfs::File *file);
 
 	template<typename T>
