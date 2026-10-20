@@ -89,7 +89,9 @@ void audioLibrary()
 //
 // A game with the microphone in a controller slot (Settings > Controls) hears
 // the DualSense's microphone: the console's audio input of player 1's pad
-// (libSceAudioIn, type 0 "voice", 16 kHz mono, blocks of 256 samples), read on
+// (libSceAudioIn, type 0 "voice chat", 16 kHz mono, blocks of 256 samples:
+// the call a PS5 title's audio test proved on a console, TokenStation5's
+// voice.cpp, which recorded the DualSense's microphone with it), read on
 // a thread of its own into a ring, and given to Flycast at the rate the game
 // asked for (8 or 11.025 kHz). Not tried on a console yet: the log says what
 // the console answered when it refuses.
@@ -172,8 +174,17 @@ private:
 					std::this_thread::sleep_for(std::chrono::milliseconds(500));
 					continue;
 				}
-				handle = sceAudioInOpen(user, TypeVoice, 0, Block, InRate, FormatS16Mono);
-				ps5::diag::mark("microphone: audio in of user %d, %u Hz -> %x", user, InRate, handle);
+				// Voice chat first, then general, then voice recognition: the kinds a PS5
+				// title's console-proven audio test tries, in its order (TokenStation5's
+				// audio_probe.cpp; voice chat opened the DualSense's microphone there).
+				static constexpr u32 types[] = { TypeVoice, 1, 5 };
+				for (u32 type : types)
+				{
+					handle = sceAudioInOpen(user, type, 0, Block, InRate, FormatS16Mono);
+					ps5::diag::mark("microphone: audio in of user %d, type %u, %u Hz -> %x", user, type, InRate, handle);
+					if (handle >= 0)
+						break;
+				}
 				if (handle < 0)
 				{
 					// The console says no: the game hears silence. Tried again in a while.
