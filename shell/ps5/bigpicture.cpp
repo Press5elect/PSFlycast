@@ -8406,11 +8406,16 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	}
 	else
 	{
+		// A move is the whole of this frame's input: what is below was worked out for the row
+		// the focus was on (onOption, focusedControl), and is not used on another one.
+		const int before = qm.controlFocus;
 		if (in.up && qm.controlFocus > 0) qm.controlFocus--;
 		if (in.down && qm.controlFocus < rows - 1) qm.controlFocus++;
 		if (in.l2) qm.controlFocus = std::max(0, qm.controlFocus - 8);
 		if (in.r2) qm.controlFocus = std::min(rows - 1, qm.controlFocus + 8);
-		if (qm.controlFocus == RowLayout && pad != nullptr && own && (in.accept || in.square))
+		if (qm.controlFocus != before)
+			;
+		else if (qm.controlFocus == RowLayout && pad != nullptr && own && (in.accept || in.square))
 		{
 			// Back to the layout every game has: the game's own is deleted.
 			pad->setPerGameMapping(false);
@@ -8455,11 +8460,16 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		}
 	}
 
+	// From here on, the row the focus is on now.
+	const bool onOptionNow = qm.controlFocus >= optionsAt && qm.controlFocus < controlsAt;
+	const PadControl *controlNow = qm.controlFocus >= controlsAt && qm.controlFocus < rows ? &controls[qm.controlFocus - controlsAt] : nullptr;
+	const bool removableNow = pad != nullptr && qm.listening < 0 && controlNow != nullptr && controlNow->emulator
+			&& boundTo(*pad, controlNow->key) != "Not set";
 	// What the bottom bar offers for this row (the hints are drawn with the menu's).
 	qm.controlCross = qm.controlFocus == RowLayout ? (own ? "As for every game" : "")
-			: qm.controlFocus == RowProfiles ? "Open" : onOption ? "Next" : "Change";
-	qm.controlSquare = removable ? "No button"
-			: onOption && options[qm.controlFocus - optionsAt].get() != settingsValue(options[qm.controlFocus - optionsAt]) ? "As in Settings"
+			: qm.controlFocus == RowProfiles ? "Open" : onOptionNow ? "Next" : "Change";
+	qm.controlSquare = removableNow ? "No button"
+			: onOptionNow && options[qm.controlFocus - optionsAt].get() != settingsValue(options[qm.controlFocus - optionsAt]) ? "As in Settings"
 			: "";
 
 	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_GAMEPAD "   Controls");
@@ -8549,7 +8559,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 				: "This game uses the layout every game has. Changing a button below gives it one of its own.";
 	else if (qm.controlFocus == RowProfiles)
 		note = "The profiles themselves: the four built in, and four of your own to change. Controller profile, below, picks this game's.";
-	else if (onOption)
+	else if (onOptionNow)
 	{
 		const GameOption& option = options[qm.controlFocus - optionsAt];
 		note = option.desc;
@@ -8559,7 +8569,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		else if (option.key == nullptr)
 			note += ".\nThe controller's own: the same for every game.";
 	}
-	else if (focusedControl != nullptr && focusedControl->emulator)
+	else if (controlNow != nullptr && controlNow->emulator)
 		note = "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it; "
 				"Square takes it off its button. L3 and R3 are free in Dreamcast games.";
 	else
@@ -8570,9 +8580,9 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	if (picture)
 	{
 		PadPart lit = PadPart::None;
-		if (focusedControl != nullptr)
-			lit = partOfKey(focusedControl->key);
-		else if (onOption)
+		if (controlNow != nullptr)
+			lit = partOfKey(controlNow->key);
+		else if (onOptionNow)
 			lit = partOfOption(options[qm.controlFocus - optionsAt]);
 		else if (qm.controlFocus == RowProfiles)
 			lit = PadPart::Extras;
