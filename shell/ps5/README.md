@@ -155,7 +155,10 @@ Added:
   against the console's certificate list and Mozilla's. Not tried on a
   console in PSFlyCast yet.
 - **Microphone:** the Dreamcast's microphone in a controller slot, hearing the
-  DualSense's microphone, for the games that listen. Not tried on a console.
+  DualSense's microphone, for the games that listen, with a **Microphone
+  volume** (Controls; 50% by default, loud speech rounded off rather than
+  clipped). On a console the microphone opened and the game read its sound
+  at 11,025 Hz.
 - **Controller type:** the standard Dreamcast controller, or one that reports
   the right stick as a second stick, for software that reads one.
 - **Texture dump** (Settings > Video, for one game if wanted): saves the

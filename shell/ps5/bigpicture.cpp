@@ -3034,6 +3034,8 @@ const std::vector<GameOption>& gameOptions()
 		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack. Microphone: the Dreamcast's, hearing the DualSense's microphone, for the games that listen. Not tried on a console yet",
 				"input.device1.2", { "Rumble pack", "Memory card", "Microphone" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU, (int)MDT_Microphone },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
+		range("Microphone volume", "How loud the DualSense's microphone is to a game that has the Dreamcast microphone in a controller slot. 50% suits most rooms: the controller's microphone is loud, and a voice that is too loud is rounded off rather than cut", "ps5.MicVolume", 10, 200, 10, "%",
+				G::Controls, [] { return (int)ps5::MicVolume; }, [](int v) { ps5::MicVolume.set(v); }),
 		pick("Controller slot 1", "What is in the controller's first slot: the memory card the game saves to, the rumble pack, the microphone (the DualSense's), or nothing",
 				"input.device1.1", { "Memory card", "Rumble pack", "Microphone", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_Microphone, (int)MDT_None },
@@ -8109,6 +8111,8 @@ PadPart partOfOption(const GameOption& option)
 		return PadPart::Slot1;
 	if (key == "input.device1.2")
 		return PadPart::Slot2;
+	if (key == "ps5.MicVolume")
+		return config::MapleExpansionDevices[0][0] == MDT_Microphone ? PadPart::Slot1 : PadPart::Slot2;
 	if (key.rfind("ps5.PadMouse", 0) == 0 || key.rfind("ps5.PadAxis", 0) == 0 || key == "ps5.PadSmoothing"
 			|| key == "ps5.PadRightTurns" || key == "ps5.PadType")
 		return PadPart::RightStick;

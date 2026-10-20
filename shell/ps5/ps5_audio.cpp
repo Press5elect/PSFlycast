@@ -64,6 +64,7 @@ namespace ps5
 {
 config::Option<bool> SyncToDisplay("SyncToDisplay", true, "ps5");
 config::Option<int> VmuSoundOutput("VmuSoundOutput", 0, "ps5");
+config::Option<int> MicVolume("MicVolume", 50, "ps5");
 }
 
 namespace
@@ -122,6 +123,8 @@ public:
 	{
 		if (!working.load())
 			return 0;
+		// 16 kHz in, the game's rate out, each sample between the two it falls between
+		// (the input was low-passed below the game's half rate as it came in: run()).
 		const float step = (float)InRate / outRate;
 		u32 n = 0;
 		for (; n < count; n++)
@@ -134,11 +137,12 @@ public:
 					given.fetch_add(n, std::memory_order_relaxed);
 					return n;
 				}
+				previous = last;
 				last = ring[r];
 				readPos.store((r + 1) & Mask, std::memory_order_release);
 				phase -= 1.f;
 			}
-			out[n] = last;
+			out[n] = (s16)std::lround(previous + (last - previous) * phase);
 			phase += step;
 		}
 		given.fetch_add(n, std::memory_order_relaxed);
@@ -221,11 +225,31 @@ private:
 			heard += Block;
 			if (heard >= InRate * 5)
 			{
-				ps5::diag::mark("microphone: 5 s heard, loudest %d, average %.0f (of 32767); the game took %u samples",
-						peak, std::sqrt(squares / heard), given.exchange(0));
+				ps5::diag::mark("microphone: 5 s heard, loudest %d, average %.0f (of 32767) before the volume (%d%%); the game took %u samples at %u Hz",
+						peak, std::sqrt(squares / heard), (int)ps5::MicVolume, given.exchange(0), outRate);
 				peak = 0;
 				squares = 0;
 				heard = 0;
+			}
+			// What the game hears: below its half rate (a low-pass at 4.8 kHz, two
+			// poles, so that the step down to 11.025 or 8 kHz folds nothing back into
+			// the voice), at the Microphone volume, and never clipped: the DualSense's
+			// microphone is loud, and a peak is rounded off rather than cut flat.
+			const float volume = std::clamp((int)ps5::MicVolume, 0, 400) / 100.f;
+			for (u32 i = 0; i < Block; i++)
+			{
+				const float x = block[i] / 32768.f;
+				const float y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+				x2 = x1;
+				x1 = x;
+				y2 = y1;
+				y1 = y;
+				float v = y * volume;
+				// Soft above 0.5 of full scale, and never past it.
+				const float m = std::fabs(v);
+				if (m > 0.5f)
+					v = std::copysign(0.5f + 0.5f * std::tanh((m - 0.5f) * 2.f), v);
+				block[i] = (s16)std::lround(std::clamp(v, -1.f, 1.f) * 32767.f);
 			}
 			for (u32 i = 0; i < Block; i++)
 			{
@@ -247,7 +271,11 @@ private:
 	u32 heard = 0;
 	u32 outRate = 11025;
 	float phase = 0.f;
-	s16 last = 0;
+	float last = 0.f, previous = 0.f;
+	// The low-pass: a Butterworth biquad at 4.8 kHz of 16 kHz (the reader's state).
+	static constexpr float b0 = 0.39133577f, b1 = 0.78267155f, b2 = 0.39133577f;
+	static constexpr float a1 = 0.36952738f, a2 = 0.19581571f;
+	float x1 = 0, x2 = 0, y1 = 0, y2 = 0;
 	std::mutex lock;
 	std::thread thread;
 };

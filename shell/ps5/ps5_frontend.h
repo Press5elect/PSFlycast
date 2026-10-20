@@ -77,6 +77,9 @@ extern config::Option<int> GameVideoVolume;
 extern config::Option<bool> GameVideos;
 // Where the VMU's beeps are heard with "VMU sounds": 0 the TV, 1 the controller's speaker, 2 both.
 extern config::Option<int> VmuSoundOutput;
+// The Dreamcast microphone's volume, in percent of the DualSense microphone's (ps5_audio.cpp).
+// A setting, and a game can have its own.
+extern config::Option<int> MicVolume;
 // "Frame generation": pictures made in between the game's own (ps5_framegen.cpp).
 // 0 off, 1 light, 2 full.
 extern config::Option<int> FrameGeneration;
