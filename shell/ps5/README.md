@@ -42,18 +42,26 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.2.0** (build 64). It is built
+Latest release: **v1.3.0** (build 79). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-On the test builds that led to v1.2.0 (builds 55 to 63), on a 3840x2160
-display at 119.88 Hz: games from a network share played at 98% to 100% of
-full speed (a game for 244 s, 100%); the library's video was found on the
-share and played; the memory cards were copied to the share when a game
-ended (20 copied); and the slowness of Windows CE games was gone. Nothing
-else new in v1.2.0 has been run on a console yet: [New in v1.2.0](#new-in-v120)
-lists it. The controller's speaker for the VMU, Beside the picture, OLED
-care, the frame generation methods beyond PSFlyCast's own, the USB disc
-drive and the network folders added on the console are among it.
+On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
+display at 119.88 Hz: the microphone was used in a game that listens, for 15
+minutes at 99.9% of full speed: the DualSense's microphone opened, the game
+read it at 11,025 Hz, and the game answered it; the quick menu's Controls with
+the controller's picture ran without a fault after build 77; the right stick
+moved the Dreamcast's mouse in a game that reads one (its speed was tuned over
+builds 67 to 71); and with USB drives on, PSFlyCast's own TLS started with the
+console's certificates (211 of them). Not run on a console yet: a request
+through that TLS (an update check or an achievements sign-in with USB drives
+on), the keyboard side of the profiles, the custom profiles, the controller
+with a second stick, turning with the right stick, and the texture dump.
+
+On the test builds that led to v1.2.0 (builds 55 to 63): games from a network
+share played at 98% to 100% of full speed (a game for 244 s, 100%); the
+library's video was found on the share and played; the memory cards were
+copied to the share when a game ended (20 copied); and the slowness of Windows
+CE games was gone.
 
 Played on a PS5 over the builds that led to v1.0.2: Dreamcast games from the
 internal folder and from a network share, with a real BIOS; save states made
@@ -118,53 +126,63 @@ right.
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
-## In development (v1.3.0)
+## New in v1.3.0
 
-Not released; nothing here has been run on a console yet.
+Status, above, says which of it has been run on a console.
 
 Added:
 
-- **Right stick as mouse** (Settings > Controls, for one game if wanted): the
-  right stick moves the Dreamcast's mouse, R2 is its left button, L2 the right
-  one and R3 the middle one, for games that aim with a mouse. Mouse speed.
-- **The right stick's own settings** (they shape the mouse, the turning and a
-  second stick alike): Right stick dead zone (round the centre), Right stick
-  response (Linear, Precise, Aggressive, S-curve), Right stick smoothing, and
-  left and right and up and down each Normal, Inverted or Off.
+- **Controller profiles:** what the controller is in the Dreamcast's ports
+  beside its controller. Four built in: Controller; Controller and mouse (the
+  right stick aims, the controller keeps every button); Mouse and keyboard
+  with WASD or with the arrow keys (the keys an FPS on a PC expects). And four
+  of your own, Custom 1 to 4, where every button, trigger, D-pad direction and
+  left-stick direction can stay the controller's, do nothing, be a mouse
+  button, the mouse wheel, or any of about 80 keys. An input a profile gives
+  away is not the Dreamcast controller's as well, so nothing is pressed twice.
+  The profile in use is a setting, and a game can have its own.
+- **The right stick as the Dreamcast's mouse**, with its own settings: Mouse
+  speed, Right stick dead zone, Right stick response (Linear, Precise,
+  Aggressive, S-curve), Right stick smoothing, and left and right, up and down
+  each Normal, Inverted or Off. They shape the second stick and the turning as
+  well.
 - **Right stick turns like the left stick:** the right stick, left and right,
   adds to the left stick's, for games that read no second stick.
-- **Controller profiles:** what the controller is in the Dreamcast's ports
-  beside its controller. Four built in (Controller; Controller and mouse, the
-  right stick aiming while the controller keeps every button; Mouse and
-  keyboard with WASD or the arrows, the keys an FPS on a PC expects) and four
-  of your own, where every button, trigger, D-pad direction and left-stick
-  direction can stay the controller's, do nothing, be a mouse button, the
-  wheel, or any of about 80 keys. An input a profile gives away is not the
-  controller's as well, so nothing is pressed twice. The profile in use is a
-  setting, and a game can have its own (quick menu > Controls).
-- **The quick menu's Controls** hold everything about the controller for the
-  game: the profile, the right stick's settings, turbo, the slots, the light
-  gun, and the button layout, beside a picture of the Dreamcast controller
-  that labels each control with the DualSense input driving it and marks what
-  the profile gives to the mouse or keyboard instead. These options left Game
-  options (and a game's Details > Options).
-- **HTTPS with USB drives on:** outside its sandbox the console's HTTPS
-  client refuses every certificate, so the update check, covers and
-  RetroAchievements failed with USB drives on. Requests now go through a TLS
-  of PSFlyCast's own (mbedTLS 3.6.7, ported from PSSwanStation), checked
-  against the console's certificate list and Mozilla's. Not tried on a
-  console in PSFlyCast yet.
-- **Microphone:** the Dreamcast's microphone in a controller slot, hearing the
-  DualSense's microphone, for the games that listen, with a **Microphone
-  volume** (Controls; 50% by default, loud speech rounded off rather than
-  clipped). On a console the microphone opened and the game read its sound
-  at 11,025 Hz.
 - **Controller type:** the standard Dreamcast controller, or one that reports
   the right stick as a second stick, for software that reads one.
+- **A picture of the Dreamcast controller** in the quick menu's Controls: each
+  control labelled with the DualSense input that drives it, what is in the
+  two slots, what the profile gives to the mouse or the keyboard instead
+  (struck through), what the DualSense's extra buttons do, and the control
+  the focused row is about lit.
+- **Microphone:** the Dreamcast's microphone in a controller slot, hearing the
+  DualSense's microphone, for the games that listen, with a Microphone volume
+  (50% by default; loud sound rounded off rather than cut flat).
 - **Texture dump** (Settings > Video, for one game if wanted): saves the
   textures a game loads as PNG pictures, sorted into 2D (drawn flat on the
   screen) and 3D, to the console's storage, a USB drive or the network share,
   for making a texture pack. Skip changing textures; Textures saved.
+
+Changed:
+
+- **Everything about the controller for a game is in the quick menu's
+  Controls:** the profile, the right stick's settings, turbo, the slots, the
+  microphone's volume, the light gun and the button layout. These options
+  left Game options and a game's Details > Options.
+- **The USB disc drive** asks for a Dreamcast disc ("Insert a Dreamcast
+  disc").
+- **Flycast** is its `dev` branch as of 17 October 2026 (6bb0fc3e1): among
+  its changes, a savestate with a bad region or cable no longer stops the
+  emulator, an unknown Maple device is ignored rather than a crash, and the
+  game is stopped while a savestate is made in memory.
+
+Fixed:
+
+- **The update check, cover downloads and RetroAchievements with USB drives
+  on.** Outside its sandbox the console's HTTPS client refuses every
+  certificate; PSFlyCast now uses a TLS of its own there (mbedTLS 3.6.7, as
+  PSSwanStation does), checked against the console's certificate list and
+  Mozilla's.
 
 ## New in v1.2.0
 

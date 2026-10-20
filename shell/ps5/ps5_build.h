@@ -9,10 +9,10 @@
 	handed out.
 */
 #pragma once
-#define PS5_BUILD_NUMBER 78
+#define PS5_BUILD_NUMBER 79
 // The release this source is, or, between releases, the one it follows. The
 // update check (ps5_update.cpp) compares the project's newest release with it.
-#define PS5_VERSION "1.2.0"
+#define PS5_VERSION "1.3.0"
 // The version the console's home screen shows (Game info > version), "major.minor"
 // of the release being worked towards; build.sh adds the build number: 01.002.057.
 #define PS5_CONTENT_VERSION "01.003"
