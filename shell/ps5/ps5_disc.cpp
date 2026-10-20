@@ -603,8 +603,7 @@ void identify(const std::shared_ptr<Source>& source, Info& info)
 	if (disc->ReadSectors(data->StartFAD, 1, header, 2048) != 1 || std::memcmp(header, "SEGA SEGAKATANA", 15) != 0)
 	{
 		info.state = "Not a Dreamcast disc";
-		info.problem = "Its data does not start with a Dreamcast header. PSFlyCast starts Dreamcast games burned to a CD-R "
-				"(a self-boot disc or a game on a data CD); a Dreamcast's own GD-ROM cannot be read by a CD or DVD drive.";
+		info.problem = "Its data does not start with a Dreamcast header: insert a Dreamcast disc.";
 		return;
 	}
 	info.id = trimmed(header + 0x40, 10);

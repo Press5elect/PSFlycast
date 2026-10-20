@@ -2577,9 +2577,7 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 					body += "\n" + d.problem;
 			}
 			if (body.empty())
-				body = "Put a Dreamcast game burned to a CD-R in the drive.";
-			body += "\n\nA Dreamcast game can be read from a CD-R (a self-boot disc or a game on a data CD). "
-					"A Dreamcast's own GD-ROM cannot be read by a CD or DVD drive.";
+				body = "Insert a Dreamcast disc.";
 		}
 		foot = "The drive is looked at every two seconds.";
 	}
@@ -4892,7 +4890,7 @@ void copyDialog(ImDrawList *dl, const Input& given)
 		lines.push_back(copyUi.format == 0 ? "CDI: keeps the disc's sessions as they are; the size of the disc"
 				: "CHD: one file in the form emulators and chdman take; not compressed (chdman can do that)");
 		lines.push_back("Left and Right choose the format");
-		lines.push_back("A GDI is not offered: Flycast reads those only as a GD-ROM's layout, which a CD-R does not have");
+		lines.push_back("A GDI is not offered: Flycast reads those only as a GD-ROM's layout");
 		if (!copyUi.why.empty())
 			lines.push_back(copyUi.why);
 		buttons = { { Glyph::Cross, copyUi.format == 0 ? "Copy as CDI" : "Copy as CHD", true }, { Glyph::Circle, "Not now", false } };
@@ -6666,7 +6664,7 @@ std::vector<Category> buildCategories()
 	storage.rows.push_back(heading("USB CD or DVD drive"));
 	{
 		Row r{ Row::Toggle, "USB disc drive",
-			"A Disc Drive tab for a Dreamcast game burned to a CD-R, played from a USB CD or DVD drive (needs elfldr)" };
+			"A Disc Drive tab for a Dreamcast disc in a USB CD or DVD drive (needs elfldr)" };
 		r.restart = true;
 		r.get = [] { return ps5::options().discDrive ? 1 : 0; };
 		r.set = [](int v) { ps5::options().discDrive = v != 0; ps5::saveOptions(); };

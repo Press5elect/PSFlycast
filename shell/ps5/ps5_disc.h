@@ -17,11 +17,9 @@
 	    nothing the game does waits for a seek;
 	  - a block the drive will not read twice in a row slows the drive a step.
 
-	A Dreamcast disc a drive can read is one burned to a CD-R: a self-boot disc
-	(two sessions: a short audio one and the game's data), or a game on a plain
-	data CD. A Dreamcast's own GD-ROM cannot be read by a CD or DVD drive; what it
-	has beyond the first 35 minutes is where no drive reaches. A disc that is not
-	a Dreamcast disc is listed, with why it is not played.
+	The disc's sessions are read as the drive reports them, and its data must
+	start with a Dreamcast header. A disc that is not a Dreamcast disc is
+	listed, with why it is not played.
 
 	The disc is given to the emulator as the path "ps5disc:/dev/cd1#MK-51000" (the
 	drive, and the game's product number) and read by the Disc that
@@ -69,7 +67,7 @@ float cached();
 bool eject(const std::string& device, std::string& why);
 
 // Copying the disc in a drive to an image in the games folder, in the background.
-// CDI keeps the sessions of a CD-R as they are; CHD is not compressed (chdman can do that). A GDI is
+// CDI keeps the disc's sessions as they are; CHD is not compressed (chdman can do that). A GDI is
 // not offered: Flycast reads one only as a GD-ROM's layout (data, audio, data at sector 45000).
 enum class CopyFormat { Cdi, Chd };
 struct CopyStatus

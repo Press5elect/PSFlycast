@@ -130,7 +130,10 @@ public:
 			{
 				const u32 r = readPos.load(std::memory_order_relaxed);
 				if (r == writePos.load(std::memory_order_acquire))
+				{
+					given.fetch_add(n, std::memory_order_relaxed);
 					return n;
+				}
 				last = ring[r];
 				readPos.store((r + 1) & Mask, std::memory_order_release);
 				phase -= 1.f;
@@ -138,6 +141,7 @@ public:
 			out[n] = last;
 			phase += step;
 		}
+		given.fetch_add(n, std::memory_order_relaxed);
 		return n;
 	}
 
@@ -206,6 +210,23 @@ private:
 				std::this_thread::sleep_for(std::chrono::seconds(1));
 				continue;
 			}
+			// What the microphone hears, every five seconds: whether sound comes in at
+			// all, how loud, and how much of it the game took.
+			for (u32 i = 0; i < Block; i++)
+			{
+				const int v = block[i];
+				peak = std::max(peak, std::abs(v));
+				squares += (double)v * v;
+			}
+			heard += Block;
+			if (heard >= InRate * 5)
+			{
+				ps5::diag::mark("microphone: 5 s heard, loudest %d, average %.0f (of 32767); the game took %u samples",
+						peak, std::sqrt(squares / heard), given.exchange(0));
+				peak = 0;
+				squares = 0;
+				heard = 0;
+			}
 			for (u32 i = 0; i < Block; i++)
 			{
 				const u32 w = writePos.load(std::memory_order_relaxed);
@@ -220,6 +241,10 @@ private:
 	std::array<s16, Size> ring{};
 	std::atomic<u32> readPos{ 0 }, writePos{ 0 };
 	std::atomic<bool> wanted{ false }, working{ false };
+	std::atomic<u32> given{ 0 };		// samples the game took since the last report
+	int peak = 0;						// the reader's: the loudest sample since the last report
+	double squares = 0;
+	u32 heard = 0;
 	u32 outRate = 11025;
 	float phase = 0.f;
 	s16 last = 0;

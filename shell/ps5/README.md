@@ -191,8 +191,8 @@ Added:
 - **Frame generation:** two more ways of making the pictures beside
   PSFlyCast's own: AMD FSR3's optical flow and MihawkGen
   (Settings > Video > Generation method).
-- **A USB CD/DVD drive:** play a Dreamcast game burned to a CD-R (Disc Drive
-  tab), ported from PSSwanStation.
+- **A USB CD/DVD drive:** insert a Dreamcast disc and play it from the Disc
+  Drive tab, ported from PSSwanStation.
 - **Disc images from zip, 7z and rar archives**, and copying a disc to CDI
   or CHD.
 - **Memory cards:** backed up to the network share when a game ends and on

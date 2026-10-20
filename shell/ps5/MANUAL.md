@@ -933,7 +933,7 @@ If the tab says it has no access, start elfldr and then PSFlyCast again.
 Cover downloads may stop working while USB drives are on, and so may the
 update check and the sign-in for achievements.
 
-### A game on a CD-R in a USB CD or DVD drive
+### A Dreamcast disc in a USB CD or DVD drive
 
 1. Turn on Settings > Library > **USB disc drive** and restart PSFlyCast
    (it needs elfldr, as USB drives do).
@@ -942,8 +942,6 @@ update check and the sign-in for achievements.
 3. Press Cross. The drive is read as the game asks; behind it the rest of the
    disc is read into memory in order, so that after a while the drive rests.
 
-This reads a Dreamcast game burned to a **CD-R** (a self-boot disc, or a game
-on a data CD). A Dreamcast's own GD-ROM cannot be read by a CD or DVD drive.
 **Disc drive speed** (Quiet, Normal, Maximum) sets how fast the drive is
 asked to read; a drive that fails to read is slowed a step by itself. This
 has not been run on a console yet: the boot log's "disc:" lines say what the
@@ -953,8 +951,7 @@ console lists if no drive shows.
 the games folder as a **CDI** (the disc's sessions kept as they are) or a
 **CHD** (not compressed; chdman can do that). It runs in the background, the
 disc stays in the drive, and the copy shows in the Internal tab when it is
-done. A GDI is not offered: Flycast reads those only as a GD-ROM's layout,
-which a CD-R does not have.
+done. A GDI is not offered: Flycast reads those only as a GD-ROM's layout.
 
 ## 20. Playing online
 
