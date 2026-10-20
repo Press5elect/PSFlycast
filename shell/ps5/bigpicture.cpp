@@ -3149,12 +3149,24 @@ const std::vector<GameOption>& gameOptions()
 
 // The options offered for a game file: without the patches it has none of,
 // and for Details > Options (saved) without what is not kept per game.
-std::vector<GameOption> optionsFor(const std::string& fileName, bool saved)
+// The options of the Controls page: the controller's own settings of the game
+// (the profile, the right stick, turbo, the slots, the light gun), which the
+// Game options page leaves to this one.
+bool isControlOption(const GameOption& option)
+{
+	if (option.category == GameOption::Controls)
+		return true;
+	return option.key != nullptr && strncmp(option.key, "input.device", 12) == 0;
+}
+
+std::vector<GameOption> optionsFor(const std::string& fileName, bool saved, bool controls)
 {
 	std::vector<GameOption> rows;
 	for (const GameOption& option : gameOptions())
 	{
 		if (saved && option.key == nullptr)
+			continue;
+		if (!controls && isControlOption(option))
 			continue;
 		if (option.patch != nullptr && !ps5::patches::has(fileName, option.patch))
 			continue;
@@ -3506,7 +3518,7 @@ void detailsInput(Game& g, bool selectDisk)
 	}
 	case PageOptions:
 	{
-		const std::vector<GameOption> options = optionsFor(g.media.fileName, true);
+		const std::vector<GameOption> options = optionsFor(g.media.fileName, true, false);
 		const int n = hasId ? (int)options.size() + 1 : 0;	// and "Same as the Settings for all"
 		if (in.up && det.row > 0) det.row--;
 		if (in.down && det.row < n - 1) det.row++;
@@ -3689,7 +3701,7 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 				"game when it runs, and this one has not run yet.", tw);
 		return;
 	}
-	const std::vector<GameOption> options = optionsFor(g.media.fileName, true);
+	const std::vector<GameOption> options = optionsFor(g.media.fileName, true, false);
 	const int rows = det.page == PageStates ? (int)det.states.size() : det.page == PageManage ? (int)ManageRows
 			: det.page == PageOptions ? (int)options.size() + 1 : 1 + (int)det.cheatNames.size();
 	if (det.page == PageManage && det.coverGeneration != ps5::covers::generation())
@@ -7323,6 +7335,7 @@ struct QuickState
 	int controlFocus = 0;
 	float controlScroll = 0;
 	int listening = -1;				// the row waiting for a button; -1 for none
+	std::string controlCross, controlSquare;	// what the Controls page offers on Cross and Square now
 	bool listenArmed = false;		// every button was let go since it began to wait
 	double listenAt = 0;
 	// "Restart game" was chosen once: until then, choosing it again restarts.
@@ -7784,7 +7797,7 @@ void toolsPage(ImDrawList *dl, float px, float pw, float top)
 int ownOptions()
 {
 	int own = 0;
-	for (const GameOption& option : optionsFor(::settings.content.fileName, false))
+	for (const GameOption& option : optionsFor(::settings.content.fileName, false, false))
 		own += option.get() != settingsValue(option) ? 1 : 0;
 	return own;
 }
@@ -7806,7 +7819,7 @@ void openGameOptions()
 // next started) and is kept for this game only; the Settings are not touched.
 void optionsPage(ImDrawList *dl, float px, float pw, float top)
 {
-	const std::vector<GameOption> options = optionsFor(::settings.content.fileName, false);
+	const std::vector<GameOption> options = optionsFor(::settings.content.fileName, false, false);
 	const int count = (int)options.size();
 	const int rows = count + 1;		// and "As in Settings, all of them"
 	if (in.up && qm.optionFocus > 0) qm.optionFocus--;
@@ -8025,6 +8038,26 @@ void unbindControl(GamepadDevice& pad, DreamcastKey key)
 	pad.save_mapping();
 }
 
+std::vector<GameOption> controlOptions()
+{
+	std::vector<GameOption> rows;
+	for (const GameOption& option : gameOptions())
+		if (isControlOption(option) && option.patch == nullptr)
+			rows.push_back(option);
+	// The profile first, then the right stick's, then the rest as the Settings have them.
+	auto rank = [](const GameOption& option) {
+		const std::string key = option.key != nullptr ? option.key : "";
+		if (key == "ps5.PadProfile")
+			return 0;
+		if (key == "ps5.PadType" || key.rfind("ps5.PadMouse", 0) == 0 || key.rfind("ps5.PadAxis", 0) == 0
+				|| key == "ps5.PadSmoothing" || key == "ps5.PadRightTurns")
+			return 1;
+		return 2;
+	};
+	std::stable_sort(rows.begin(), rows.end(), [&](const GameOption& a, const GameOption& b) { return rank(a) < rank(b); });
+	return rows;
+}
+
 void openControls()
 {
 	qm.controls = true;
@@ -8036,28 +8069,325 @@ void openControls()
 	config::Settings::instance().setPerGameConfig(true);
 }
 
+// ---- the picture: the Dreamcast controller, and what drives each of its controls
+//
+// A plain drawing of the Dreamcast controller's layout (the stick and the
+// D-pad on the left, A B X Y on the right, Start between them, the triggers on
+// top and the two slots in the middle), each control with the DualSense input
+// that drives it. What the profile gives to the mouse or the keyboard is shown
+// in the warm colour with what it does there instead: the controller no longer
+// has it. Below the controller, what the DualSense has that the Dreamcast's
+// does not: the right stick, L1, R1, L3, R3, the touch pad. The control the
+// focused row is about is lit.
+
+// What the picture lights.
+enum class PadPart { None, A, B, X, Y, Start, Up, Down, Left, Right, Stick, LT, RT, Slot1, Slot2, RightStick, Extras, C, Z };
+
+PadPart partOfKey(DreamcastKey key)
+{
+	switch (key)
+	{
+	case DC_BTN_A: return PadPart::A;
+	case DC_BTN_B: return PadPart::B;
+	case DC_BTN_X: return PadPart::X;
+	case DC_BTN_Y: return PadPart::Y;
+	case DC_BTN_C: return PadPart::C;
+	case DC_BTN_Z: return PadPart::Z;
+	case DC_BTN_START: return PadPart::Start;
+	case DC_DPAD_UP: return PadPart::Up;
+	case DC_DPAD_DOWN: return PadPart::Down;
+	case DC_DPAD_LEFT: return PadPart::Left;
+	case DC_DPAD_RIGHT: return PadPart::Right;
+	case DC_AXIS_LT: return PadPart::LT;
+	case DC_AXIS_RT: return PadPart::RT;
+	default: return PadPart::Extras;
+	}
+}
+
+PadPart partOfOption(const GameOption& option)
+{
+	const std::string key = option.key != nullptr ? option.key : "";
+	if (key == "input.device1.1")
+		return PadPart::Slot1;
+	if (key == "input.device1.2")
+		return PadPart::Slot2;
+	if (key.rfind("ps5.PadMouse", 0) == 0 || key.rfind("ps5.PadAxis", 0) == 0 || key == "ps5.PadSmoothing"
+			|| key == "ps5.PadRightTurns" || key == "ps5.PadType")
+		return PadPart::RightStick;
+	if (key == "ps5.TurboButtons" || key == "ps5.TurboRate")
+		return PadPart::A;
+	if (key == "ps5.StickAsDpad" || key == "ps5.LightGunAim")
+		return PadPart::Stick;
+	if (key == "ps5.PadProfile")
+		return PadPart::Extras;
+	return PadPart::None;
+}
+
+// What drives a Dreamcast control: the DualSense input's name, and when the
+// profile gives that input away, what it is there instead.
+struct Driver
+{
+	std::string name;		// "Cross", "Not set"
+	std::string instead;	// "Key Space": the controller no longer has it
+};
+
+Driver driverOf(GamepadDevice *pad, DreamcastKey key, const ps5::pad::bind::Profile& profile, bool profileLive)
+{
+	namespace B = ps5::pad::bind;
+	Driver d;
+	if (pad == nullptr)
+	{
+		d.name = "No controller";
+		return d;
+	}
+	d.name = boundTo(*pad, key);
+	const std::shared_ptr<InputMapping> mapping = pad->get_input_mapping();
+	if (mapping == nullptr || !profileLive)
+		return d;
+	int input = -1;
+	const u32 button = mapping->get_button_code(0, key);
+	const u32 axis = mapping->get_axis_code(0, key).first;
+	for (int i = 0; i < B::Inputs && input < 0; i++)
+	{
+		const u32 bit = B::inputButton(i);
+		if (bit != 0 && button != InputMapping::INVALID_CODE && ps5::pad::buttonCode(bit) == button)
+			input = i;
+	}
+	if (input < 0 && axis != InputMapping::INVALID_CODE)
+		input = axis == ps5::pad::AxisCodeL2 ? 6 : axis == ps5::pad::AxisCodeR2 ? 7 : -1;
+	if (input < 0 && button != InputMapping::INVALID_CODE)
+	{
+		// L2 and R2 as buttons.
+		if (button == ps5::pad::buttonCode(ps5::pad::L2))
+			input = 6;
+		else if (button == ps5::pad::buttonCode(ps5::pad::R2))
+			input = 7;
+	}
+	if (input >= 0 && profile.action[input] != B::Controller)
+		d.instead = B::actionName(profile.action[input]);
+	return d;
+}
+
+const char *slotText(int device)
+{
+	switch (device)
+	{
+	case MDT_SegaVMU: return "Memory card";
+	case MDT_PurupuruPack: return "Rumble pack";
+	case MDT_Microphone: return "Microphone";
+	case MDT_None: return "Empty";
+	default: return "Other";
+	}
+}
+
+void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
+{
+	namespace B = ps5::pad::bind;
+	const std::shared_ptr<GamepadDevice> pad = pad1();
+	const B::Profile profile = B::current();
+	// The profile's mouse and keys reach the game only in a Dreamcast game.
+	const bool live = !::settings.platform.isArcade();
+	const float h = w * 0.66f;
+	const float cx = x + w / 2;
+	const ImU32 body = col::rgba(226, 226, 232, 240);
+	const ImU32 part = col::rgba(70, 72, 80, 255);
+	const ImU32 partHi = col::rgba(150, 152, 160, 255);
+	auto litColor = [&](PadPart p) { return p == lit ? col::accent : part; };
+	auto P = [&](float fx, float fy) { return ImVec2(x + w * fx, y + h * fy); };
+
+	// The triggers, behind the body.
+	rect(dl, P(0.13f, 0).x, P(0, 0.02f).y, w * 0.20f, h * 0.16f, litColor(PadPart::LT), 14);
+	rect(dl, P(0.67f, 0).x, P(0, 0.02f).y, w * 0.20f, h * 0.16f, litColor(PadPart::RT), 14);
+	// The body: a wide top and two grips below it.
+	dl->AddCircleFilled(V(P(0.25f, 0.70f).x, P(0, 0.70f).y), w * 0.17f * S, body, 48);
+	dl->AddCircleFilled(V(P(0.75f, 0.70f).x, P(0, 0.70f).y), w * 0.17f * S, body, 48);
+	rect(dl, P(0.04f, 0).x, P(0, 0.12f).y, w * 0.92f, h * 0.50f, body, h * 0.20f);
+
+	// The slots, one opening in the middle of the top with the two in it.
+	const float slotX = P(0.38f, 0).x, slotY = P(0, 0.18f).y, slotW = w * 0.24f, slotH = h * 0.26f;
+	rect(dl, slotX, slotY, slotW, slotH, col::rgba(40, 42, 48, 255), 10);
+	const int slots[2] = { config::MapleExpansionDevices[0][0], config::MapleExpansionDevices[0][1] };
+	for (int i = 0; i < 2; i++)
+	{
+		const bool on = lit == (i == 0 ? PadPart::Slot1 : PadPart::Slot2);
+		const float ry = slotY + 8 + i * (slotH - 8) / 2;
+		if (on)
+			rect(dl, slotX + 4, ry - 2, slotW - 8, (slotH - 8) / 2 - 2, col::accent, 8);
+		text(dl, bold(), 16, slotX + 12, ry + 2, col::text, i == 0 ? "1" : "2");
+		text(dl, regular(), 16, slotX + 30, ry + 2, on ? col::text : col::dim,
+				fit(regular(), 16, slotText(slots[i]), slotW - 38).c_str());
+	}
+
+	// The stick, the D-pad, Start, A B X Y.
+	const ImVec2 stick = P(0.19f, 0.34f);
+	const float stickR = w * 0.062f;
+	dl->AddCircleFilled(V(stick.x, stick.y), (stickR + 5) * S, partHi, 40);
+	dl->AddCircleFilled(V(stick.x, stick.y), stickR * S, litColor(PadPart::Stick), 40);
+	const ImVec2 dpad = P(0.27f, 0.66f);
+	const float arm = w * 0.030f, len = w * 0.050f;
+	const float dX = dpad.x, dY = dpad.y;
+	rect(dl, dX - arm, dY - len - arm, arm * 2, (len + arm) * 2, part, 4);
+	rect(dl, dX - len - arm, dY - arm, (len + arm) * 2, arm * 2, part, 4);
+	if (lit == PadPart::Up) rect(dl, dX - arm, dY - len - arm, arm * 2, len, col::accent, 4);
+	if (lit == PadPart::Down) rect(dl, dX - arm, dY + arm, arm * 2, len, col::accent, 4);
+	if (lit == PadPart::Left) rect(dl, dX - len - arm, dY - arm, len, arm * 2, col::accent, 4);
+	if (lit == PadPart::Right) rect(dl, dX + arm, dY - arm, len, arm * 2, col::accent, 4);
+	const ImVec2 start = P(0.5f, 0.54f);
+	if (lit == PadPart::Start)
+		dl->AddCircleFilled(V(start.x, start.y), 20 * S, col::accent, 32);
+	dl->AddTriangleFilled(V(start.x - 10, start.y - 11), V(start.x - 10, start.y + 11), V(start.x + 12, start.y), part);
+	const ImVec2 faceAt = P(0.78f, 0.36f);
+	const float fd = w * 0.058f, fr = w * 0.032f;
+	struct Face { PadPart p; DreamcastKey key; float dx, dy; const char *n; ImU32 c; };
+	const Face faces[4] = {
+		{ PadPart::Y, DC_BTN_Y, 0, -fd, "Y", col::rgba(60, 170, 90, 255) },
+		{ PadPart::B, DC_BTN_B, fd, 0, "B", col::rgba(60, 120, 220, 255) },
+		{ PadPart::X, DC_BTN_X, -fd, 0, "X", col::rgba(236, 196, 50, 255) },
+		{ PadPart::A, DC_BTN_A, 0, fd, "A", col::rgba(206, 62, 62, 255) },
+	};
+	for (const Face& f : faces)
+	{
+		if (f.p == lit)
+			dl->AddCircleFilled(V(faceAt.x + f.dx, faceAt.y + f.dy), (fr + 7) * S, col::accent, 32);
+		dl->AddCircleFilled(V(faceAt.x + f.dx, faceAt.y + f.dy), fr * S, f.c, 32);
+		const ImVec2 ts = textSize(bold(), 19, f.n);
+		text(dl, bold(), 19, faceAt.x + f.dx - ts.x / 2, faceAt.y + f.dy - ts.y / 2, col::rgba(255, 255, 255, 255), f.n);
+	}
+
+	// The captions: what drives each control, in a column on each side.
+	auto caption = [&](PadPart p, const std::string& name, const std::string& instead, ImVec2 from, float ty, bool leftSide) {
+		const bool on = p == lit;
+		const ImU32 c = on ? col::text : !instead.empty() ? col::warm : name == "Not set" ? col::faint : col::dim;
+		const float edge = leftSide ? x - 16 : x + w + 16;
+		dl->AddLine(V(from.x, from.y), V(edge + (leftSide ? 6 : -6), ty + 11), alpha(on ? col::accent : col::line, 0.95f), 1.5f * S);
+		const std::string second = instead.empty() ? "" : "now " + instead;
+		const float nw = textSize(bold(), 19, name.c_str()).x;
+		const float sw = second.empty() ? 0.f : textSize(regular(), 16, second.c_str()).x;
+		const float lx = leftSide ? edge - std::max(nw, sw) : edge;
+		if (on)
+			rect(dl, lx - 8, ty - 4, std::max(nw, sw) + 16, second.empty() ? 30 : 50, alpha(col::accent, 0.85f), 8);
+		text(dl, bold(), 19, leftSide ? edge - nw : lx, ty, c, name.c_str());
+		if (!second.empty())
+		{
+			// The controller no longer has it: struck through, and what it is now under it.
+			const float nx = leftSide ? edge - nw : lx;
+			dl->AddLine(V(nx, ty + 12), V(nx + nw, ty + 12), on ? col::text : col::warm, 1.5f * S);
+			text(dl, regular(), 16, leftSide ? edge - sw : lx, ty + 24, on ? col::text : col::warm, second.c_str());
+		}
+	};
+	auto control = [&](PadPart p, DreamcastKey key, ImVec2 from, float ty, bool leftSide) {
+		const Driver d = driverOf(pad.get(), key, profile, live);
+		caption(p, d.name, d.instead, from, ty, leftSide);
+	};
+	// Left: the left trigger, the stick, the D-pad.
+	control(PadPart::LT, DC_AXIS_LT, P(0.18f, 0.06f), y - 8, true);
+	{
+		std::string keys;
+		if (live)
+			for (int i = 16; i < 20; i++)
+				if (profile.action[i] != B::Controller)
+					keys += (keys.empty() ? "" : ", ") + B::actionName(profile.action[i]);
+		caption(PadPart::Stick, "Left stick", keys, ImVec2(stick.x - stickR, stick.y), y + h * 0.20f, true);
+	}
+	control(PadPart::Up, DC_DPAD_UP, ImVec2(dX, dY - len), y + h * 0.40f, true);
+	control(PadPart::Left, DC_DPAD_LEFT, ImVec2(dX - len, dY), y + h * 0.56f, true);
+	control(PadPart::Down, DC_DPAD_DOWN, ImVec2(dX, dY + len), y + h * 0.72f, true);
+	control(PadPart::Right, DC_DPAD_RIGHT, ImVec2(dX + len, dY), y + h * 0.88f, true);
+	// Right: the right trigger, Y, B, X, A, Start.
+	control(PadPart::RT, DC_AXIS_RT, P(0.82f, 0.06f), y - 8, false);
+	control(PadPart::Y, DC_BTN_Y, ImVec2(faceAt.x + fr, faceAt.y - fd), y + h * 0.16f, false);
+	control(PadPart::B, DC_BTN_B, ImVec2(faceAt.x + fd + fr, faceAt.y), y + h * 0.32f, false);
+	control(PadPart::X, DC_BTN_X, ImVec2(faceAt.x - fd, faceAt.y + fr), y + h * 0.48f, false);
+	control(PadPart::A, DC_BTN_A, ImVec2(faceAt.x + fr, faceAt.y + fd), y + h * 0.64f, false);
+	control(PadPart::Start, DC_BTN_START, ImVec2(start.x + 12, start.y), y + h * 0.88f, false);
+
+	// What the DualSense has beyond the Dreamcast controller.
+	float ey = y + h + 40;
+	text(dl, bold(), 20, x, ey, col::text, "Beyond the Dreamcast controller");
+	ey += 34;
+	auto extra = [&](const char *name, const std::string& what, bool warm, bool on) {
+		const std::string line = fit(regular(), 19, what, w - 170);
+		if (on)
+			rect(dl, x - 8, ey - 4, w + 16, 30, alpha(col::accent, 0.85f), 8);
+		text(dl, bold(), 19, x, ey, on ? col::text : col::dim, name);
+		text(dl, regular(), 19, x + 160, ey, on ? col::text : warm ? col::warm : col::faint, line.c_str());
+		ey += 30;
+	};
+	std::string right;
+	if (live && profile.mouse)
+		right = "The mouse";
+	else if (ps5::pad::PadRightTurns != 0)
+		right = "Turns, as the left stick does";
+	else if (ps5::pad::PadType == ps5::pad::PadTypeSecondStick)
+		right = "The second stick";
+	else
+		right = "Nothing in most games";
+	extra("Right stick", right, live && profile.mouse, lit == PadPart::RightStick);
+	// L1, R1, L3, R3, touch pad: the Dreamcast control on them, or the profile's action.
+	struct Extra { int input; u32 bit; };
+	const Extra extras[] = { { 4, ps5::pad::L1 }, { 5, ps5::pad::R1 }, { 8, ps5::pad::L3 }, { 9, ps5::pad::R3 } };
+	for (const Extra& e : extras)
+	{
+		std::string what;
+		bool warm = false;
+		if (live && profile.action[e.input] != B::Controller)
+		{
+			what = B::actionName(profile.action[e.input]);
+			warm = true;
+		}
+		else if (pad != nullptr)
+		{
+			// The control of the layout that is on this button, if one is.
+			const std::shared_ptr<InputMapping> mapping = pad->get_input_mapping();
+			what = "Nothing";
+			if (mapping != nullptr)
+				for (const PadControl& control : padControls)
+					if (mapping->get_button_code(0, control.key) == ps5::pad::buttonCode(e.bit))
+					{
+						const char *name = ::settings.platform.isArcade() ? control.arcade : control.console;
+						if (name != nullptr)
+							what = name;
+					}
+		}
+		const bool on = lit == PadPart::Extras || (lit == PadPart::C && e.input == 5) || (lit == PadPart::Z && e.input == 4);
+		extra(B::inputName(e.input), what, warm, on && lit != PadPart::Extras ? true : false);
+	}
+	extra("Touch pad", "The quick menu", false, false);
+	text(dl, regular(), 18, x, ey + 6, col::faint,
+			std::string("Profile: ").append(B::profileName(B::chosen())).append(live ? "" : " (Dreamcast games only)").c_str(), w);
+}
+
 void controlsPage(ImDrawList *dl, float px, float pw, float top)
 {
+	namespace B = ps5::pad::bind;
 	const std::shared_ptr<GamepadDevice> pad = pad1();
 	const std::vector<PadControl> controls = controlsShown();
+	const std::vector<GameOption> options = controlOptions();
 	const bool arcade = ::settings.platform.isArcade();
 	const int count = (int)controls.size();
-	namespace B = ps5::pad::bind;
-	// A dialog over the page (the bindings) takes the pad.
+	const int optionCount = (int)options.size();
+	// A dialog over the page (the profiles) takes the pad.
 	if (bindsUi.open)
 	{
 		const Input given = in;
 		in = Input{};
 		bindsDialog(ImGui::GetForegroundDrawList(), given);
 	}
-	const int profileNow = B::chosen();
-	// The first rows: whose layout this is, the profile, and the profiles' screen.
-	const int head = 3;
-	const int rows = count + head;
+	// The rows: whose layout this is and the profiles' screen; then the
+	// controller's options (the profile among them); then the Dreamcast's
+	// controls, each on its DualSense button.
+	enum { RowLayout, RowProfiles, Head };
+	const int optionsAt = Head;
+	const int controlsAt = optionsAt + optionCount;
+	const int rows = controlsAt + count;
 	const bool own = pad != nullptr && pad->isPerGameMapping();
+	const int f = qm.controlFocus;
+	const bool onOption = f >= optionsAt && f < controlsAt;
+	const bool onControl = f >= controlsAt && f < rows;
+	const PadControl *focusedControl = onControl ? &controls[f - controlsAt] : nullptr;
 	// The focused row is one of the emulator's own controls, and is on a button.
-	const bool removable = pad != nullptr && qm.listening < 0 && qm.controlFocus >= head && qm.controlFocus < head + count
-			&& controls[qm.controlFocus - head].emulator && boundTo(*pad, controls[qm.controlFocus - head].key) != "Not set";
+	const bool removable = pad != nullptr && qm.listening < 0 && focusedControl != nullptr && focusedControl->emulator
+			&& boundTo(*pad, focusedControl->key) != "Not set";
 
 	if (qm.listening >= 0)
 	{
@@ -8070,7 +8400,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			qm.listening = -1;
 		else if (const u32 pressed = state.pressed & ~(ps5::pad::Intercepted | ps5::pad::TouchPad); pressed != 0 && pad != nullptr)
 		{
-			bindControl(*pad, controls[qm.listening - head].key, pressed & (0u - pressed));
+			bindControl(*pad, controls[qm.listening - controlsAt].key, pressed & (0u - pressed));
 			qm.listening = -1;
 		}
 		if (qm.listening >= 0 && timeNow > qm.listenAt + 8)
@@ -8082,35 +8412,43 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		if (in.down && qm.controlFocus < rows - 1) qm.controlFocus++;
 		if (in.l2) qm.controlFocus = std::max(0, qm.controlFocus - 8);
 		if (in.r2) qm.controlFocus = std::min(rows - 1, qm.controlFocus + 8);
-		if (pad != nullptr && qm.controlFocus == 0 && own && (in.accept || in.left || in.right || in.square))
+		if (qm.controlFocus == RowLayout && pad != nullptr && own && (in.accept || in.square))
 		{
 			// Back to the layout every game has: the game's own is deleted.
 			pad->setPerGameMapping(false);
 			GamepadDevice::load_system_mappings();
 		}
-		else if (qm.controlFocus == 1 && (in.accept || in.left || in.right))
+		else if (qm.controlFocus == RowProfiles && in.accept)
+			openBinds();
+		else if (onOption)
 		{
-			// The profile: the mouse and keyboard take their ports with the game's next start.
-			int next = profileNow + (in.left ? -1 : 1);
-			if (in.accept)
-				next = (profileNow + 1) % B::Profiles;
-			if (next >= 0 && next < B::Profiles && next != profileNow)
+			const GameOption& option = options[qm.controlFocus - optionsAt];
+			const int choice = choiceOf(option, option.get());
+			const int last = (int)option.values.size() - 1;
+			int next = choice;
+			if (in.left && choice > 0) next = choice - 1;
+			else if (in.right && choice < last) next = choice + 1;
+			else if (in.accept) next = choice >= last ? 0 : choice + 1;
+			if (next != choice && next >= 0)
 			{
-				ps5::pad::PadProfile.set(next);
+				option.set(option.values[next]);
+				qm.optionsDirty = true;
+			}
+			else if (in.square && option.get() != settingsValue(option))
+			{
+				option.set(settingsValue(option));
 				qm.optionsDirty = true;
 			}
 		}
-		else if (qm.controlFocus == 2 && in.accept)
-			openBinds();
-		else if (pad != nullptr && qm.controlFocus >= head && in.accept)
+		else if (pad != nullptr && onControl && in.accept)
 		{
 			qm.listening = qm.controlFocus;
 			qm.listenArmed = false;
 			qm.listenAt = timeNow;
 		}
 		else if (removable && in.square)
-			unbindControl(*pad, controls[qm.controlFocus - head].key);
-		else if (in.back || in.options)
+			unbindControl(*pad, focusedControl->key);
+		if (in.back || in.options)
 		{
 			qm.controls = false;
 			if (qm.optionsDirty)
@@ -8119,18 +8457,29 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		}
 	}
 
+	// What the bottom bar offers for this row (the hints are drawn with the menu's).
+	qm.controlCross = qm.controlFocus == RowLayout ? (own ? "As for every game" : "")
+			: qm.controlFocus == RowProfiles ? "Open" : onOption ? "Next" : "Change";
+	qm.controlSquare = removable ? "No button"
+			: onOption && options[qm.controlFocus - optionsAt].get() != settingsValue(options[qm.controlFocus - optionsAt]) ? "As in Settings"
+			: "";
+
 	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_GAMEPAD "   Controls");
 	{
 		const char *scope = "For this game only";
 		const ImVec2 ss = textSize(regular(), 22, scope);
 		text(dl, regular(), 22, px + pw - 60 - ss.x, top - 52, col::faint, scope);
 	}
-	const float rowH = 62, noteH = 92;
+
+	// The list on the left, the picture on the right (when the panel is wide enough for it).
+	const bool picture = pw >= 1400;
+	const float listW = picture ? 760.f : pw;
+	const float rowH = 58, noteH = 92;
 	const float viewH = H - 96 - noteH - top;
 	const float visible = viewH / rowH;
 	const float target = std::clamp((float)qm.controlFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)rows - visible));
 	qm.controlScroll = approach(qm.controlScroll, target, 18);
-	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	dl->PushClipRect(V(px, top), V(px + listW, top + viewH), true);
 	for (int i = 0; i < rows; i++)
 	{
 		const float y = top + (i - qm.controlScroll) * rowH;
@@ -8138,54 +8487,101 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			continue;
 		const bool on = i == qm.controlFocus;
 		const bool waiting = i == qm.listening;
+		// A thin line where the controller's options end and the controls begin.
+		if (i == controlsAt || i == optionsAt)
+			rect(dl, px + 48, y - 1, listW - 96, 1, col::line);
 		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, waiting ? col::warm : col::accent, 12);
-		const float right = px + pw - 60, cy = y + rowH / 2 - 1;
+			rect(dl, px + 32, y + 2, listW - 64, rowH - 6, waiting ? col::warm : col::accent, 12);
+		const float right = px + listW - 60, cy = y + rowH / 2 - 1;
 		std::string label, value;
-		if (i == 0)
+		bool dot = false, amiss = false, arrows = false;
+		if (i == RowLayout)
 		{
 			label = "Layout";
 			value = own ? "This game's own" : "As for every game";
+			dot = own;
 		}
-		else if (i == 1)
-		{
-			label = "Profile";
-			value = B::profileName(profileNow);
-		}
-		else if (i == 2)
+		else if (i == RowProfiles)
 		{
 			label = "Controller profiles";
 			value = "Open";
 		}
+		else if (i < controlsAt)
+		{
+			const GameOption& option = options[i - optionsAt];
+			const int v = option.get();
+			label = option.label;
+			const int choice = choiceOf(option, v);
+			value = choice < 0 ? oddValue(option, v) : option.names[choice];
+			dot = v != settingsValue(option);
+			arrows = on;
+		}
 		else
 		{
-			const PadControl& control = controls[i - head];
+			const PadControl& control = controls[i - controlsAt];
 			label = arcade ? control.arcade : control.console;
 			value = waiting ? "Press a button..." : pad != nullptr ? boundTo(*pad, control.key) : "No controller";
+			// A Dreamcast control on no button is amiss; one of the emulator's own is not.
+			amiss = value == "Not set" && !control.emulator;
 		}
-		if (i == 0 && own)
+		if (dot)
 			dl->AddCircleFilled(V(px + 54, cy), 5 * S, on ? col::text : col::accent);
-		text(dl, bold(), 24, px + 72, y + 16, on || (i == 0 && own) ? col::text : col::dim, label.c_str());
-		const ImVec2 vs = textSize(regular(), 24, value.c_str());
+		text(dl, bold(), 23, px + 72, y + 15, on || dot ? col::text : col::dim, fit(bold(), 23, label, listW * 0.5f).c_str());
+		value = fit(regular(), 23, value, listW * 0.36f);
+		const ImVec2 vs = textSize(regular(), 23, value.c_str());
 		const float pulse = waiting ? 0.6f + 0.4f * std::sin((float)timeNow * 6.f) : 1.f;
-		// A Dreamcast control on no button is amiss; one of the emulator's own is not.
-		const bool amiss = value == "Not set" && !(i >= head && controls[i - head].emulator);
-		text(dl, regular(), 24, right - vs.x, cy - vs.y / 2,
-				alpha(on ? col::text : amiss ? col::warm : col::faint, pulse), value.c_str());
+		const float vx = right - (arrows ? 22 : 0) - vs.x;
+		text(dl, regular(), 23, vx, cy - vs.y / 2,
+				alpha(on || dot ? col::text : amiss ? col::warm : col::faint, pulse), value.c_str());
+		if (arrows)
+		{
+			dl->AddTriangleFilled(V(vx - 20, cy), V(vx - 8, cy - 10), V(vx - 8, cy + 10), col::text);
+			dl->AddTriangleFilled(V(right, cy), V(right - 12, cy - 10), V(right - 12, cy + 10), col::text);
+		}
 	}
 	dl->PopClipRect();
-	const bool emulators = qm.controlFocus >= head && qm.controlFocus < head + count && controls[qm.controlFocus - head].emulator;
-	const char *note = qm.listening >= 0 ? "Press the DualSense button for it. The touch pad leaves it as it is."
-			: qm.controlFocus == 1 ? "What the controller is beside the Dreamcast's controller, for this game: alone, with the right stick as a mouse, a mouse and keyboard, or one of your own.\n"
-					"What a profile gives away leaves the controller. The mouse and keyboard take their ports when the game starts: restart it after a change."
-			: qm.controlFocus == 2 ? "The profiles themselves: the four built in, and four of your own to change."
-			: qm.controlFocus == 0 ? (own ? "This game has a layout of its own. Cross puts it back to the one every game has."
-					: "This game uses the layout every game has. Changing a button below gives it one of its own.")
-			: emulators ? "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it;\n"
-					"Square takes it off its button. L3 and R3 are free in Dreamcast games."
-			: "Cross, then the DualSense button for it. A button that did something else stops doing it.\n"
-					"L2 and R2 are analog for the triggers. The sticks and the touch pad stay as they are.";
-	text(dl, regular(), 20, px + 56, top + viewH + 14, col::faint, note, pw - 112);
+
+	// The note under the list.
+	std::string note;
+	bool nextStart = false;
+	if (qm.listening >= 0)
+		note = "Press the DualSense button for it. The touch pad leaves it as it is.";
+	else if (qm.controlFocus == RowLayout)
+		note = own ? "This game has a layout of its own. Cross puts it back to the one every game has."
+				: "This game uses the layout every game has. Changing a button below gives it one of its own.";
+	else if (qm.controlFocus == RowProfiles)
+		note = "The profiles themselves: the four built in, and four of your own to change. Controller profile, below, picks this game's.";
+	else if (onOption)
+	{
+		const GameOption& option = options[qm.controlFocus - optionsAt];
+		note = option.desc;
+		nextStart = option.nextStart;
+		if (option.nextStart)
+			note += ".\nTakes effect the next time this game starts.";
+		else if (option.key == nullptr)
+			note += ".\nThe controller's own: the same for every game.";
+	}
+	else if (focusedControl != nullptr && focusedControl->emulator)
+		note = "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it; "
+				"Square takes it off its button. L3 and R3 are free in Dreamcast games.";
+	else
+		note = "Cross, then the DualSense button for it. A button that did something else stops doing it. "
+				"L2 and R2 are analog for the triggers.";
+	text(dl, regular(), 20, px + 56, top + viewH + 14, nextStart ? col::dim : col::faint, note.c_str(), listW - 112);
+
+	if (picture)
+	{
+		PadPart lit = PadPart::None;
+		if (focusedControl != nullptr)
+			lit = partOfKey(focusedControl->key);
+		else if (onOption)
+			lit = partOfOption(options[qm.controlFocus - optionsAt]);
+		else if (qm.controlFocus == RowProfiles)
+			lit = PadPart::Extras;
+		const float area = pw - listW;
+		const float w = std::min(560.f, area - 340);
+		drawPadPicture(dl, px + listW + (area - w) / 2, top + 30, w, lit);
+	}
 }
 
 // ---- the Rewind page: the moments of the last minutes, the newest first
@@ -8636,7 +9032,9 @@ void quickMenu()
 
 	// ---- the panel, sliding in from the right
 	// The pages are wider; the Rewind page, a short list, is not.
-	const float pw = 640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.controlsAnim, qm.trophiesAnim, qm.toolAnim });
+	// The Controls page is wider still: the controller's picture is beside its list.
+	const float pw = std::max(640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.trophiesAnim, qm.toolAnim }),
+			640 + (std::min(1700.f, W - 120) - 640) * qm.controlsAnim);
 	const float px = W - pw * (0.15f + 0.85f * t) + (1 - t) * 0;
 	gradientH(dl, px - 120, 0, 120, H, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, (int)(120 * t)));
 	rect(dl, px, 0, pw, H, alpha(col::sheet, 0.97f * t));
@@ -8793,15 +9191,13 @@ void quickMenu()
 			hint(Glyph::TouchPad, "Cancel");
 		else if (onControls)
 		{
-			// As controlsPage has it: Square takes one of the emulator's own
-			// controls off its button.
-			const std::shared_ptr<GamepadDevice> pad = pad1();
-			const std::vector<PadControl> controls = controlsShown();
-			const int row = qm.controlFocus - 1;
-			hint(Glyph::Cross, qm.controlFocus == 0 ? "As for every game" : "Change");
-			if (pad != nullptr && row >= 0 && row < (int)controls.size() && controls[row].emulator
-					&& boundTo(*pad, controls[row].key) != "Not set")
-				hint(Glyph::Square, "No button");
+			// As controlsPage has it for the focused row.
+			if (!qm.controlCross.empty())
+				hint(Glyph::Cross, qm.controlCross.c_str());
+			if (!qm.controlCross.empty() && qm.controlCross == "Next")
+				hint(Glyph::DPadLR, "Change");
+			if (!qm.controlSquare.empty())
+				hint(Glyph::Square, qm.controlSquare.c_str());
 			hint(Glyph::Circle, "Back");
 		}
 		else

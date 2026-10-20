@@ -207,7 +207,7 @@ Most arcade games have a digital joystick, which is the D-pad. In those the
 **left stick moves the joystick too**; in a game with a wheel, a flight stick
 or a light gun it stays the analog stick. Settings > Controls >
 **Left stick as D-pad** turns this on for every game or off, and a game can
-have its own choice (Details > Options, or Game options in the quick menu):
+have its own choice (the quick menu's **Controls**):
 on suits a Dreamcast game that only reads the D-pad.
 
 **The controller as a mouse and a keyboard** (build 65 on, not tried on a
@@ -270,7 +270,7 @@ Circle or the touch pad again resumes.
 | Cheats | Switches cheats on and off |
 | Achievements | Lists the game's achievements (see [Achievements](#17-achievements)). Only there when they are turned on |
 | Game options | Settings for this game only |
-| Controls | Changes which button does what, for this game |
+| Controls | The controller for this game: its profile, the right stick, turbo, the slots, the light gun, and which button does what, beside a picture of the Dreamcast controller |
 | Restart game | Starts the game again from its beginning |
 | Quit game | Back to the library |
 
@@ -561,7 +561,23 @@ split Boss
 
 ## 14. Changing the controls
 
-While a game runs: touch pad, then **Controls**.
+While a game runs: touch pad, then **Controls**. Everything about the
+controller for that game is here, not in Game options: the **Controller
+profile**, **Controller profiles** (to look at or change them), the right
+stick's settings, turbo, what is in the controller's slots (memory card,
+rumble pack, microphone), the light gun, and below them which DualSense button
+is on each Dreamcast control. Left and right change an option; Square puts it
+back to what the Settings have.
+
+Beside the list is a **picture of the Dreamcast controller**. Each of its
+controls is labelled with the DualSense input that drives it, and the slots
+show what is in them. What the profile gives to the mouse or the keyboard is
+struck through in orange with what it is now (*now Key Space*): the Dreamcast
+controller no longer has it. Under the picture, the DualSense's own extras
+(the right stick, L1, R1, L3, R3, the touch pad) say what they do. The control
+the focused row is about is lit.
+
+To change which button is which:
 
 1. Move to the control you want to change and press **Cross**.
 2. Press the DualSense button it should be on.
@@ -606,7 +622,7 @@ card. Vibration strength and the stick's dead zone are there too.
 **Light gun crosshair** shows where each gun points. The buttons do what
 they did before. An arcade gun game needs nothing more. A Dreamcast game
 played with a light gun needs the gun plugged in: in that game's options
-(Game details > Options, or the quick menu > Game options) set **Port A** to
+(the quick menu > Controls) set **Port A** to
 **Light gun** and start the game again.
 
 **A USB keyboard and mouse.** Plug them into the console before starting a

@@ -142,6 +142,12 @@ Added:
   wheel, or any of about 80 keys. An input a profile gives away is not the
   controller's as well, so nothing is pressed twice. The profile in use is a
   setting, and a game can have its own (quick menu > Controls).
+- **The quick menu's Controls** hold everything about the controller for the
+  game: the profile, the right stick's settings, turbo, the slots, the light
+  gun, and the button layout, beside a picture of the Dreamcast controller
+  that labels each control with the DualSense input driving it and marks what
+  the profile gives to the mouse or keyboard instead. These options left Game
+  options (and a game's Details > Options).
 - **HTTPS with USB drives on:** outside its sandbox the console's HTTPS
   client refuses every certificate, so the update check, covers and
   RetroAchievements failed with USB drives on. Requests now go through a TLS
