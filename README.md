@@ -1,3 +1,12 @@
+*** MESSAGE FOR PRESS5ELECT ***
+Hi! I am sending this via Pull Request because your Issues tab is disabled, and this was the only way to reach you directly. 
+
+Would it be possible to add an option to map the Right Analog Stick to the Dreamcast L and R Triggers in PSFlycast? In games like Grandia, the camera is rotated using L/R triggers, and being able to use the Right Stick for this would make the gameplay feel completely modern on the DualSense. Thanks for considering!
+*******************************
+
+
+
+
 # PSFlyCast
 
 ![Important warning](shell/ps5/screenshots/important-warning.png)
