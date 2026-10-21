@@ -376,8 +376,9 @@ extern bool restartOnExit;
 
 namespace covers
 {
-// Asks for <root>/covers/<base>.png to be downloaded if it is missing.
-void request(const std::string& base);
+// Asks for <root>/covers/<base>.png to be downloaded if it is missing. The
+// game's title is tried as well, for a file named in another way.
+void request(const std::string& base, const std::string& title = "");
 // Bumped whenever a cover arrives or is changed, so cached look-ups are redone.
 unsigned generation();
 // "Downloading covers (3 left)" or empty.

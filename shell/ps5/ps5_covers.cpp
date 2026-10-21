@@ -10,7 +10,9 @@
 	named (Redump names, "Re-Volt (USA)"). The picture is saved as
 	<root>/covers/<file name>.png, where the library already looks for the
 	user's own covers; a name the collection does not have is remembered in
-	covers/not-found.txt and not asked for again.
+	covers/not-found-2.txt and not asked for again. A file named in another way
+	than the collection ("[GDI] Game (US)[10S 51035]") is tried tidied
+	("Game (USA)") and by the game's title as well.
 
 	HTTPS is the console's own, libSceHttp2 on one worker thread, with the
 	calls, pool sizes and time-outs of PS5SX2's cover fetcher (Swordpdf,
@@ -483,7 +485,7 @@ void loadNotFound()
 	if (notFoundLoaded)
 		return;
 	notFoundLoaded = true;
-	if (FILE *f = fopen((coversDir() + "not-found.txt").c_str(), "r"))
+	if (FILE *f = fopen((coversDir() + "not-found-2.txt").c_str(), "r"))
 	{
 		char line[512];
 		while (fgets(line, sizeof(line), f) != nullptr)
@@ -502,7 +504,7 @@ void rememberNotFound(const std::string& base)
 {
 	std::lock_guard<std::mutex> lock(mutex);
 	notFound.insert(base);
-	if (FILE *f = fopen((coversDir() + "not-found.txt").c_str(), "a"))
+	if (FILE *f = fopen((coversDir() + "not-found-2.txt").c_str(), "a"))
 	{
 		fprintf(f, "%s\n", base.c_str());
 		fclose(f);
@@ -511,19 +513,109 @@ void rememberNotFound(const std::string& base)
 
 // The names to try for a file name: itself, then with each region when it
 // names none, then without a "(Disc N)" tag.
+// The name each file's cover was asked for with besides its own: the game's title
+// (from the disc's header or Flycast's list), for files named in another way.
+std::map<std::string, std::string> titles;
+
+// A region in a file name as the collection names it: (US) is (USA), (EU) is
+// (Europe), (JP) is (Japan); empty when it is not a region.
+std::string regionName(std::string token)
+{
+	for (char& c : token)
+		c = (char)toupper((unsigned char)c);
+	if (token == "US" || token == "U" || token == "USA" || token == "NTSC-U" || token == "NTSC")
+		return "USA";
+	if (token == "EU" || token == "EUR" || token == "E" || token == "EUROPE" || token == "PAL")
+		return "Europe";
+	if (token == "JP" || token == "JPN" || token == "J" || token == "JAPAN" || token == "NTSC-J")
+		return "Japan";
+	return "";
+}
+
+// A file name as the collection names its games: the [tags] some sets add
+// ("[GDI]", "[10S 51035]", "[!]") taken out, a region in short spelled out,
+// and the spaces tidied. "[GDI] Crazy Taxi (US)[10S 51035]" is "Crazy Taxi (USA)".
+std::string cleaned(const std::string& name)
+{
+	std::string out;
+	int depth = 0;
+	for (char c : name)
+	{
+		if (c == '[')
+			depth++;
+		else if (c == ']' && depth > 0)
+			depth--;
+		else if (depth == 0)
+			out += c;
+	}
+	// (US) and its kind.
+	std::string result;
+	for (size_t i = 0; i < out.size(); )
+	{
+		if (out[i] == '(')
+		{
+			const size_t close = out.find(')', i);
+			if (close != std::string::npos)
+			{
+				const std::string region = regionName(out.substr(i + 1, close - i - 1));
+				result += region.empty() ? out.substr(i, close - i + 1) : "(" + region + ")";
+				i = close + 1;
+				continue;
+			}
+		}
+		result += out[i++];
+	}
+	// One space between words, none at the ends, and one before a bracket.
+	std::string tidy;
+	for (char c : result)
+	{
+		if (c == '_')
+			c = ' ';
+		if (c == '(' && !tidy.empty() && tidy.back() != ' ')
+			tidy += ' ';
+		if (c == ' ' && (tidy.empty() || tidy.back() == ' '))
+			continue;
+		tidy += c;
+	}
+	while (!tidy.empty() && tidy.back() == ' ')
+		tidy.pop_back();
+	return tidy;
+}
+
+// The names to try, in order: the file's own, the file's tidied, the game's
+// title; each with the three regions when it has none, and without its disc
+// number when it has one.
 std::vector<std::string> namesFor(const std::string& base)
 {
-	std::vector<std::string> names{ base };
-	if (base.find('(') == std::string::npos)
-		for (const char *region : { " (USA)", " (Europe)", " (Japan)" })
-			names.push_back(base + region);
-	const size_t disc = base.find(" (Disc ");
-	if (disc != std::string::npos)
+	std::vector<std::string> names;
+	auto add = [&](const std::string& name) {
+		if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end())
+			names.push_back(name);
+	};
+	auto withVariants = [&](const std::string& name) {
+		if (name.empty())
+			return;
+		add(name);
+		if (name.find('(') == std::string::npos)
+			for (const char *region : { " (USA)", " (Europe)", " (Japan)" })
+				add(name + region);
+		const size_t disc = name.find(" (Disc ");
+		if (disc != std::string::npos)
+		{
+			const size_t end = name.find(')', disc);
+			if (end != std::string::npos)
+				add(name.substr(0, disc) + name.substr(end + 1));
+		}
+	};
+	withVariants(base);
+	withVariants(cleaned(base));
+	std::string title;
 	{
-		const size_t end = base.find(')', disc);
-		if (end != std::string::npos)
-			names.push_back(base.substr(0, disc) + base.substr(end + 1));
+		std::lock_guard<std::mutex> lock(mutex);
+		if (const auto it = titles.find(base); it != titles.end())
+			title = it->second;
 	}
+	withVariants(cleaned(title));
 	return names;
 }
 
@@ -779,6 +871,14 @@ void worker()
 		}
 		else if (result == 0)
 		{
+			static int told;
+			if (told++ < 5)
+			{
+				std::string tried;
+				for (const std::string& name : namesFor(base))
+					tried += (tried.empty() ? "\"" : ", \"") + name + "\"";
+				diag::mark("covers: none for %s (tried %s)", base.c_str(), tried.c_str());
+			}
 			rememberNotFound(base);
 			failures = 0;
 		}
@@ -794,11 +894,13 @@ void worker()
 
 } // namespace
 
-void request(const std::string& base)
+void request(const std::string& base, const std::string& title)
 {
 	if (!options().covers || base.empty() || offline)
 		return;
 	std::lock_guard<std::mutex> lock(mutex);
+	if (!title.empty())
+		titles[base] = title;
 	loadNotFound();
 	if (!asked.insert(base).second || notFound.count(base) != 0)
 		return;

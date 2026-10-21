@@ -1822,7 +1822,7 @@ const std::string& userCover(Game& g)
 		}
 	}
 	if (g.disc)
-		ps5::covers::request(base);
+		ps5::covers::request(base, !g.art.name.empty() ? g.art.name : g.title);
 	return g.cover;
 }
 
