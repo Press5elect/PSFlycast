@@ -147,6 +147,8 @@ Changed:
 - **An arcade game's controls are listed by the names the game gives them**
   ("R UP", "SHOT1") in the quick menu's Controls, with every button it has
   (its seventh to ninth buttons were missing).
+- **Flycast** is its `dev` branch at fa9d39a35: a savestate made with the
+  broadband adapter is loaded on a console that has none.
 
 ## New in v1.3.1
 
