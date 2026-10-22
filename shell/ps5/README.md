@@ -144,6 +144,10 @@ Changed:
   640x480, transparency sorted per pixel, anisotropic filtering off.
   Everything that improves on the original is the player's choice. A console
   that already has PSFlyCast keeps its settings.
+- **Flycast** is its `dev` branch as of 22 October 2026 (a9bd1c74f): among
+  its changes, flat-shaded triangles drawn in the right colours after
+  sorting, two fixes to the emulated memory map, and the broadband adapter
+  polled only while it is used.
 
 Fixed:
 
