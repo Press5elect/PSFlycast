@@ -3081,6 +3081,9 @@ const std::vector<GameOption>& gameOptions()
 		onOff("Right stick turns like the left stick",
 				"The right stick, left and right, adds to the left stick's: the game turns with it exactly as it does with the left stick, with the game's own sensitivity. For games that read no second stick; use it instead of Right stick as mouse. Not tried on a console yet",
 				"ps5.PadRightTurns", ps5::pad::PadRightTurns, G::Controls),
+		onOff("Right stick as the triggers",
+				"The right stick, left and right, presses the Dreamcast's L and R triggers, as far as it is pushed: a camera turned with the triggers turns with the right stick. L2 and R2 still work. Not while the right stick is the mouse",
+				"ps5.PadRightTriggers", ps5::pad::PadRightTriggers, G::Controls),
 		pick("Controller type",
 				"Standard: the Dreamcast controller. Second stick: a controller that reports the right stick, which only software written for one reads; a game made for the standard controller does not. Not tried on a console yet",
 				"ps5.PadType", { "Standard", "Second stick" }, { ps5::pad::PadTypeStandard, ps5::pad::PadTypeSecondStick },
@@ -8050,7 +8053,7 @@ std::vector<GameOption> controlOptions()
 		if (key == "ps5.PadProfile")
 			return 0;
 		if (key == "ps5.PadType" || key.rfind("ps5.PadMouse", 0) == 0 || key.rfind("ps5.PadAxis", 0) == 0
-				|| key == "ps5.PadSmoothing" || key == "ps5.PadRightTurns")
+				|| key == "ps5.PadSmoothing" || key == "ps5.PadRightTurns" || key == "ps5.PadRightTriggers")
 			return 1;
 		return 2;
 	};
@@ -8114,7 +8117,7 @@ PadPart partOfOption(const GameOption& option)
 	if (key == "ps5.MicVolume")
 		return config::MapleExpansionDevices[0][0] == MDT_Microphone ? PadPart::Slot1 : PadPart::Slot2;
 	if (key.rfind("ps5.PadMouse", 0) == 0 || key.rfind("ps5.PadAxis", 0) == 0 || key == "ps5.PadSmoothing"
-			|| key == "ps5.PadRightTurns" || key == "ps5.PadType")
+			|| key == "ps5.PadRightTurns" || key == "ps5.PadRightTriggers" || key == "ps5.PadType")
 		return PadPart::RightStick;
 	if (key == "ps5.TurboButtons" || key == "ps5.TurboRate")
 		return PadPart::A;
@@ -8282,7 +8285,15 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 		caption(p, d.name, d.instead, from, ty, leftSide);
 	};
 	// Left: the left trigger, the stick, the D-pad.
-	control(PadPart::LT, DC_AXIS_LT, P(0.18f, 0.06f), y - 8, true);
+	// With the right stick as the triggers, each trigger has it as well.
+	const bool stickTriggers = live && ps5::pad::PadRightTriggers != 0 && !profile.mouse;
+	auto trigger = [&](PadPart p, DreamcastKey key, ImVec2 from, float ty, bool leftSide, const char *side) {
+		Driver d = driverOf(pad.get(), key, profile, live);
+		if (stickTriggers)
+			d.name += std::string(" or right stick ") + side;
+		caption(p, d.name, d.instead, from, ty, leftSide);
+	};
+	trigger(PadPart::LT, DC_AXIS_LT, P(0.18f, 0.06f), y - 8, true, "left");
 	{
 		std::string keys;
 		if (live)
@@ -8296,7 +8307,7 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 	control(PadPart::Down, DC_DPAD_DOWN, ImVec2(dX, dY + len), y + h * 0.72f, true);
 	control(PadPart::Right, DC_DPAD_RIGHT, ImVec2(dX + len, dY), y + h * 0.88f, true);
 	// Right: the right trigger, Y, B, X, A, Start.
-	control(PadPart::RT, DC_AXIS_RT, P(0.82f, 0.06f), y - 8, false);
+	trigger(PadPart::RT, DC_AXIS_RT, P(0.82f, 0.06f), y - 8, false, "right");
 	control(PadPart::Y, DC_BTN_Y, ImVec2(faceAt.x + fr, faceAt.y - fd), y + h * 0.16f, false);
 	control(PadPart::B, DC_BTN_B, ImVec2(faceAt.x + fd + fr, faceAt.y), y + h * 0.32f, false);
 	control(PadPart::X, DC_BTN_X, ImVec2(faceAt.x - fd, faceAt.y + fr), y + h * 0.48f, false);
@@ -8318,6 +8329,8 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 	std::string right;
 	if (live && profile.mouse)
 		right = "The mouse";
+	else if (live && ps5::pad::PadRightTriggers != 0)
+		right = "The L and R triggers (left, right)";
 	else if (ps5::pad::PadRightTurns != 0)
 		right = "Turns, as the left stick does";
 	else if (ps5::pad::PadType == ps5::pad::PadTypeSecondStick)

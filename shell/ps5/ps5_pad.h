@@ -113,6 +113,10 @@ extern config::Option<int> PadType;
 // The right stick left and right adds to the left stick's (the game turns with it as it does with the
 // left stick), for games that read no second stick and take a mouse badly. Dreamcast games only.
 extern config::Option<int> PadRightTurns;
+// The right stick, left and right, presses the Dreamcast's L and R triggers, as far as it is pushed
+// (a camera turned with the triggers). Before Right stick turns like the left stick, and not while
+// the right stick is the mouse. Dreamcast games only.
+extern config::Option<int> PadRightTriggers;
 
 // The profiles. Four are built in and cannot change; four are the player's own, kept in the
 // settings for every game. An input with anything but Controller on it is not the Dreamcast

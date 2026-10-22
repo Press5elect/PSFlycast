@@ -42,8 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.0** (build 79). It is built
+Latest release: **v1.3.1** (build 80). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
+
+v1.3.1 has not been run on a console: its changes are listed in
+[New in v1.3.1](#new-in-v131).
 
 On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
 display at 119.88 Hz: the microphone was used in a game that listens, for 15
@@ -125,6 +128,32 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.1
+
+Added:
+
+- **Right stick as the triggers** (quick menu > Controls, for one game if
+  wanted): the right stick, left and right, presses the Dreamcast's L and R
+  triggers, as far as it is pushed, for a camera that a game turns with the
+  triggers. L2 and R2 still work; not while the right stick is the mouse.
+
+Changed:
+
+- **The defaults are the original's** on a new install: the Dreamcast's own
+  640x480, transparency sorted per pixel, anisotropic filtering off.
+  Everything that improves on the original is the player's choice. A console
+  that already has PSFlyCast keeps its settings.
+
+Fixed:
+
+- **Covers for games whose files are named in another way** than the cover
+  collection ("[GDI] Game (US)[10S 51035]"): the name is tidied (the
+  bracketed tags taken out, (US), (EU) and (JP) spelled out) and the game's
+  title is tried as well. Games that found no cover before are asked for
+  again.
+- **The title's folder on extended storage or a USB drive** is found with
+  USB drives on (it was looked for in /data/homebrew only).
 
 ## New in v1.3.0
 

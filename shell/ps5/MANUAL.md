@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.0 (build 79). The README's Status says what has been
+This manual is for v1.3.1 (build 80). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -217,7 +217,7 @@ options), **Right stick as mouse** makes the right stick the Dreamcast's mouse:
 R2 is the left button, L2 the right one, R3 the middle one; **Mouse speed**
 tunes it. The right stick's own settings shape the mouse, the turning and a second stick alike: **Right stick dead zone** (round the centre, so a stick
 that rests off it is still), **Right stick response** (Linear; Precise, fine near the centre for aiming; Aggressive; S-curve), **Right stick smoothing**, and
-**Right stick left and right** and **up and down**, each Normal, Inverted or Off. **Right stick turns like the left stick**
+**Right stick left and right** and **up and down**, each Normal, Inverted or Off. **Right stick as the triggers** makes the right stick, left and right, the Dreamcast's L and R triggers, pressed as far as the stick is pushed, for a camera that a game turns with the triggers; L2 and R2 still work, and it does nothing while the right stick is the mouse. **Right stick turns like the left stick**
 adds the right stick, left and right, to the left stick's, so the game turns with it as it does with the left stick and its own sensitivity; use it instead of the mouse in a game that takes a mouse badly. **Controller profile** chooses what the controller is in the
 Dreamcast's ports beside its controller. *Controller* is the controller alone. *Controller and mouse*
 adds the mouse on the right stick, and the controller keeps every button. *Mouse and keyboard, WASD* and
@@ -660,7 +660,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 3x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
+| **Video** | Internal resolution (up to 10x; the Dreamcast's own 640x480 by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager |
@@ -676,6 +676,13 @@ works after PSFlyCast is started again says so in a bar at the bottom, with
 
 **A sharper picture.** A Dreamcast game is drawn at 640 x 480; these raise
 what you see, most useful first:
+
+**The defaults are the original's.** A new install shows a game as the
+Dreamcast did: its own 640x480, transparency sorted per pixel as its graphics
+chip sorts it, no anisotropic filtering, no widescreen, no upscaling filter and
+no frame generation. Everything that improves on that is yours to choose, for
+every game or for one. (A console that already has PSFlyCast keeps its
+settings.)
 
 - **Internal resolution.** 5x and up is more than a 4K screen shows, and the
   extra is used to smooth edges. 9x (4320 lines) is exactly twice 4K, which

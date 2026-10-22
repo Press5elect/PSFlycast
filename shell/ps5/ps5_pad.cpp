@@ -73,6 +73,7 @@ config::Option<int> PadAxisX("PadAxisX", AxisNormal, "ps5");
 config::Option<int> PadAxisY("PadAxisY", AxisNormal, "ps5");
 config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
 config::Option<int> PadRightTurns("PadRightTurns", 0, "ps5");
+config::Option<int> PadRightTriggers("PadRightTriggers", 0, "ps5");
 
 namespace
 {
@@ -301,8 +302,21 @@ public:
 		const float rightX = s.px, rightY = s.py;
 		axes[2] = (int)std::lround(std::clamp(rightX, -1.f, 1.f) * 32767.f);
 		axes[3] = (int)std::lround(std::clamp(rightY, -1.f, 1.f) * 32767.f);
+		// The right stick, left and right, is the Dreamcast's L and R triggers, where the game
+		// is asked to (a camera turned with the triggers): as far as the stick is pushed, so a
+		// half push is a half press, and L2 and R2 still work (the further pressed counts). Not
+		// while the right stick is the mouse.
+		const bool asTriggers = PadRightTriggers != 0 && ::settings.platform.isConsole() && !bind::current().mouse;
+		if (asTriggers)
+		{
+			const int left = (int)std::lround(std::clamp(-rightX, 0.f, 1.f) * 65535.f) - 32768;
+			const int right = (int)std::lround(std::clamp(rightX, 0.f, 1.f) * 65535.f) - 32768;
+			axes[4] = std::max(axes[4], left);
+			axes[5] = std::max(axes[5], right);
+			axes[2] = 0;	// and not a second stick as well
+		}
 		// The right stick turns as the left one does, where the game is asked to.
-		if (PadRightTurns != 0 && ::settings.platform.isConsole())
+		else if (PadRightTurns != 0 && ::settings.platform.isConsole())
 			axes[0] = std::clamp(axes[0] + (int)std::lround(rightX * 32767.f), -32768, 32767);
 		for (u32 i = 0; i < 6; i++)
 			if (axes[i] != lastAxes[i])

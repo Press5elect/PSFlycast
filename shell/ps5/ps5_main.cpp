@@ -294,8 +294,12 @@ void redirectLogs(const std::string& root)
 	}).detach();
 }
 
-// The console's defaults: Vulkan, 3x internal resolution, the HLE BIOS when
-// no BIOS is installed, the folders above, and PS5 audio.
+// The console's defaults: the picture as the Dreamcast made it (its own
+// 640x480, transparency sorted per pixel as its graphics chip sorts it, no
+// anisotropic filtering, no widescreen), the HLE BIOS when no BIOS is
+// installed, the folders above, and PS5 audio. Everything that improves on
+// the original is the player's choice. Written only when there is no
+// emu.cfg yet: a console that has one keeps its settings.
 void writeDefaultConfig(const std::string& root)
 {
 	const std::string cfg = root + "emu.cfg";
@@ -307,13 +311,13 @@ void writeDefaultConfig(const std::string& root)
 		return;
 	fprintf(f,
 		"[config]\n"
-		"pvr.rend = 4\n"
-		"rend.Resolution = 1440\n"
+		"pvr.rend = 5\n"
+		"rend.Resolution = 480\n"
 		"rend.WideScreen = no\n"
 		"rend.WidescreenGameHacks = no\n"
 		"rend.ThreadedRendering = yes\n"
 		"rend.vsync = yes\n"
-		"rend.AnisotropicFiltering = 4\n"
+		"rend.AnisotropicFiltering = 1\n"
 		"rend.ShowFPS = no\n"
 		"Dynarec.Enabled = yes\n"
 		"Dreamcast.AutoSaveState = no\n"
@@ -469,6 +473,10 @@ int main(int argc, char *argv[])
 		// Outside the sandbox /app0 is no longer a path: the title's folder is
 		// where the launcher mounted it from, or under the sandbox's mount.
 		candidates.push_back("/data/homebrew/PPSA99247");
+		// Installed on extended storage or a USB drive (a homebrew store can put it there).
+		for (const char *drive : { "/mnt/ext0", "/mnt/ext1", "/mnt/usb0", "/mnt/usb1", "/mnt/usb2", "/mnt/usb3",
+				"/mnt/usb4", "/mnt/usb5", "/mnt/usb6", "/mnt/usb7" })
+			candidates.push_back(std::string(drive) + "/homebrew/PPSA99247");
 		candidates.push_back("/mnt/sandbox/PPSA99247_000/app0");
 	}
 	candidates.push_back("/app0");
