@@ -42,11 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.1** (build 80). It is built
+Latest release: **v1.3.2** (build 81). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.1 has not been run on a console: its changes are listed in
-[New in v1.3.1](#new-in-v131).
+v1.3.1 and v1.3.2 have not been run on a console: their changes are listed in
+[New in v1.3.2](#new-in-v132) and [New in v1.3.1](#new-in-v131).
 
 On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
 display at 119.88 Hz: the microphone was used in a game that listens, for 15
@@ -128,6 +128,25 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.2
+
+Added:
+
+- **Twin-stick games:** a game played with two levers starts with a layout of
+  its own made for them: the left stick and the D-pad the left lever, the
+  right stick the right lever, L2 and L1 the left lever's trigger and turbo,
+  R2 and R1 the right lever's. For the arcade games whose controls name a
+  right lever, and for a Dreamcast game with Port A set to the new **Twin
+  Stick**.
+- **A stick's direction can be put on a control** in the quick menu's
+  Controls: Cross, then a push of a stick all the way.
+
+Changed:
+
+- **An arcade game's controls are listed by the names the game gives them**
+  ("R UP", "SHOT1") in the quick menu's Controls, with every button it has
+  (its seventh to ninth buttons were missing).
 
 ## New in v1.3.1
 

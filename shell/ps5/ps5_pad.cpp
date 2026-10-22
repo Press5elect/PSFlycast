@@ -199,6 +199,8 @@ public:
 		for (const auto& b : buttonNames)
 			if (pad::code(b.bit) == code)
 				return b.name;
+		if (code >= StickCodeBase && code < StickCodeBase + StickDirections)
+			return stickDirectionName((int)(code - StickCodeBase));
 		return nullptr;
 	}
 	const char *get_axis_name(u32 code) override {
@@ -293,6 +295,30 @@ public:
 			gamepad_btn_input(pad::code(bit), (buttons & bit) != 0);
 		}
 		lastButtons = buttons;
+		// The sticks' directions, as buttons for whatever is mapped to them.
+		{
+			ps5::usb::Taken taken;
+			if (maple_port() == 0)
+				taken = ps5::usb::padTaken();
+			u32 sticks = 0;
+			const float t = 0.5f;
+			if (!taken.ly && s.ly < -t) sticks |= 1u << StickLeftUp;
+			if (!taken.ly && s.ly > t) sticks |= 1u << StickLeftDown;
+			if (!taken.lx && s.lx < -t) sticks |= 1u << StickLeftLeft;
+			if (!taken.lx && s.lx > t) sticks |= 1u << StickLeftRight;
+			if (s.py < -t) sticks |= 1u << StickRightUp;
+			if (s.py > t) sticks |= 1u << StickRightDown;
+			if (s.px < -t) sticks |= 1u << StickRightLeft;
+			if (s.px > t) sticks |= 1u << StickRightRight;
+			u32 moved = sticks ^ lastSticks;
+			while (moved != 0)
+			{
+				const u32 bit = moved & -moved;
+				moved &= ~bit;
+				gamepad_btn_input(StickCodeBase + (u32)__builtin_ctz(bit), (sticks & bit) != 0);
+			}
+			lastSticks = sticks;
+		}
 
 		int axes[6] = {
 			stick(raw.lx), stick(raw.ly), stick(raw.rx), stick(raw.ry),
@@ -467,6 +493,9 @@ private:
 		default:
 			break;
 		}
+		// A Dreamcast twin stick has levers, not an analog stick: the left stick is the left lever.
+		if (::settings.platform.isConsole() && config::MapleMainDevices[0] == MDT_TwinStick)
+			return true;
 		if (!::settings.platform.isArcade() || ::settings.input.lightgunGame)
 			return false;
 		const InputDescriptors *inputs = NaomiGameInputs;
@@ -510,6 +539,7 @@ private:
 	int lightBarShown = -1;	// 0 the console's own, 1 to 4 a player's colour
 	u32 stickHeld = 0;		// the d-pad directions the left stick holds
 	u32 lastButtons = 0;
+	u32 lastSticks = 0;		// the sticks' directions held, as buttons
 	int lastAxes[6] = { 0, 0, 0, 0, -32768, -32768 };
 	u8 rumbleLevel = 0;
 	u8 sentLevel = 0;
@@ -757,6 +787,73 @@ void hotplug()
 	}
 }
 
+// A game played with two levers (an arcade twin stick, or the Dreamcast's
+// Twin Stick in port A) starts with a layout of its own made for it, the
+// first time, when it has none yet: the left stick and the D-pad the left
+// lever, the right stick the right lever; L2 and L1 the left lever's trigger
+// and turbo button, R2 and R1 the right lever's. Afterwards the layout is the
+// game's own, changed in the quick menu's Controls like any other. Done once
+// the game is running, after Flycast has loaded the game's layout.
+void twinStickLayout()
+{
+	static bool done;
+	if (!game_started)
+	{
+		done = false;
+		return;
+	}
+	if (done || gui_is_open())
+		return;
+	done = true;
+	std::shared_ptr<GamepadDevice> pad;
+	for (int i = 0; i < GamepadDevice::GetGamepadCount(); i++)
+		if (auto p = GamepadDevice::GetGamepad(i); p && p->api_name() == "PS5" && p->maple_port() == 0)
+			pad = p;
+	if (!pad || pad->isPerGameMapping())
+		return;
+	const auto named = [](DreamcastKey key, const char *word) {
+		const char *name = GetCurrentGameButtonName(key);
+		return name != nullptr && strstr(name, word) != nullptr;
+	};
+	const bool arcadeTwin = ::settings.platform.isArcade() && named(DC_BTN_Y, "UP") && named(DC_BTN_Z, "DOWN")
+			&& named(DC_DPAD2_LEFT, "LEFT") && named(DC_DPAD2_RIGHT, "RIGHT");
+	const bool consoleTwin = ::settings.platform.isConsole() && config::MapleMainDevices[0] == MDT_TwinStick;
+	if (!arcadeTwin && !consoleTwin)
+		return;
+	pad->setPerGameMapping(true);
+	const std::shared_ptr<InputMapping> mapping = pad->get_input_mapping();
+	if (mapping == nullptr)
+		return;
+	auto bind = [&](DreamcastKey key, u32 code) { mapping->set_button(0, key, code); pad->clearAxisMapping(0, key); };
+	if (arcadeTwin)
+	{
+		// The machine's buttons: 1 and 2 the left lever's trigger and turbo, 3 and 4 the
+		// right's, 5 to 8 the right lever's up, down, left and right (core/hw/naomi).
+		bind(DC_BTN_A, code(L2));
+		bind(DC_BTN_B, code(L1));
+		bind(DC_BTN_C, code(R2));
+		bind(DC_BTN_X, code(R1));
+		bind(DC_BTN_Y, StickCodeBase + StickRightUp);
+		bind(DC_BTN_Z, StickCodeBase + StickRightDown);
+		bind(DC_DPAD2_LEFT, StickCodeBase + StickRightLeft);
+		bind(DC_DPAD2_RIGHT, StickCodeBase + StickRightRight);
+		if (GetCurrentGameButtonName(DC_BTN_INSERT_CARD) != nullptr)
+			bind(DC_BTN_INSERT_CARD, code(Triangle));
+	}
+	else
+	{
+		// The Dreamcast's Twin Stick: its right lever is the second D-pad.
+		bind(DC_DPAD2_UP, StickCodeBase + StickRightUp);
+		bind(DC_DPAD2_DOWN, StickCodeBase + StickRightDown);
+		bind(DC_DPAD2_LEFT, StickCodeBase + StickRightLeft);
+		bind(DC_DPAD2_RIGHT, StickCodeBase + StickRightRight);
+	}
+	mapping->set_dirty();
+	pad->save_mapping();
+	ps5::diag::mark("pads: a twin-stick layout of this game's own (%s): the right stick is the right lever",
+			arcadeTwin ? "the arcade's levers" : "the Dreamcast's Twin Stick");
+}
+
 void plugPorts()
 {
 	u32 present = portsPresent;
@@ -885,6 +982,7 @@ void poll()
 	}
 	// The first pad is also a mouse and a keyboard, when the game asks for it.
 	ps5::usb::padInput(player1());
+	twinStickLayout();
 }
 
 const State& player1()
@@ -1175,6 +1273,34 @@ std::string actionName(int action)
 			if (k.code == action - Key)
 				return std::string("Key ") + k.name;
 	return "Controller";
+}
+
+}
+
+namespace ps5::pad
+{
+
+const char *stickDirectionName(int direction)
+{
+	static const char *const names[StickDirections] = {
+		"Left stick up", "Left stick down", "Left stick left", "Left stick right",
+		"Right stick up", "Right stick down", "Right stick left", "Right stick right",
+	};
+	return direction >= 0 && direction < StickDirections ? names[direction] : "";
+}
+
+int stickDirectionHeld(const State& s, float threshold)
+{
+	const float v[StickDirections] = { -s.ly, s.ly, -s.lx, s.lx, -s.py, s.py, -s.px, s.px };
+	int best = -1;
+	float most = threshold;
+	for (int i = 0; i < StickDirections; i++)
+		if (v[i] > most)
+		{
+			most = v[i];
+			best = i;
+		}
+	return best;
 }
 
 }

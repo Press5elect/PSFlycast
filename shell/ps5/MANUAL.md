@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.1 (build 80). The README's Status says what has been
+This manual is for v1.3.2 (build 81). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -580,7 +580,19 @@ the focused row is about is lit.
 To change which button is which:
 
 1. Move to the control you want to change and press **Cross**.
-2. Press the DualSense button it should be on.
+2. Press the DualSense button it should be on, or push a stick all the way in
+   the direction it should be on (a lever's direction).
+
+An arcade game's controls are listed by the names the game gives them ("R UP",
+"SHOT1"), with every button the game has.
+
+**Twin-stick games.** A game played with two levers starts with a layout of its
+own made for them, the first time it runs: the left stick and the D-pad are the
+left lever, the right stick is the right lever, L2 and L1 the left lever's
+trigger and turbo button, R2 and R1 the right lever's. This is so for the
+arcade games whose controls name a right lever, and for a Dreamcast game with
+**Port A** set to **Twin Stick** (the quick menu > Controls; from the next
+start of the game). It can then be changed like any other layout.
 
 A button that did something else stops doing it and shows as **Not set**
 until you give it a control. L2 and R2 stay analog when a trigger is put on

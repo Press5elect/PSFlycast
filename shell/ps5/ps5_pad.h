@@ -68,6 +68,16 @@ struct State
 // is the index of its bit, and the two triggers are also axes.
 constexpr u32 buttonCode(u32 bit) { return (u32)__builtin_ctz(bit); }
 constexpr u32 AxisCodeL2 = 4, AxisCodeR2 = 5;
+// The sticks' directions as buttons, for a control that is a button on the
+// machine (an arcade twin stick's second lever): the left stick's up, down,
+// left, right are StickCodeBase to +3, the right stick's +4 to +7. A direction
+// is pressed past half its way (the right stick as its settings shape it).
+constexpr u32 StickCodeBase = 32;
+enum { StickLeftUp, StickLeftDown, StickLeftLeft, StickLeftRight,
+	StickRightUp, StickRightDown, StickRightLeft, StickRightRight, StickDirections };
+const char *stickDirectionName(int direction);
+// The stick direction held on this state past `threshold` (0..1), the first of them; -1 for none.
+int stickDirectionHeld(const struct State& s, float threshold);
 
 // Whether the left stick is also the d-pad: a setting, and a game can have its
 // own. Automatic is on in the arcade games that read no analog stick, whose

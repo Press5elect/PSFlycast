@@ -57,6 +57,7 @@
 #include "cfg/cfg.h"
 #include "cfg/option.h"
 #include "input/gamepad_device.h"
+#include "hw/maple/maple_devs.h"
 #include "imgread/common.h"
 #include "oslib/oslib.h"
 #include "ui/gui.h"
@@ -3088,8 +3089,8 @@ const std::vector<GameOption>& gameOptions()
 				"Standard: the Dreamcast controller. Second stick: a controller that reports the right stick, which only software written for one reads; a game made for the standard controller does not. Not tried on a console yet",
 				"ps5.PadType", { "Standard", "Second stick" }, { ps5::pad::PadTypeStandard, ps5::pad::PadTypeSecondStick },
 				ps5::pad::PadType, G::Controls, true),
-		pick("Port A", "A light gun in place of the controller, for the Dreamcast games that are played with one",
-				"input.device1", { "Controller", "Light gun" }, { (int)MDT_SegaController, (int)MDT_LightGun },
+		pick("Port A", "A light gun in place of the controller, for the Dreamcast games that are played with one; or the Twin Stick, for the games made for it (the left stick and the D-pad its left lever, the right stick its right lever)",
+				"input.device1", { "Controller", "Light gun", "Twin Stick" }, { (int)MDT_SegaController, (int)MDT_LightGun, (int)MDT_TwinStick },
 				config::MapleMainDevices[0], G::Own, true),
 		pick("Light gun aiming",
 				"The left stick, a finger on the touch pad, or turning the controller (a touch on the pad centres it)",
@@ -7963,15 +7964,46 @@ std::vector<PadControl> controlsShown()
 {
 	std::vector<PadControl> rows;
 	const bool arcade = ::settings.platform.isArcade();
+	if (!arcade)
+	{
+		for (const PadControl& control : padControls)
+			if (control.console != nullptr)
+				rows.push_back(control);
+		return rows;
+	}
+	// An arcade game's controls by the names the game gives them ("R UP", "SHOT1"), in
+	// the order of its buttons; then the ones it has that are not buttons. The game's
+	// fourth to ninth buttons are here too where it has them (a twin stick's second
+	// lever is its fifth to eighth).
+	static const DreamcastKey order[] = { DC_BTN_A, DC_BTN_B, DC_BTN_C, DC_BTN_X, DC_BTN_Y, DC_BTN_Z,
+			DC_DPAD2_LEFT, DC_DPAD2_RIGHT, DC_BTN_INSERT_CARD };
+	for (DreamcastKey key : order)
+	{
+		const char *name = GetCurrentGameButtonName(key);
+		const PadControl *known = nullptr;
+		for (const PadControl& control : padControls)
+			if (control.key == key && control.arcade != nullptr)
+				known = &control;
+		if (name != nullptr)
+			rows.push_back({ nullptr, name, key });
+		else if (known != nullptr)
+			rows.push_back(*known);
+	}
 	for (const PadControl& control : padControls)
-		if ((arcade ? control.arcade : control.console) != nullptr)
-			rows.push_back(control);
-	if (arcade)
-		// In the order of the buttons' numbers.
-		std::stable_sort(rows.begin(), rows.end(), [](const PadControl& a, const PadControl& b) {
-			const bool an = !strncmp(a.arcade, "Button", 6), bn = !strncmp(b.arcade, "Button", 6);
-			return an != bn ? an : an && strcmp(a.arcade, b.arcade) < 0;
-		});
+	{
+		if (control.arcade == nullptr)
+			continue;
+		bool listed = false;
+		for (const PadControl& row : rows)
+			listed = listed || row.key == control.key;
+		if (!listed)
+		{
+			PadControl row = control;
+			if (const char *name = GetCurrentGameButtonName(control.key); name != nullptr && !control.emulator)
+				row.arcade = name;
+			rows.push_back(row);
+		}
+	}
 	return rows;
 }
 
@@ -8023,6 +8055,20 @@ void bindControl(GamepadDevice& pad, DreamcastKey key, u32 bit)
 		pad.clearButtonMapping(0, key);
 		mapping->set_axis(0, key, axis, true);
 	}
+	mapping->set_dirty();
+	pad.save_mapping();
+}
+
+// Puts a control on a direction of a stick, in the game's own layout.
+void bindStick(GamepadDevice& pad, DreamcastKey key, u32 code)
+{
+	if (!pad.isPerGameMapping())
+		pad.setPerGameMapping(true);
+	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
+	if (mapping == nullptr)
+		return;
+	mapping->set_button(0, key, code);
+	pad.clearAxisMapping(0, key);
 	mapping->set_dirty();
 	pad.save_mapping();
 }
@@ -8409,13 +8455,20 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		// Waiting for the button: the first one pressed once all were let go.
 		const ps5::pad::State& state = ps5::pad::player1();
 		const u32 held = state.buttons & ~ps5::pad::Intercepted;
+		// A stick pushed most of its way is taken as a button: a lever's direction.
+		const int stick = ps5::pad::stickDirectionHeld(state, 0.75f);
 		if (!qm.listenArmed)
-			qm.listenArmed = held == 0;
+			qm.listenArmed = held == 0 && ps5::pad::stickDirectionHeld(state, 0.3f) < 0;
 		else if (state.pressed & ps5::pad::TouchPad)
 			qm.listening = -1;
 		else if (const u32 pressed = state.pressed & ~(ps5::pad::Intercepted | ps5::pad::TouchPad); pressed != 0 && pad != nullptr)
 		{
 			bindControl(*pad, controls[qm.listening - controlsAt].key, pressed & (0u - pressed));
+			qm.listening = -1;
+		}
+		else if (stick >= 0 && pad != nullptr)
+		{
+			bindStick(*pad, controls[qm.listening - controlsAt].key, ps5::pad::StickCodeBase + (u32)stick);
 			qm.listening = -1;
 		}
 		if (qm.listening >= 0 && timeNow > qm.listenAt + 8)
@@ -8570,7 +8623,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	std::string note;
 	bool nextStart = false;
 	if (qm.listening >= 0)
-		note = "Press the DualSense button for it. The touch pad leaves it as it is.";
+		note = "Press the DualSense button for it, or push a stick all the way. The touch pad leaves it as it is.";
 	else if (qm.controlFocus == RowLayout)
 		note = own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 				: "This game uses the layout every game has. Changing a button below gives it one of its own.";
@@ -8590,8 +8643,8 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		note = "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it; "
 				"Square takes it off its button. L3 and R3 are free in Dreamcast games.";
 	else
-		note = "Cross, then the DualSense button for it. A button that did something else stops doing it. "
-				"L2 and R2 are analog for the triggers.";
+		note = "Cross, then the DualSense button for it, or a push of a stick (a lever's direction). "
+				"A button that did something else stops doing it. L2 and R2 are analog for the triggers.";
 	text(dl, regular(), 20, px + 56, top + viewH + 14, nextStart ? col::dim : col::faint, note.c_str(), listW - 112);
 
 	if (picture)
