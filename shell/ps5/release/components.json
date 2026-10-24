@@ -13,7 +13,7 @@
    "id": "psflycast",
    "name": "PSFlyCast (this port: the PS5 platform code, the interface, the build and release scripts)",
    "kind": "code",
-   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline",
+   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline or from Crux2 (by Press5elect, the same author: shell/ps5/ps5_clock.c, ps5_timing.*, ps5_priority.*, which keep Crux2's attribution)",
    "copyright": [
     "Copyright 2026 Press5elect and the PSFlyCast contributors",
     "Copyright (C) 2026 BlackBearReloaded and Mihawk (the title's start-up and link layout, shell/ps5/runtime)"
@@ -923,13 +923,13 @@
    ],
    "source": {
     "kind": "provenance",
-    "file": "${VULKAN}/.deps/native/radv-release/PROVENANCE.txt",
+    "file": "${RADV}/PROVENANCE.txt",
     "path": "${MESA}",
     "url": "https://github.com/mihawk-99/PS5_Mesa",
-    "base": "7b59ef27c1b09b9671bc4153c41940c3155c3af2",
-    "where": "PS5_Mesa at the base revision, plus this repository's shell/ps5/mesa/*.patch; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
+    "base": "1ba9874f478657ccf6da72ce55f0260164cc0bd0",
+    "where": "PS5_Mesa at the base revision, plus Crux2's driver patches (github.com/Press5elect/Crux2, ps5/patches/mesa-27) and this repository's shell/ps5/mesa/*.patch, as shell/ps5/build-radv-psflycast.sh applies them; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
    },
-   "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI), and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
+   "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI); Crux2's driver patches by Press5elect and PS5CEMU-HAR, among them the merge of Mesa main (27.0-devel), GFX10.1 hardware workarounds, the shader cache index without MAP_FIXED, buffer lifetime, timed waits, GPU wait tuning and the output queue depth; and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
    "files": [
     "eboot.bin"
    ]

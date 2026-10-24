@@ -3,6 +3,7 @@
 #include "md5/md5.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <condition_variable>
 #include <cstring>
@@ -62,7 +63,12 @@ class cResetEvent
 private:
 	std::mutex mutx;
 	std::condition_variable cond;
+#ifdef __PROSPERO__
+	// PS5: read without the lock while a waiter spins before it sleeps (stdclass.cpp).
+	std::atomic<bool> state;
+#else
 	bool state;
+#endif
 
 public :
 	cResetEvent();

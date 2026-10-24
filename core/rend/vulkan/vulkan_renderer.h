@@ -24,7 +24,9 @@
 #include "pipeline.h"
 #include "shaders.h"
 
+#include <atomic>
 #include <memory>
+#include <thread>
 #include <vector>
 
 void os_VideoRoutingTermVk();
@@ -70,6 +72,17 @@ protected:
 	// PSFlyCast: the software renderer (rend/soft). See vulkan_renderer.cpp.
 	bool softwareProcess(TA_context *ctx);
 	bool softwareRender();
+	// PSFlyCast: a game's start and end (vulkan_renderer.cpp). The renderer
+	// lives from one game to the next here: what a game made goes when it ends,
+	// and the settings it ran with are said at its first frame.
+	static void onGameEvent(Event event, void *arg);
+	void gameEnded();
+	void saySettings();
+	virtual const char *name() const = 0;
+	std::thread::id renderThread;
+	bool listening = false;
+	// Shared: a game whose own settings change the renderer starts with another one.
+	static inline std::atomic<bool> settingsToSay{false};
 #endif
 
 	ShaderManager shaderManager;

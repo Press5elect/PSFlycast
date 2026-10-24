@@ -218,6 +218,7 @@ std::shared_ptr<ConnectAttempt> startConnect(const sockaddr_in& address)
 {
 	std::shared_ptr<ConnectAttempt> attempt = std::make_shared<ConnectAttempt>();
 	std::thread([attempt, address] {
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 		const long long started = nowMs();
 		int error = 0;
 		bool noSocket = false;

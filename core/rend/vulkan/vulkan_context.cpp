@@ -36,6 +36,7 @@
 #include "vulkan_driver.h"
 #include "rend/transform_matrix.h"
 #include "swappyvk.h"
+#include "frame_counters.h"
 #if defined(__ANDROID__) && HOST_CPU == CPU_ARM64
 #include "adreno.h"
 #endif
@@ -250,6 +251,11 @@ static vk::UniqueSurfaceKHR createPs5DisplaySurface(vk::Instance instance)
 	return instance.createDisplayPlaneSurfaceKHRUnique(info);
 }
 
+// RADV's VideoOut WSI (PS5_Mesa patch 0011, wsi_common_videoout.c). Weak, so
+// that the title still links with a driver archive that lacks it; it is not
+// called then.
+extern "C" int wsi_videoout_set_queue_depth(int depth) __attribute__((weak));
+
 // What the display really shows. Its mode says 119.88 Hz, and each frame of a
 // 60 Hz machine is then presented twice. On some displays a present still
 // takes a 60th of a second in that mode (a tester's: every game ran at 30),
@@ -267,6 +273,47 @@ bool once;			// one present a frame, whatever the mode says
 bool said;
 
 bool asked;			// whether the driver was asked how variable refresh went
+
+// The frames queued for the screen ("Short display queue" in the Settings,
+// off by default until the console has shown what it does here). Crux2's
+// lesson (PS5_Mesa patch 0011): an acquire may wait while `depth` images are
+// presented and not yet shown. Two a game frame while the game keeps up, so
+// that what is shown follows the controls closely; while it is behind, all
+// the images but one, so that a frame waiting for its vblank does not hold
+// the next one back. 0 is the driver's own rule (only for a free image),
+// which the menus, variable refresh and the setting off keep.
+int queueDepth = -1;	// what the driver was last told; -1 nothing yet
+int depthLines;			// the changes said in the boot log (the first few)
+bool depthMissing;		// the driver has no such call (said once)
+
+void setQueueDepth(int depth, int images, int presentsPerFrame, bool behind)
+{
+	depth = std::clamp(depth, 0, std::max(images - 1, 0));
+	if (depth == queueDepth || (depth == 0 && queueDepth < 0))
+		return;
+	if (wsi_videoout_set_queue_depth == nullptr)
+	{
+		if (!depthMissing)
+			PS5_MARK("display: this graphics driver cannot limit the frames queued for the screen "
+					"(no wsi_videoout_set_queue_depth): the driver's own rule");
+		depthMissing = true;
+		queueDepth = depth;
+		return;
+	}
+	const int result = wsi_videoout_set_queue_depth(depth);
+	if (++depthLines <= 8)
+		PS5_MARK("display: frames queued for the screen: %d of %d images (%s; %d present%s a frame)%s", depth, images,
+				depth == 0 ? "the driver's own rule" : behind ? "the game is behind" : "the game keeps up",
+				presentsPerFrame, presentsPerFrame == 1 ? "" : "s",
+				result != 0 ? ": the driver refused it" : "");
+	else if (depthLines == 9)
+		PS5_MARK("display: the frames queued for the screen change often: not said again");
+	queueDepth = depth;
+}
+
+// Present frames until what a closed game freed is given back (the objects
+// wait for the frames that might still use them), then the memory line.
+int memoryIn;
 
 int perFrame(int swapInterval)
 {
@@ -1267,6 +1314,11 @@ void VulkanContext::NewFrame()
 #endif
 	device->resetCommandPool(*commandPools[currentImage], vk::CommandPoolResetFlagBits::eReleaseResources);
 	inFlightObjects[currentImage].clear();
+#if defined(USE_PS5)
+	// What a closed game left is given back by now (ReleaseGameResources).
+	if (ps5display::memoryIn > 0 && --ps5display::memoryIn == 0)
+		ps5::diag::memory("after the game");
+#endif
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
 	commandBuffer.begin(vk::CommandBufferBeginInfo(vk::CommandBufferUsageFlagBits::eOneTimeSubmit));
 	assert(!rendering);
@@ -1279,6 +1331,7 @@ void VulkanContext::BeginRenderPass()
 		return;
 	const std::array<vk::ClearValue, 2> clear_colors = { getBorderColor(), vk::ClearDepthStencilValue{ 0.f, 0 } };
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
+	vkcount::pass();
 	commandBuffer.beginRenderPass(vk::RenderPassBeginInfo(*renderPass, *framebuffers[currentImage], vk::Rect2D({0, 0}, {width, height}), clear_colors),
 			vk::SubpassContents::eInline);
 }
@@ -1399,6 +1452,15 @@ void VulkanContext::Present() noexcept
 			ps5display::frame(flipsNow, !gui_is_open() && swapOnVSync && swapInterval > 1 && !ps5display::once
 					&& !ps5::variableRefresh,
 					settings.display.refreshRate);
+			// How many frames may wait for the screen (ps5display::setQueueDepth): only while a
+			// game is paced by the display, and with the setting on.
+			{
+				const bool paced = ps5::options().shortQueue && swapOnVSync && !gui_is_open() && !ps5::variableRefresh;
+				const bool behind = paced && ps5::perf::behind();
+				const int perGameFrame = std::max(1, presents);
+				const int images = (int)imageViews.size();
+				ps5display::setQueueDepth(!paced ? 0 : behind ? images - 1 : 2 * perGameFrame, images, perGameFrame, behind);
+			}
 #endif
 #endif
 		} catch (const vk::SystemError& e) {
@@ -1622,6 +1684,23 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 		}
 	}
 }
+
+#if defined(USE_PS5)
+// A game has closed (BaseVulkanRenderer::gameEnded, on this thread): what the
+// picture's own steps made for it goes. FSR's, the side picture's and frame
+// generation's images are the size of the game's picture or the screen, and
+// are made again for the next game's first frame, as after a new swapchain.
+void VulkanContext::ReleaseGameResources()
+{
+	WaitIdle();
+	lastFrameView = nullptr;
+	ps5::fsr::reset();
+	ps5::border::reset();
+	ps5::framegen::reset();
+	// The memory line once every image has been through a frame again.
+	ps5display::memoryIn = (int)imageViews.size() + 1;
+}
+#endif
 
 void VulkanContext::PresentLastFrame()
 {

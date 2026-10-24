@@ -30,6 +30,8 @@
 #include "oslib/i18n.h"
 #ifdef USE_PS5
 #include "ps5_pad.h"
+#include "ps5_priority.h"
+#include "ps5_timing.h"
 #endif
 
 #include <chrono>
@@ -59,7 +61,10 @@ bool mainui_rend_frame()
 			forceReinit = true;
 			return false;
 		}
-#ifndef TARGET_IPHONE
+#if defined(USE_PS5)
+		// The same 16 ms, waking on time (ps5_timing.h).
+		PS5Timing::MenuFrameWait();
+#elif !defined(TARGET_IPHONE)
 		std::this_thread::sleep_for(std::chrono::milliseconds(16));
 #endif
 	}
@@ -68,6 +73,10 @@ bool mainui_rend_frame()
 		try {
 			if (!emu.render())
 				return false;
+#ifdef USE_PS5
+			// While the screen paces, no game frame sooner than 0.99 of a frame after the last.
+			PS5Timing::GameFramePresented();
+#endif
 			if (config::ProfilerEnabled && config::ProfilerDrawToGUI)
 				gui_display_profiler();
 		} catch (const RendererException& e) {
@@ -114,6 +123,10 @@ void mainui_term()
 void mainui_loop(bool forceStart)
 {
 	ThreadName _("Flycast-rend");
+#ifdef USE_PS5
+	// The main thread: the interface, and the presents of the game's frames.
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Interface);
+#endif
 	if (forceStart)
 		mainui_enabled = true;
 	mainui_init();

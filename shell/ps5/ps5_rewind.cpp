@@ -95,6 +95,7 @@
 #include "oslib/oslib.h"
 #include "serialize.h"
 #include "ui/gui.h"
+#include "ps5_priority.h"
 #endif
 
 namespace ps5::rewind
@@ -699,6 +700,8 @@ void onRenderThread(std::function<void()> task)
 void nameThread()
 {
 	os_SetThreadName("Rewind");
+	// Snapshots are packed after the emulator's and the interface's work (ps5_priority.h).
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 }
 
 std::string game()

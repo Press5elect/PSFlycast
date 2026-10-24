@@ -209,6 +209,7 @@ void bankLater()
 	if (keeping.exchange(true))
 		return;		// the last one is still being written: the next minute has this one's time too
 	std::thread([] {
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 		{
 			std::lock_guard<std::mutex> lock(mutex);
 			save();

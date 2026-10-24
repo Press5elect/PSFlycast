@@ -113,6 +113,10 @@ public:
 	// packing; quad.h). The screen drawers set it right before presenting their frame.
 	void SetFrameAccuracy(const FrameAccuracy& accuracy) { pendingFrameAccuracy = accuracy; }
 	void PresentLastFrame();
+#ifdef USE_PS5
+	// PSFlyCast: a game has closed; what the picture's steps made for it goes (vulkan_context.cpp).
+	void ReleaseGameResources();
+#endif
 	bool GetLastFrame(std::vector<u8>& data, int& width, int& height);
 
 	vk::PhysicalDevice GetPhysicalDevice() const { return physicalDevice; }

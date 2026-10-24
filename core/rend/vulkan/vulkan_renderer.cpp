@@ -29,6 +29,8 @@
 #ifdef USE_PS5
 #include "rend/soft/soft_renderer.h"
 #include "cfg/option.h"
+#include "ps5_diag.h"
+#include "ps5_frontend.h"
 #endif
 
 bool BaseVulkanRenderer::BaseInit(vk::RenderPass renderPass, int subpass)
@@ -40,12 +42,29 @@ bool BaseVulkanRenderer::BaseInit(vk::RenderPass renderPass, int subpass)
 	quadPipeline->Init(&shaderManager, renderPass, subpass);
 	framebufferDrawer = std::make_unique<QuadDrawer>();
 	framebufferDrawer->Init(quadPipeline.get());
+#ifdef USE_PS5
+	renderThread = std::this_thread::get_id();
+	if (!listening)
+	{
+		listening = true;
+		EventManager::listen(Event::Start, onGameEvent, this);
+		EventManager::listen(Event::Terminate, onGameEvent, this);
+	}
+#endif
 
 	return true;
 }
 
 void BaseVulkanRenderer::Term()
 {
+#ifdef USE_PS5
+	if (listening)
+	{
+		listening = false;
+		EventManager::unlisten(Event::Start, onGameEvent, this);
+		EventManager::unlisten(Event::Terminate, onGameEvent, this);
+	}
+#endif
 	GetContext()->WaitIdle();
 	GetContext()->PresentFrame(nullptr, nullptr, vk::Extent2D(), 0);
 #if defined(VIDEO_ROUTING) && defined(TARGET_MAC)
@@ -70,6 +89,81 @@ void BaseVulkanRenderer::Term()
 
 #ifdef USE_PS5
 /*
+	PSFlyCast: a game's start and end.
+
+	The renderer is made when the title starts and lives from one game to the
+	next (the big-picture interface keeps the device). Flycast frees a closed
+	game's textures only at the next game's first frame; here they go when the
+	game ends, with the framebuffer copies and what FSR, the side picture and
+	frame generation made for it, so the library and the next game's loading
+	have that memory (Crux2's lesson: games played one after another slowed
+	down while the last one's textures stayed). The boot log has the memory at
+	the game's start and after it, and the settings the game actually ran
+	with: said at its first frame, after its own settings were read and on the
+	renderer they chose.
+*/
+void BaseVulkanRenderer::onGameEvent(Event event, void *arg)
+{
+	BaseVulkanRenderer *self = static_cast<BaseVulkanRenderer *>(arg);
+	if (event == Event::Start)
+	{
+		ps5::diag::memory("at the game's start");
+		settingsToSay = true;
+	}
+	else if (event == Event::Terminate)
+		self->gameEnded();
+}
+
+void BaseVulkanRenderer::gameEnded()
+{
+	settingsToSay = false;
+	// Unloading is the interface's, on this thread, with the emulator stopped
+	// and no frame of the game's open. Called elsewhere (a load that failed),
+	// the textures go at the next game's first frame, as Flycast does it.
+	if (std::this_thread::get_id() != renderThread)
+	{
+		ps5::diag::mark("graphics: the game closed off the render thread: its textures go with the next game's first frame");
+		ps5::diag::memory("after the game");
+		return;
+	}
+	try {
+		// The drawers end what they have open first (VulkanRenderer, OITVulkanRenderer).
+		clearTextureCache();
+		clearGpuPreloadedTextures();
+		// Copies of the frame buffer: kept until the frames that may show them are done.
+		const size_t copies = framebufferTextures.size();
+		if (!framebufferTextures.empty())
+			GetContext()->addToFlight(new Deleter(std::move(framebufferTextures)));
+		framebufferTextures.clear();
+		framebufferTexIndex = 0;
+		GetContext()->ReleaseGameResources();
+		ps5::diag::mark("graphics: the game's textures, %zu frame buffer cop%s and the picture's steps let go",
+				copies, copies == 1 ? "y" : "ies");
+	} catch (const vk::SystemError& e) {
+		ps5::diag::mark("graphics: letting go of the game's textures failed: %s", e.what());
+	}
+}
+
+void BaseVulkanRenderer::saySettings()
+{
+	static const char *const upscaling[] = { "off", "FSR", "FSR sharp", "FSR soft", "scanlines", "CRT", "sharp bilinear",
+			"NIS", "CAS" };
+	static const char *const generation[] = { "off", "light", "full" };
+	static const char *const filtering[] = { "the game's", "nearest", "linear" };
+	auto onOff = [](bool on) { return on ? "on" : "off"; };
+	const int lines = config::RenderResolution;
+	ps5::diag::mark("settings: %s renderer%s, %d lines (x%.2f), texture filtering %s, anisotropic %dx, accurate mipmaps %s, "
+			"widescreen %s", name(), rend_software_frame() ? " with the software renderer's frames" : "", lines,
+			lines / 480.f, filtering[std::clamp((int)config::TextureFiltering, 0, 2)], (int)config::AnisotropicFiltering,
+			onOff(config::AccurateMipmaps), onOff(config::Widescreen));
+	ps5::diag::mark("settings: 16-bit colour %s, flicker filter %s, framebuffer emulation %s, upscaling %s, frame generation %s, "
+			"vsync %s, threaded %s, duplicate frames %s, sync to display %s", onOff(config::Original16Bit),
+			onOff(config::FlickerFilter), onOff(config::EmulateFramebuffer),
+			upscaling[std::clamp((int)ps5::Upscaling, 0, 8)], generation[std::clamp((int)ps5::FrameGeneration, 0, 2)],
+			onOff(config::VSync), onOff(config::ThreadedRendering), onOff(config::DupeFrames), onOff(ps5::SyncToDisplay));
+}
+
+/*
 	PSFlyCast: the software renderer (rend/soft, the option ps5.SoftwareRenderer).
 
 	When a frame is its own (rend_software_frame(), decided when the frame was
@@ -84,6 +178,9 @@ void BaseVulkanRenderer::Term()
 */
 bool BaseVulkanRenderer::softwareProcess(TA_context *ctx)
 {
+	// A game's first frame: the settings it runs with (onGameEvent).
+	if (settingsToSay.exchange(false))
+		saySettings();
 	const bool software = rend_software_frame();
 	if (software != softwareFrame)
 	{
@@ -501,6 +598,11 @@ protected:
 		screenDrawer.EndRenderPass();
 		BaseVulkanRenderer::clearTextureCache();
 	}
+#ifdef USE_PS5
+	const char *name() const override {
+		return config::PerStripSorting ? "Vulkan per-strip" : "Vulkan per-triangle";
+	}
+#endif
 
 private:
 	SamplerManager samplerManager;

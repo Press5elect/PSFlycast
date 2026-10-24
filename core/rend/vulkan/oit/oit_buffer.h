@@ -21,6 +21,7 @@
 #pragma once
 #include "../buffer.h"
 #include "../texture.h"
+#include "../frame_counters.h"
 
 #include <cinttypes>
 #include <memory>
@@ -95,6 +96,7 @@ public:
 		// Previous render passes and frames in flight must be done with the counter
 		vk::BufferMemoryBarrier barrier(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eTransferWrite,
 				vk::QueueFamilyIgnored, vk::QueueFamilyIgnored, *pixelCounter->buffer, 0, vk::WholeSize);
+		vkcount::barrier();
 		commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader, vk::PipelineStageFlagBits::eTransfer,
 				{}, nullptr, barrier, nullptr);
     	vk::BufferCopy copy(0, 0, sizeof(int));
@@ -102,6 +104,7 @@ public:
 		// The reset must be visible to the fragment shaders of the next render pass
 		barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
+		vkcount::barrier();
 		commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader,
 				{}, nullptr, barrier, nullptr);
 	}

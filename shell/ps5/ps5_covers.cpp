@@ -841,6 +841,7 @@ void fetchChoices(const std::string& base, int& source)
 
 void worker()
 {
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 	int failures = 0;
 	int source = 0;
 	for (;;)

@@ -6,6 +6,7 @@
 */
 #pragma once
 #include "cfg/option.h"
+#include "ps5_priority.h"	// PS5Priority::SetCurrentThread, for the front end's threads
 
 #include <cstddef>
 #include <cstdint>
@@ -110,6 +111,17 @@ struct Options
 	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
 	bool vrr = false;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts
+	// The graphics driver (Settings > System, PlayStation 5; Crux2's lessons):
+	// its command recording on a thread of its own (RADV_THREADED_RECORDING,
+	// from the next start), how long a wait for the GPU checks in a loop and
+	// then sleeps between checks (RADV_PS5_WAIT_SPIN_US and _SLEEP_US, from the
+	// next start; 1500 and 1000 are the driver's own), and how many frames may
+	// wait for the screen (vulkan_context.cpp, at once). Off and the driver's
+	// own until the console has shown what they do for PSFlyCast.
+	bool threadedRecording = false;
+	int gpuWaitSpinUs = 1500;
+	int gpuWaitSleepUs = 1000;
+	bool shortQueue = false;
 	// The console's pop-up notices (USB drives without elfldr, a crash). Off:
 	// they are lines of flycast-boot.log only. No setting; frontend.cfg has it.
 	bool notifications = false;
@@ -329,6 +341,9 @@ void present(bool fresh, bool made);
 // For the frame-rate overlay: the emulated machine's speed, the pictures a
 // second the game drew, and those shown. Empty until a second was counted.
 std::string text();
+// Whether the game ran under 95% of full speed in the last second counted
+// (not in fast forward, not while a menu is open): its frames come late.
+bool behind();
 }
 
 namespace usb

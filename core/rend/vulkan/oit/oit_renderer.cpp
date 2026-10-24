@@ -161,6 +161,9 @@ protected:
 		screenDrawer.EndFrame();
 		BaseVulkanRenderer::clearTextureCache();
 	}
+#ifdef USE_PS5
+	const char *name() const override { return "Vulkan per-pixel"; }
+#endif
 
 private:
 	OITBuffers oitBuffers;

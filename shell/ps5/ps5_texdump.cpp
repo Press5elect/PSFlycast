@@ -133,6 +133,7 @@ void fail(const std::string& why)
 
 void run()
 {
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 	for (;;)
 	{
 		Job job;

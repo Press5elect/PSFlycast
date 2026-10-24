@@ -32,6 +32,7 @@
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
 #include "ps5_pad.h"
+#include "ps5_priority.h"
 #include "log/Log.h"
 
 #include <algorithm>
@@ -182,6 +183,7 @@ private:
 
 	void run()
 	{
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Sound);
 		int handle = -1;
 		int user = -1;
 		alignas(64) s16 block[Block];
@@ -551,6 +553,7 @@ private:
 
 	void run()
 	{
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Sound);
 		alignas(64) s16 grain[Grain * 2];
 		while (true)
 		{
@@ -709,6 +712,7 @@ int64_t mixNow()
 
 void mixRun()
 {
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Sound);
 	audioLibrary();
 	const int port = sceAudioOutOpen(255, 0, 0, Grain, OutRate, FormatS16Stereo);
 	if (port < 0)
@@ -1029,6 +1033,7 @@ private:
 
 	void run()
 	{
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Sound);
 		using clock = std::chrono::steady_clock;
 		audioLibrary();
 		int port = -1;

@@ -15,6 +15,7 @@
 #include "ps5_drive.h"
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
+#include "ps5_priority.h"
 
 #include <algorithm>
 #include <atomic>
@@ -412,6 +413,7 @@ private:
 
 	void fillLoop()
 	{
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 		uint32_t cursor = 0;
 		const uint32_t total = blockCount();
 		bool told = false;
@@ -636,6 +638,7 @@ std::string signatureOf(const std::vector<drive::TocEntry>& toc)
 
 void watch()
 {
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 	std::map<std::string, Watched> drives;
 	std::string lastNoDrive;
 	while (!stopWatching)
@@ -1153,6 +1156,7 @@ std::string safeFileName(const std::string& s)
 
 void copyWork(std::string device, CopyFormat format, std::string title, std::string id)
 {
+	PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 	auto finish = [&](bool ok, const std::string& text, const std::string& result) {
 		std::lock_guard<std::mutex> lock(copyState.mutex);
 		copyState.status.running = false;

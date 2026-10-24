@@ -17,6 +17,9 @@
 #elif defined(__ANDROID__)
 #include <unistd.h>
 #endif
+#ifdef __PROSPERO__
+#include "ps5_timing.h"
+#endif
 
 static std::string user_config_dir;
 static std::string user_data_dir;
@@ -184,8 +187,19 @@ void cResetEvent::Reset()
     state = false;
 }
 
+// PS5 (__PROSPERO__ only): a wake-up of a sleeping thread is a system call on the console, and the emulator's and
+// the renderer's threads hand frames to each other many times a frame. A waiter looks at the
+// state for up to 50 us (ps5_timing.h, as Crux2's KernelSemaphore::Wait) before it sleeps; what
+// it then decides is still decided under the lock. The timed wait's deadline: this libc++ has no
+// pthread_cond_clockwait, so wait_for builds it on the realtime clock, the clock the console's
+// condition variables keep their time on.
 bool cResetEvent::Wait(u32 msec)
 {
+#ifdef __PROSPERO__
+	if (msec != 0)
+		PS5Timing::SpinFor([this] { return state.load(std::memory_order_acquire); },
+				std::min<u64>(PS5Timing::WAIT_SPIN_NS, (u64)msec * 1000000));
+#endif
 	std::unique_lock<std::mutex> lock(mutx);
 
 	if (!state)
@@ -199,6 +213,9 @@ bool cResetEvent::Wait(u32 msec)
 
 void cResetEvent::Wait()
 {
+#ifdef __PROSPERO__
+	PS5Timing::SpinFor([this] { return state.load(std::memory_order_acquire); }, PS5Timing::WAIT_SPIN_NS);
+#endif
     std::unique_lock<std::mutex> lock(mutx);
 
     if (!state) {

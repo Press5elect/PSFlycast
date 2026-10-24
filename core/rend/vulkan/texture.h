@@ -138,8 +138,13 @@ public:
 		// part of the key (bit 1: TSP bits 0-7 are the texture size, outside TSP_Mask) and samplers made
 		// with the option on and off never mix.
 		const bool accurateMipmaps = config::AccurateMipmaps;
+		// The anisotropic filtering level too (bits 19 and up, above TSP_Mask): a sampler is made once
+		// and kept for as long as the renderer lives, which on the PS5 is from one game to the next, so
+		// a level changed for the next game, or in a game's options, would otherwise reach only the
+		// samplers not made yet. The old ones stay for the frames still using them.
+		const u32 anisotropy = (u32)std::clamp((int)config::AnisotropicFiltering, 1, 31);
 		const u32 samplerHash = (tsp.full & TSP_Mask) | punchThrough	// MipMapD, FilterMode, ClampU, ClampV, FlipU, FlipV
-				| ((u32)accurateMipmaps << 1);
+				| ((u32)accurateMipmaps << 1) | (anisotropy << 19);
 		const auto& it = samplers.find(samplerHash);
 		if (it != samplers.end())
 			return it->second.get();

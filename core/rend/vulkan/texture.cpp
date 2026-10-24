@@ -19,6 +19,7 @@
     along with Flycast.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "texture.h"
+#include "frame_counters.h"
 
 #include <algorithm>
 #include <memory>
@@ -158,6 +159,7 @@ void setImageLayout(vk::CommandBuffer const& commandBuffer, vk::Image image, vk:
 
 	vk::ImageSubresourceRange imageSubresourceRange(aspectMask, 0, mipmapLevels, 0, 1);
 	vk::ImageMemoryBarrier imageMemoryBarrier(sourceAccessMask, destinationAccessMask, oldImageLayout, newImageLayout, vk::QueueFamilyIgnored, vk::QueueFamilyIgnored, image, imageSubresourceRange);
+	vkcount::layout();
 	commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, nullptr, nullptr, imageMemoryBarrier);
 }
 
@@ -620,6 +622,7 @@ void Texture::generateMipmaps(vk::Image image, vk::Extent2D extent, u32 mipmapLe
 		}
 		barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
 		barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+		vkcount::layout();
 		commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, nullptr, nullptr, barrier);
 
 		// Blit previous mipmap level on current
@@ -635,6 +638,7 @@ void Texture::generateMipmaps(vk::Image image, vk::Extent2D extent, u32 mipmapLe
 		barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 		barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
 		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+		vkcount::layout();
 		commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr, nullptr, barrier);
 
 		mipWidth = std::max(mipWidth / 2, 1u);
@@ -646,6 +650,7 @@ void Texture::generateMipmaps(vk::Image image, vk::Extent2D extent, u32 mipmapLe
 	barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 	barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
 	barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+	vkcount::layout();
 	commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr, nullptr, barrier);
 }
 

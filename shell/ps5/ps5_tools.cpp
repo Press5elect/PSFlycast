@@ -674,10 +674,22 @@ void init()
 void startOrSplit()
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	if (runState == Running)
+	const bool wasRunning = runState == Running;
+	const size_t split = at;
+	if (wasRunning)
 		advance();
 	else
 		begin();
+	// Both stick clicks: with the timer off the picture ("Show the timer"),
+	// nothing on the screen would change, so a notice says what they did
+	// (a notice shows whatever the timer's setting is). The end of a run has
+	// its own (finish).
+	if (Show || runState == Finished)
+		return;
+	if (!wasRunning)
+		os_notify("Speedrun started", 2000);
+	else if (split < list.size())
+		os_notify(("Split: " + list[split].name + "  " + timeText(list[split].time)).c_str(), 2000);
 }
 
 void undo()

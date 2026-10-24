@@ -22,6 +22,7 @@
 #include "hw/pvr/pvr_mem.h"
 #include "hw/pvr/pvr_regs.h"
 #include "rend/sorter.h"
+#include "frame_counters.h"
 
 TileClipping BaseDrawer::SetTileClip(vk::CommandBuffer cmdBuffer, u32 val, vk::Rect2D& clipRect)
 {
@@ -167,6 +168,7 @@ void BaseDrawer::scaleAndWriteFramebuffer(vk::CommandBuffer commandBuffer, Frame
 			*finalFB->GetBufferData()->buffer,
 			0,
 			vk::WholeSize);
+	vkcount::barrier();
 	commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
 					vk::PipelineStageFlagBits::eHost, {}, nullptr, bufferMemoryBarrier, nullptr);
 
@@ -647,6 +649,7 @@ void TextureDrawer::EndRenderPass()
 				*colorAttachments[0]->GetBufferData()->buffer,
 				0,
 				vk::WholeSize);
+		vkcount::barrier();
 		currentCommandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
 						vk::PipelineStageFlagBits::eHost, {}, nullptr, bufferMemoryBarrier, nullptr);
 	}
@@ -836,6 +839,7 @@ void ClassicRender::beginRender(vk::CommandBuffer cmdBuffer, int index)
 {
 	vk::RenderPass renderPass = getRenderPass(!drawer->rendContext->clearFramebuffer);
 	const std::array<vk::ClearValue, 2> clear_colors = { vk::ClearColorValue(std::array<float, 4> { 0.f, 0.f, 0.f, 1.f }), vk::ClearDepthStencilValue { 0.f, 0 } };
+	vkcount::pass();
 	cmdBuffer.beginRenderPass(vk::RenderPassBeginInfo(renderPass, *framebuffers[index],
 			vk::Rect2D( { 0, 0 }, drawer->viewport), clear_colors), vk::SubpassContents::eInline);
 }
@@ -1013,6 +1017,7 @@ void DynamicRender::beginRender(vk::CommandBuffer cmdBuffer, int index)
 	renderingInfo.pDepthAttachment = &depthAttachment;
 	renderingInfo.pStencilAttachment = &depthAttachment;
 
+	vkcount::pass();
 	cmdBuffer.beginRenderingKHR(&renderingInfo);
 
 	const u32 indexes[] { 0, vk::AttachmentUnused };
@@ -1041,6 +1046,7 @@ bool DynamicRender::beforeDrawPoly(const vk::CommandBuffer& cmdBuffer, u32 listT
 			writingSecAccum = true;
 			const vk::MemoryBarrier memBarrier { vk::AccessFlagBits::eInputAttachmentRead,
 				vk::AccessFlagBits::eColorAttachmentWrite };
+			vkcount::barrier();
 			cmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader,
 					vk::PipelineStageFlagBits::eColorAttachmentOutput,
 					vk::DependencyFlagBits::eByRegion, memBarrier, nullptr, nullptr);
@@ -1063,6 +1069,7 @@ bool DynamicRender::beforeDrawPoly(const vk::CommandBuffer& cmdBuffer, u32 listT
 			writingSecAccum = false;
 			const vk::MemoryBarrier memBarrier { vk::AccessFlagBits::eColorAttachmentWrite,
 				vk::AccessFlagBits::eInputAttachmentRead };
+			vkcount::barrier();
 			cmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
 					vk::PipelineStageFlagBits::eFragmentShader,
 					vk::DependencyFlagBits::eByRegion, memBarrier, nullptr, nullptr);

@@ -26,6 +26,11 @@ void mark(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void notify(const char *format, ...) __attribute__((format(printf, 1, 2)));
 void showNotifications(bool show);
 
+// "memory <when>: ..." in the boot log: the largest free run of direct memory
+// (where the graphics driver's allocations come from) and the flexible memory
+// free, as Crux2 logs them at a game's start and after it.
+void memory(const char *when);
+
 // Fatal signals and std::terminate write a report to the boot log: the
 // signal, the faulting instruction as an offset in eboot.bin, the registers,
 // the return addresses found on the stack, and the last mark.

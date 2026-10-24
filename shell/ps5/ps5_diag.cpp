@@ -45,6 +45,9 @@ extern "C"
 {
 int sceKernelSendNotificationRequest(int, void *, size_t, int);
 int sceKernelAvailableFlexibleMemorySize(size_t *size);
+int64_t sceKernelGetDirectMemorySize(void);
+int32_t sceKernelAvailableDirectMemorySize(int64_t searchStart, int64_t searchEnd, size_t alignment, int64_t *start,
+		size_t *size);
 // shell/ps5/runtime/ps5-title.ld
 extern char __ps5_text_start[];
 extern char __ps5_text_end[];
@@ -293,6 +296,19 @@ void notify(const char *format, ...)
 void showNotifications(bool show)
 {
 	notices = show;
+}
+
+void memory(const char *when)
+{
+	size_t flexible = 0;
+	sceKernelAvailableFlexibleMemorySize(&flexible);
+	int64_t start = 0;
+	size_t largest = 0;
+	const int64_t pool = sceKernelGetDirectMemorySize();
+	if (pool <= 0 || sceKernelAvailableDirectMemorySize(0, pool, 0x4000, &start, &largest) != 0)
+		largest = 0;
+	mark("memory %s: %zu MiB of direct memory in its largest free run (of %lld MiB), %zu MiB of flexible memory free",
+			when, largest >> 20, (long long)(pool > 0 ? pool >> 20 : 0), flexible >> 20);
 }
 
 void installCrashHandler()

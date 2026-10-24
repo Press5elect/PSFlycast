@@ -40,7 +40,11 @@ vk=$(cd -- "$PS5_VULKAN_DIR" && pwd)
 sdk_root=${PS5_PAYLOAD_SDK:-$vk/.deps/native/ps5-payload-sdk}
 native="$vk/tooling/native"
 tool="$vk/build/host/ps5-native-tool"
-archive=${RADV_ARCHIVE:-$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a}
+# radv-psflycast (build-radv-psflycast.sh: Crux2's driver patches) when it was built.
+archive=$vk/.deps/native/radv-psflycast/lib/libvulkan_radeon.ps5.a
+[[ -e $archive ]] || archive=$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a
+archive=${RADV_ARCHIVE:-$archive}
+echo "RADV: $archive"
 for file in "$archive" "$tool" "$sdk_root/bin/prospero-lld"; do
     [[ -e $file ]] || { echo "ps5-link: missing $file" >&2; exit 2; }
 done

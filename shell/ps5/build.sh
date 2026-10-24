@@ -27,9 +27,13 @@ build="$src/build-ps5"
 out=${1:-$build/dist}
 title=PPSA99247
 
+# RADV: radv-psflycast (shell/ps5/build-radv-psflycast.sh, with Crux2's driver
+# patches) when it was built, else PS5_Vulkan's radv-release. ps5-link.sh picks the same.
+radv="$vk/.deps/native/radv-psflycast"
+[[ -e $radv/lib/libvulkan_radeon.ps5.a ]] || radv="$vk/.deps/native/radv-release"
 missing=0
 for file in "$PS5_PAYLOAD_SDK/bin/prospero-clang++" \
-        "$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a" \
+        "$radv/lib/libvulkan_radeon.ps5.a" \
         "$vk/runtime/libc.prx" "$vk/build/host/ps5-native-tool"; do
     [[ -e $file ]] || { echo "missing: $file" >&2; missing=1; }
 done
@@ -122,7 +126,8 @@ cp -- "$src/shell/ps5/README.md" "$src/shell/ps5/MANUAL.md" "$src/shell/ps5/PRIV
     echo "flycast:    $(git -C "$src" rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "PS5_Vulkan: $(git -C "$vk" rev-parse HEAD 2>/dev/null || echo unknown)"
     echo "SDK:        $(cat "$PS5_PAYLOAD_SDK/.ps5-sdk-revision" 2>/dev/null || echo unknown)"
-    grep -h -E '^(revision|sdk):' "$vk/.deps/native/radv-release/PROVENANCE.txt" 2>/dev/null | sed 's/^/RADV /'
+    echo "RADV:       $(basename "$radv")"
+    grep -h -E '^(revision|sdk):' "$radv/PROVENANCE.txt" 2>/dev/null | sed 's/^/RADV /'
     echo "eboot.bin sha256: $(sha256sum "$app/eboot.bin" | cut -d' ' -f1)"
 } > "$app/BUILD.txt"
 # LEGAL.txt and licenses/: every part's licence, texts, source and revision,

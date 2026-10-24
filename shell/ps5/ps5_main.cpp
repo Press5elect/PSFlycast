@@ -34,6 +34,7 @@
 #include "ps5_frontend.h"
 #include "ps5_disc.h"
 #include "ps5_rewind.h"
+#include "ps5_timing.h"
 #include "cfg/option.h"
 
 #include <algorithm>
@@ -147,6 +148,14 @@ void loadOptions(const std::string& dir)
 			currentOptions.highContrast = value != 0;
 		else if (!strcmp(key, "colour_blind"))
 			currentOptions.colourBlind = value != 0;
+		else if (!strcmp(key, "threaded_recording"))
+			currentOptions.threadedRecording = value != 0;
+		else if (!strcmp(key, "gpu_wait_spin_us"))
+			currentOptions.gpuWaitSpinUs = std::clamp(value, 0, 10000);
+		else if (!strcmp(key, "gpu_wait_sleep_us"))
+			currentOptions.gpuWaitSleepUs = std::clamp(value, 100, 10000);
+		else if (!strcmp(key, "short_queue"))
+			currentOptions.shortQueue = value != 0;
 	}
 	fclose(f);
 }
@@ -162,7 +171,8 @@ void saveOptions()
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
-			"disc_drive = %d\ndisc_speed = %d\n",
+			"disc_drive = %d\ndisc_speed = %d\nthreaded_recording = %d\ngpu_wait_spin_us = %d\ngpu_wait_sleep_us = %d\n"
+			"short_queue = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -171,7 +181,8 @@ void saveOptions()
 			(int)currentOptions.vrr, (int)currentOptions.notifications, (int)currentOptions.showHidden,
 			(int)currentOptions.rewind, currentOptions.splashLast, currentOptions.uiScale,
 			(int)currentOptions.highContrast, (int)currentOptions.colourBlind, (int)currentOptions.discDrive,
-			currentOptions.discSpeed);
+			currentOptions.discSpeed, (int)currentOptions.threadedRecording, currentOptions.gpuWaitSpinUs,
+			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue);
 	fclose(f);
 }
 
@@ -540,6 +551,9 @@ int main(int argc, char *argv[])
 
 	ps5::diag::mark("hide splash screen: %d", sceSystemServiceHideSplashScreen());
 
+	// How late the console's sleeps wake, measured on a thread of its own (ps5_timing.h).
+	PS5Timing::StartProbe();
+
 	// Flycast's fault handler (guest memory pages on first use, fast memory
 	// access rewriting, VRAM protection), chained to the crash report.
 	ps5::diag::mark("fault handler");
@@ -559,6 +573,28 @@ int main(int argc, char *argv[])
 		const int set = setenv("PS5_VIDEOOUT_VRR", "1", 1);
 		ps5::diag::mark("display: variable refresh asked for in the Settings (setenv %d)", set);
 	}
+	// The graphics driver (Settings > System, PlayStation 5), read by it when
+	// the Vulkan instance and device are made, below in flycast_init and the
+	// main loop: a change takes effect at the next start. Crux2's lessons on
+	// the same driver (PS5_Mesa patches 0009 and 0010): recording on a thread
+	// of its own took a heavy scene of Crux2's from 40 to 48 frames a second;
+	// off here until PSFlyCast has been measured with it. A driver without
+	// the patches ignores the variables.
+	if (ps5::options().threadedRecording)
+	{
+		const int set = setenv("RADV_THREADED_RECORDING", "1", 1);
+		ps5::diag::mark("graphics driver: commands recorded on a thread of its own (setenv %d)", set);
+	}
+	if (ps5::options().gpuWaitSpinUs != 1500 || ps5::options().gpuWaitSleepUs != 1000)
+	{
+		// Only when changed from the driver's own 1500 us of checking and 1000 us sleeps.
+		const int spin = setenv("RADV_PS5_WAIT_SPIN_US", std::to_string(ps5::options().gpuWaitSpinUs).c_str(), 1);
+		const int sleep = setenv("RADV_PS5_WAIT_SLEEP_US", std::to_string(ps5::options().gpuWaitSleepUs).c_str(), 1);
+		ps5::diag::mark("graphics driver: a wait for the GPU checks for %d us, then sleeps %d us between checks (setenv %d %d)",
+				ps5::options().gpuWaitSpinUs, ps5::options().gpuWaitSleepUs, spin, sleep);
+	}
+	if (ps5::options().shortQueue)
+		ps5::diag::mark("display: a short queue of frames for the screen asked for in the Settings");
 	ps5::diag::mark("flycast_init");
 	// A forwarder's arguments are taken here, and left out of what Flycast reads.
 	std::vector<char *> kept;

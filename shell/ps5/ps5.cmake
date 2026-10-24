@@ -30,6 +30,10 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_tools.cpp
 	shell/ps5/ps5_clock.c
 	shell/ps5/ps5_clock.h
+	shell/ps5/ps5_timing.cpp
+	shell/ps5/ps5_timing.h
+	shell/ps5/ps5_priority.cpp
+	shell/ps5/ps5_priority.h
 	shell/ps5/ps5_drawdist.cpp
 	shell/ps5/ps5_framegen.cpp
 	shell/ps5/ps5_framegen_ext.cpp

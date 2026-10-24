@@ -65,6 +65,9 @@ def variables():
     vulkan = Path(os.environ.get("PS5_VULKAN_DIR", ROOT.parent / "PS5_Vulkan")).resolve()
     return {
         "VULKAN": vulkan,
+        # The RADV build the title links: PSFlyCast's own (Crux2's driver patches) when built,
+        # else PS5_Vulkan's release archive, as build.sh and ps5-link.sh choose.
+        "RADV": vulkan / ".deps/native" / ("radv-psflycast" if (vulkan / ".deps/native/radv-psflycast/lib").is_dir() else "radv-release"),
         "MESA": Path(os.environ.get("PS5_MESA_FORK", vulkan.parent / "PS5_Mesa")).resolve(),
         "SDK": Path(os.environ.get("PS5_PAYLOAD_SDK", ROOT.parent / "PS5_RetroArch/.deps/native/ps5-payload-sdk")).resolve(),
         "SDK_FORK": Path(os.environ.get("PS5_PAYLOAD_SDK_FORK", ROOT.parent / "PS5_PayloadSDK")).resolve(),
@@ -128,7 +131,7 @@ def source_of(part, names):
     elif kind == "stamp":
         out["revision"] = resolve(spec["file"], names).read_text(encoding="utf-8").strip()
         if spec.get("also") == "provenance-sdk":
-            out["also"] = provenance(names["VULKAN"] / ".deps/native/radv-release/PROVENANCE.txt", "sdk")
+            out["also"] = provenance(names["RADV"] / "PROVENANCE.txt", "sdk")
     else:
         raise NoticeError(f"{part['id']}: source kind {kind}")
     return out

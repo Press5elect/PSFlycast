@@ -47,6 +47,9 @@
 #include "ui/gui.h"
 #endif
 #include "oslib/i18n.h"
+#ifdef __PROSPERO__
+#include "ps5_priority.h"
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -1052,6 +1055,10 @@ void Emulator::start()
 		getSh4Executor()->Start();
 		threadResult = std::async(std::launch::async, [this] {
 				ThreadName _("Flycast-emu");
+#ifdef __PROSPERO__
+				// The title's own priority again: it was started by the interface's thread.
+				PS5Priority::SetCurrentThread(PS5Priority::Role::Emulation);
+#endif
 				InitAudio();
 
 				try {

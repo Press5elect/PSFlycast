@@ -4987,6 +4987,7 @@ void lookUpAddress(const std::string& host, int port)
 		serial = ++addressLookup.serial;
 	}
 	std::thread([host, serial] {
+		PS5Priority::SetCurrentThread(PS5Priority::Role::Background);
 		addrinfo hints{};
 		hints.ai_family = AF_INET;
 		hints.ai_socktype = SOCK_DGRAM;
@@ -6400,6 +6401,54 @@ std::vector<Category> buildCategories()
 			else
 				openCards();
 		};
+		system.rows.push_back(r);
+	}
+	// The graphics driver and the display queue (Crux2's lessons on the same
+	// driver; ps5_main.cpp and vulkan_context.cpp). Off and the driver's own
+	// until the console has shown what they do for PSFlyCast.
+	system.rows.push_back(heading("PlayStation 5"));
+	{
+		Row r{ Row::Toggle, "Graphics driver on its own thread",
+				"The driver records the graphics commands on a thread of its own. It made a heavy scene of Crux2's 20% faster; "
+				"not yet measured with PSFlyCast, so off by default. From the next start" };
+		r.get = [] { return ps5::options().threadedRecording ? 1 : 0; };
+		r.set = [](int v) { ps5::options().threadedRecording = v != 0; ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Slider, "GPU wait: spin",
+				"How long a wait for the graphics chip checks in a loop before it sleeps. 1500 is the driver's own. From the next start" };
+		r.minValue = 0; r.maxValue = 5000; r.step = 250; r.unit = " us";
+		r.get = [] { return ps5::options().gpuWaitSpinUs; };
+		r.set = [](int v) { ps5::options().gpuWaitSpinUs = std::clamp(v, 0, 10000); ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Slider, "GPU wait: sleep",
+				"Then how long it sleeps between checks. 1000 is the driver's own. From the next start" };
+		r.minValue = 100; r.maxValue = 4000; r.step = 100; r.unit = " us";
+		r.get = [] { return ps5::options().gpuWaitSleepUs; };
+		r.set = [](int v) { ps5::options().gpuWaitSleepUs = std::clamp(v, 100, 10000); ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Short display queue",
+				"Experimental: two frames at most wait for the screen while a game keeps up (what you see follows the controls more "
+				"closely), all but one while it falls behind. Needs this build's graphics driver. Off: the driver's own way" };
+		r.get = [] { return ps5::options().shortQueue ? 1 : 0; };
+		r.set = [](int v) { ps5::options().shortQueue = v != 0; ps5::saveOptions(); };
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Sound and controls first",
+				"The console runs the sound and the interface before the emulator, and background jobs (covers, disc reads) after it, "
+				"as Crux2 does. Not yet measured with PSFlyCast, so off by default. From the next start" };
+		r.get = [] { return ps5::ThreadPriorities ? 1 : 0; };
+		r.set = [](int v) { ps5::ThreadPriorities.set(v != 0); SaveSettings(); };
+		r.restart = true;
 		system.rows.push_back(r);
 	}
 	cats.push_back(system);

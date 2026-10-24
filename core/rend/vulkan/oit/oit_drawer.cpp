@@ -21,6 +21,7 @@
 #include "oit_drawer.h"
 #include "hw/pvr/pvr_mem.h"
 #include "rend/sorter.h"
+#include "../frame_counters.h"
 
 #include <algorithm>
 #include <memory>
@@ -202,6 +203,7 @@ void OITDrawer::DrawModifierVolumes(const vk::CommandBuffer& cmdBuffer, int firs
 			if (Translucent)
 			{
 				vk::MemoryBarrier barrier(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead);
+				vkcount::barrier();
 				cmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader, vk::PipelineStageFlagBits::eFragmentShader,
 						vk::DependencyFlagBits::eByRegion, barrier, nullptr, nullptr);
 				pipeline = pipelineManager->GetTrModifierVolumePipeline(mv_mode == 1 ? ModVolMode::Inclusion : ModVolMode::Exclusion, param.isp.CullMode, param.isNaomi2());
@@ -215,6 +217,7 @@ void OITDrawer::DrawModifierVolumes(const vk::CommandBuffer& cmdBuffer, int firs
 			if (Translucent)
 			{
 				vk::MemoryBarrier barrier(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead);
+				vkcount::barrier();
 				cmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader, vk::PipelineStageFlagBits::eFragmentShader,
 						vk::DependencyFlagBits::eByRegion, barrier, nullptr, nullptr);
 			}
@@ -399,6 +402,7 @@ bool OITDrawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
     	const bool finalPass = render_pass == (int)rendContext->render_passes.size() - 1;
 
     	vk::Framebuffer targetFramebuffer = getFramebuffer(render_pass, rendContext->render_passes.size());
+    	vkcount::pass();
     	cmdBuffer.beginRenderPass(
     			vk::RenderPassBeginInfo(pipelineManager->GetRenderPass(initialPass, finalPass, initialPass && rendContext->clearFramebuffer),
     					targetFramebuffer, viewport, clear_colors),
@@ -426,6 +430,7 @@ bool OITDrawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
 			quadBuffer->Draw(cmdBuffer);
 
 			vk::MemoryBarrier memoryBarrier(vk::AccessFlagBits::eShaderWrite, vk::AccessFlagBits::eShaderRead);
+			vkcount::barrier();
 			cmdBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eFragmentShader, vk::PipelineStageFlagBits::eFragmentShader,
 					vk::DependencyFlagBits::eByRegion, memoryBarrier, nullptr, nullptr);
 			cmdBuffer.bindVertexBuffers(0, curMainBuffer, {0});
@@ -677,6 +682,7 @@ void OITTextureDrawer::EndFrame()
 				*colorAttachment->GetBufferData()->buffer,
 				0,
 				vk::WholeSize);
+		vkcount::barrier();
 		currentCommandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
 						vk::PipelineStageFlagBits::eHost, {}, nullptr, bufferMemoryBarrier, nullptr);
 	}
