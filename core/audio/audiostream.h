@@ -67,6 +67,10 @@ void WriteSample(s16 right, s16 left);
 void StartAudioRecording(bool eight_khz);
 u32 RecordAudio(void *buffer, u32 samples);
 void StopAudioRecording();
+// The gain the game last set on the Dreamcast microphone, in dB (-15 to +16; 0 is the
+// microphone's default). The core applies it to what RecordAudio() returns; a frontend
+// may read it to show it, nothing more.
+inline std::atomic<int> AudioRecordingGainDb { 0 };
 
 constexpr u32 SAMPLE_COUNT = 512;	// AudioBackend::push() is always called with that many frames
 

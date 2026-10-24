@@ -867,6 +867,11 @@ bool VulkanContext::InitDevice()
 	    quadDrawer = std::make_unique<QuadDrawer>();
 	    quadRotatePipeline = std::make_unique<QuadPipeline>(true, true);
 	    quadRotateDrawer = std::make_unique<QuadDrawer>();
+	    // The game's frame with the flicker filter / 16-bit packing applied (FrameAccuracy, quad.h)
+	    quadAccuratePipeline = std::make_unique<QuadPipeline>(true, false, true);
+	    quadAccurateDrawer = std::make_unique<QuadDrawer>();
+	    quadAccurateRotatePipeline = std::make_unique<QuadPipeline>(true, true, true);
+	    quadAccurateRotateDrawer = std::make_unique<QuadDrawer>();
 
 		vk::PhysicalDeviceProperties props = physicalDevice.getProperties();
 		driverName = (const char *)props.deviceName;
@@ -1124,6 +1129,10 @@ void VulkanContext::CreateSwapChain()
 	    quadDrawer->Init(quadPipeline.get());
 	    quadRotatePipeline->Init(shaderManager.get(), *renderPass, 0);
 	    quadRotateDrawer->Init(quadRotatePipeline.get());
+	    quadAccuratePipeline->Init(shaderManager.get(), *renderPass, 0);
+	    quadAccurateDrawer->Init(quadAccuratePipeline.get());
+	    quadAccurateRotatePipeline->Init(shaderManager.get(), *renderPass, 0);
+	    quadAccurateRotateDrawer->Init(quadAccurateRotatePipeline.get());
 	    overlay->Init(quadPipelineWithAlpha.get());
 
 	    InitImgui();
@@ -1470,6 +1479,17 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	vk::Viewport viewport(dx, dy, width - dx * 2, height - dy * 2);
 	commandBuffer.setViewport(0, viewport);
 	commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
+	// The game's frame with what the PowerVR2 does as it writes it out (flicker filter, 16-bit packing),
+	// when the renderer asked for it (SetFrameAccuracy). The same quad, so nothing else changes. A frame
+	// made by frame generation is the size of the game's frame, so the same distances apply to it.
+	if (lastFrameAccuracy.active())
+	{
+		QuadPipeline *pipeline = config::Rotate90 ? quadAccurateRotatePipeline.get() : quadAccuratePipeline.get();
+		QuadDrawer *drawer = config::Rotate90 ? quadAccurateRotateDrawer.get() : quadAccurateDrawer.get();
+		pipeline->BindPipeline(commandBuffer);
+		drawer->Draw(commandBuffer, imageView, vtx, !config::LinearInterpolation, lastFrameAccuracy.flicker);
+		return;
+	}
 	if (config::Rotate90)
 		quadRotateDrawer->Draw(commandBuffer, imageView, vtx, !config::LinearInterpolation);
 	else
@@ -1524,6 +1544,14 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 	lastFrameView = imageView;
 	lastFrameExtent = extent;
 	lastFrameAR = aspectRatio;
+	// A new picture (image given) takes the FrameAccuracy the renderer set for it, or none: the
+	// framebuffer emulation and other callers do not set one. Showing the last frame again
+	// (no image) keeps the one it had.
+	if (image || !imageView)
+	{
+		lastFrameAccuracy = pendingFrameAccuracy;
+		pendingFrameAccuracy = FrameAccuracy();
+	}
 
 	if (imageView && IsValid())
 	{
@@ -1635,6 +1663,10 @@ void VulkanContext::term()
 	quadPipelineWithAlpha.reset();
 	quadRotateDrawer.reset();
 	quadRotatePipeline.reset();
+	quadAccurateDrawer.reset();
+	quadAccuratePipeline.reset();
+	quadAccurateRotateDrawer.reset();
+	quadAccurateRotatePipeline.reset();
 	shaderManager.reset();
 	descriptorPool.reset();
 	commandBuffers.clear();

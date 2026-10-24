@@ -163,12 +163,15 @@ public:
 		frameStarted = false;
 		if (emulateFramebuffer) {
 			scaleAndWriteFramebuffer(currentCommandBuffer, colorAttachments[framebufferIndex].get());
+			frameAccuracy = FrameAccuracy();
 		}
 		else
 		{
 			currentCommandBuffer.end();
 			commandPool->EndFrame();
 			aspectRatio = getOutputFramebufferAspectRatio();
+			// Flicker filter / 16-bit packing of this frame, applied where it is shown (quad.h)
+			frameAccuracy = MakeFrameAccuracy(viewport.extent.height);
 		}
 		currentCommandBuffer = nullptr;
 		frameRendered = true;
@@ -180,6 +183,9 @@ public:
 		if (!frameRendered)
 			return false;
 		frameRendered = false;
+#ifndef LIBRETRO
+		GetContext()->SetFrameAccuracy(frameAccuracy);
+#endif
 		GetContext()->PresentFrame(colorAttachments[framebufferIndex]->GetImage(),
 				colorAttachments[framebufferIndex]->GetImageView(), viewport.extent, aspectRatio);
 

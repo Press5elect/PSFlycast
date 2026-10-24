@@ -134,7 +134,12 @@ public:
 
 	vk::Sampler GetSampler(TSP tsp, bool punchThrough = false)
 	{
-		const u32 samplerHash = (tsp.full & TSP_Mask) | punchThrough;	// MipMapD, FilterMode, ClampU, ClampV, FlipU, FlipV
+		// Mipmaps as the PowerVR2 picks them (rend.AccurateMipmaps). It changes the sampler, so it is
+		// part of the key (bit 1: TSP bits 0-7 are the texture size, outside TSP_Mask) and samplers made
+		// with the option on and off never mix.
+		const bool accurateMipmaps = config::AccurateMipmaps;
+		const u32 samplerHash = (tsp.full & TSP_Mask) | punchThrough	// MipMapD, FilterMode, ClampU, ClampV, FlipU, FlipV
+				| ((u32)accurateMipmaps << 1);
 		const auto& it = samplers.find(samplerHash);
 		if (it != samplers.end())
 			return it->second.get();
@@ -152,12 +157,25 @@ public:
 		const bool anisotropicFiltering = config::AnisotropicFiltering > 1 && VulkanContext::Instance()->SupportsSamplerAnisotropy()
 				&& filter == vk::Filter::eLinear && !punchThrough;
 #ifndef __APPLE__
-		const float mipLodBias = D_Adjust_LoD_Bias[tsp.MipMapD] - 1.f;
+		float mipLodBias = D_Adjust_LoD_Bias[tsp.MipMapD] - 1.f;
+		if (accurateMipmaps)
+		{
+			// D-adjust is a multiplier of the computed D with 2 fraction bits: 1 = 0.25 ... 4 = 1.0 ... 15 = 3.75.
+			// Multiplying D by k moves the level by log2(k). 0 is not a valid value; it is taken as 1.0
+			// (no adjustment), as the old table does (its entries 0 and 4 are the same).
+			const u32 dAdjust = tsp.MipMapD == 0 ? 4 : tsp.MipMapD;
+			mipLodBias = std::log2(dAdjust / 4.f);
+		}
 #else
 		// not supported by metal
 		const float mipLodBias = 0;
 #endif
-		const vk::SamplerMipmapMode mipmapMode = !punchThrough && filter == vk::Filter::eLinear ? vk::SamplerMipmapMode::eLinear : vk::SamplerMipmapMode::eNearest;
+		vk::SamplerMipmapMode mipmapMode = !punchThrough && filter == vk::Filter::eLinear ? vk::SamplerMipmapMode::eLinear : vk::SamplerMipmapMode::eNearest;
+		// The PowerVR2 in bilinear mode (FilterMode 1) picks ONE mipmap level; only trilinear (2/3, done by
+		// the game in two passes A and B) blends two levels. Without this the GPU blends levels for every
+		// bilinear texture (GPU trilinear), which is smoother and blurrier than the console.
+		if (accurateMipmaps && tsp.FilterMode < 2)
+			mipmapMode = vk::SamplerMipmapMode::eNearest;
 		return samplers.emplace(
 					std::make_pair(samplerHash, VulkanContext::Instance()->GetDevice().createSamplerUnique(
 						vk::SamplerCreateInfo(vk::SamplerCreateFlags(), filter, filter,

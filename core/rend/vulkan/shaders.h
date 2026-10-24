@@ -148,6 +148,13 @@ public:
 			return *quadFragmentShader;
 		}
 	}
+	// The presentation shader that applies a FrameAccuracy (flicker filter, 16-bit packing; quad.h)
+	vk::ShaderModule GetQuadAccurateFragmentShader()
+	{
+		if (!quadAccurateFragmentShader)
+			quadAccurateFragmentShader = compileQuadAccurateFragmentShader();
+		return *quadAccurateFragmentShader;
+	}
 
 	void term()
 	{
@@ -160,6 +167,7 @@ public:
 		quadRotateVertexShader.reset();
 		quadFragmentShader.reset();
 		quadNoAlphaFragmentShader.reset();
+		quadAccurateFragmentShader.reset();
 	}
 
 private:
@@ -179,6 +187,7 @@ private:
 	vk::UniqueShaderModule compileModVolFragmentShader(bool divPosZ);
 	vk::UniqueShaderModule compileQuadVertexShader(bool rotate);
 	vk::UniqueShaderModule compileQuadFragmentShader(bool ignoreTexAlpha);
+	vk::UniqueShaderModule compileQuadAccurateFragmentShader();
 
 	std::map<u32, vk::UniqueShaderModule> vertexShaders;
 	std::map<u32, vk::UniqueShaderModule> fragmentShaders;
@@ -188,4 +197,5 @@ private:
 	vk::UniqueShaderModule quadRotateVertexShader;
 	vk::UniqueShaderModule quadFragmentShader;
 	vk::UniqueShaderModule quadNoAlphaFragmentShader;
+	vk::UniqueShaderModule quadAccurateFragmentShader;
 };

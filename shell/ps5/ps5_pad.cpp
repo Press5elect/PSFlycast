@@ -56,6 +56,9 @@ int sceUserServiceGetLoginUserIdList(int32_t *userIds);
 int sceKernelUsleep(uint32_t microseconds);
 }
 
+// The vibration pack's frequency per player, in Hz (core/hw/maple/maple_devs.cpp).
+extern float purupuruFrequencyHz[MAPLE_PORTS];
+
 namespace ps5::pad
 {
 
@@ -215,33 +218,52 @@ public:
 			input_mapper = std::make_shared<DualSenseMapping<false>>();
 	}
 
+	// The core's vibration pack: power 0 to 1 (its levels 1 to 7 are 1/7 to 1),
+	// and the fraction of the way per millisecond a fade goes, positive down
+	// to nothing over the duration, negative up to full.
 	void rumble(float power, float inclination, u32 durationMs) override
 	{
-		const float scaled = std::clamp(power * rumblePower / 100.f, 0.f, 1.f);
-		rumbleLevel = (u8)std::lround(scaled * 255.f);
+		rumbleStart = std::clamp(power, 0.f, 1.f);
 		rumbleInclination = inclination;
-		rumbleUntil = now() + durationMs;
+		const int port = maple_port();
+		rumbleHz = port >= 0 && port < MAPLE_PORTS ? purupuruFrequencyHz[port] : 0.f;
 		rumbleStarted = now();
+		rumbleUntil = rumbleStarted + durationMs;
 	}
 
 	void update_rumble() override
 	{
-		u8 level = 0;
+		u8 large = 0, small = 0;
 		const u64 t = now();
-		if (t < rumbleUntil && rumbleLevel > 0)
+		if (t < rumbleUntil && rumbleStart > 0.f)
 		{
-			float v = rumbleLevel / 255.f;
-			if (rumbleInclination != 0.f)
-				v = std::clamp(v + rumbleInclination * (float)(t - rumbleStarted) / 1000.f, 0.f, 1.f);
-			level = (u8)std::lround(v * 255.f);
+			const float elapsed = (float)(t - rumbleStarted);
+			float p = rumbleStart;
+			if (rumbleInclination > 0.f)
+				p *= std::max(1.f - rumbleInclination * elapsed, 0.f);
+			else if (rumbleInclination < 0.f)
+				p += (1.f - p) * std::min(-rumbleInclination * elapsed, 1.f);
+			// The pack's level 1 is still felt on the real motor; a DualSense
+			// barely moves under a fifth of its range, so levels 1 to 7 map to
+			// 50 to 255, and anything under level 1 (the end of a fade) goes
+			// down to nothing in a line.
+			const float packLevel = p * 7.f;
+			float v = packLevel <= 1.f ? packLevel * 50.f : 50.f + (packLevel - 1.f) * (205.f / 6.f);
+			v = std::clamp(v * rumblePower / 100.f, 0.f, 255.f);
+			// The pack has one motor, a heavy one: the large motor carries it. Only
+			// from about 20 Hz, where the pack's buzz is quicker than the large
+			// motor follows, the small one joins in, fully at 30 Hz.
+			const float blend = std::clamp((rumbleHz - 20.f) / 10.f, 0.f, 1.f);
+			large = (u8)std::lround(v);
+			small = (u8)std::lround(v * blend);
 		}
-		if (level != sentLevel)
+		if (large != sentLarge || small != sentSmall)
 		{
-			// { large motor, small motor }: the large one carries the effect,
-			// the small one a little of it for the DualSense's lighter feel.
-			const uint8_t param[2] = { level, (uint8_t)(level / 2) };
+			// { large motor, small motor }
+			const uint8_t param[2] = { large, small };
 			scePadSetVibration(handle, param);
-			sentLevel = level;
+			sentLarge = large;
+			sentSmall = small;
 		}
 	}
 
@@ -471,10 +493,18 @@ private:
 		using namespace std::chrono;
 		return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
 	}
+	// Each half of the stick scaled on its own, so that both rims reach the
+	// end of the range: 0 is -32768 and 255 is 32767, which Flycast turns
+	// into the 00h and FFh the controller spec asks for at the extremes.
 	static int stick(uint8_t v) {
-		return std::clamp(((int)v - 128) * 256, -32768, 32767);
+		const int d = (int)v - 128;
+		return d < 0 ? d * 256 : d * 32767 / 127;
 	}
+	// A trigger let go reads exactly released: the spec asks for a value that
+	// does not fluctuate at rest, and a worn trigger can rest a count or two in.
 	static int trigger(uint8_t v) {
+		if (v <= 2)
+			v = 0;
 		return (int)v * 65535 / 255 - 32768;
 	}
 
@@ -541,8 +571,10 @@ private:
 	u32 lastButtons = 0;
 	u32 lastSticks = 0;		// the sticks' directions held, as buttons
 	int lastAxes[6] = { 0, 0, 0, 0, -32768, -32768 };
-	u8 rumbleLevel = 0;
-	u8 sentLevel = 0;
+	float rumbleStart = 0.f;	// the pack's power when the effect started, 0 to 1
+	float rumbleHz = 0.f;		// its vibration frequency
+	u8 sentLarge = 0;
+	u8 sentSmall = 0;
 	float rumbleInclination = 0.f;
 	u64 rumbleUntil = 0;
 	u64 rumbleStarted = 0;
@@ -789,11 +821,20 @@ void hotplug()
 
 // A game played with two levers (an arcade twin stick, or the Dreamcast's
 // Twin Stick in port A) starts with a layout of its own made for it, the
-// first time, when it has none yet: the left stick and the D-pad the left
-// lever, the right stick the right lever; L2 and L1 the left lever's trigger
-// and turbo button, R2 and R1 the right lever's. Afterwards the layout is the
-// game's own, changed in the quick menu's Controls like any other. Done once
-// the game is running, after Flycast has loaded the game's layout.
+// first time, when it has none yet. In both the left stick and the D-pad are
+// the left lever and the right stick the right lever; L2 and L1 are the left
+// lever's trigger and turbo button, R2 and R1 the right lever's.
+// Arcade: those are the machine's buttons 1 and 2 (left) and 3 and 4 (right),
+// the right stick's directions are buttons 5 to 8, and Triangle inserts a
+// card where the game has a card reader.
+// Dreamcast: the right stick is the second D-pad; the left lever's trigger
+// and turbo are X and Y, the right lever's A and B (as Flycast's libretro
+// Twin Stick has them), Triangle is D and OPTIONS is Start. The Twin Stick
+// reports Z and C always released and has no analog triggers, so nothing
+// else is of use to it.
+// Afterwards the layout is the game's own, changed in the quick menu's
+// Controls like any other. Done once the game is running, after Flycast has
+// loaded the game's layout.
 void twinStickLayout()
 {
 	static bool done;
@@ -847,6 +888,11 @@ void twinStickLayout()
 		bind(DC_DPAD2_DOWN, StickCodeBase + StickRightDown);
 		bind(DC_DPAD2_LEFT, StickCodeBase + StickRightLeft);
 		bind(DC_DPAD2_RIGHT, StickCodeBase + StickRightRight);
+		bind(DC_BTN_X, code(L2));		// left lever's trigger
+		bind(DC_BTN_Y, code(L1));		// left lever's turbo
+		bind(DC_BTN_A, code(R2));		// right lever's trigger
+		bind(DC_BTN_B, code(R1));		// right lever's turbo
+		bind(DC_BTN_D, code(Triangle));
 	}
 	mapping->set_dirty();
 	pad->save_mapping();

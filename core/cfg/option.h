@@ -478,6 +478,10 @@ extern Option<bool> VSync;
 extern Option<int64_t> PixelBufferSize;
 extern Option<int> AnisotropicFiltering;
 extern Option<int> TextureFiltering; // 0: default, 1: force nearest, 2: force linear
+// Picture accuracy (Vulkan). On = as the Dreamcast's PowerVR2 draws; off = the older, smoother look.
+extern Option<bool> AccurateMipmaps;	// one mipmap level in bilinear mode, D-adjust as a multiplier of D
+extern Option<bool> Original16Bit;		// 16-bit framebuffer modes written with the console's dither/truncation
+extern Option<bool> FlickerFilter;		// the Y scaler's vertical filter (Y_COEFF) in interlaced TV modes
 extern Option<bool> ThreadedRendering;
 extern Option<bool> DupeFrames;
 extern Option<bool> NativeDepthInterpolation;

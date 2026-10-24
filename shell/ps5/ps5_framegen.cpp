@@ -107,7 +107,11 @@ vk::UniqueShaderModule compile(vk::ShaderStageFlagBits stage, const char *source
 int strength() { return ps5::FrameGeneration; }
 int method() { return ps5::FrameGenMethod; }
 void mark(const char *line) { ps5::diag::mark("%s", line); }
+// The context's pipeline cache, so the pipeline is kept with the others.
+vk::PipelineCache pipelineCache() { return VulkanContext::Instance()->GetPipelineCache(); }
 #else
+// The test runs without a cache.
+inline vk::PipelineCache pipelineCache() { return vk::PipelineCache(); }
 vk::Device device();
 vk::PhysicalDevice gpu();
 unsigned frameIndex();
@@ -654,7 +658,7 @@ vk::UniquePipeline makePipeline(vk::ShaderModule vertex, vk::ShaderModule fragme
 	};
 	vk::GraphicsPipelineCreateInfo info(vk::PipelineCreateFlags(), stages, &vertexInput, &inputAssembly, nullptr, &viewport,
 			&rasterization, &multisample, &depthStencil, &blend, &dynamic, layout, renderPass, 0);
-	return host::device().createGraphicsPipelineUnique(vk::PipelineCache(), info).value;
+	return host::device().createGraphicsPipelineUnique(host::pipelineCache(), info).value;
 }
 
 // A render pass of one attachment, which is all written and read as a texture afterwards.

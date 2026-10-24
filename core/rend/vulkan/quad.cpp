@@ -106,7 +106,8 @@ void QuadPipeline::CreatePipeline()
 
 	std::array<vk::PipelineShaderStageCreateInfo, 2> stages = {
 			vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eVertex, shaderManager->GetQuadVertexShader(rotate), "main"),
-			vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment, shaderManager->GetQuadFragmentShader(ignoreTexAlpha), "main"),
+			vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(), vk::ShaderStageFlagBits::eFragment,
+					accurate ? shaderManager->GetQuadAccurateFragmentShader() : shaderManager->GetQuadFragmentShader(ignoreTexAlpha), "main"),
 	};
 	vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo
 	(
@@ -137,7 +138,8 @@ void QuadPipeline::Init(ShaderManager *shaderManager, vk::RenderPass renderPass,
 		vk::DescriptorSetLayoutBinding binding(0, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment); // texture
 		descSetLayout = GetContext()->GetDevice().createDescriptorSetLayoutUnique(
 				vk::DescriptorSetLayoutCreateInfo(vk::DescriptorSetLayoutCreateFlags(), binding));
-		vk::PushConstantRange pushConstant(vk::ShaderStageFlagBits::eFragment, 0, 4 * sizeof(float));
+		// A colour, or a FrameAccuracy for the accurate pipeline (48 bytes, within the 128 Vulkan guarantees)
+		vk::PushConstantRange pushConstant(vk::ShaderStageFlagBits::eFragment, 0, GetPushConstantSize());
 		pipelineLayout = GetContext()->GetDevice().createPipelineLayoutUnique(
 				vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), descSetLayout.get(), pushConstant));
 	}
@@ -206,12 +208,16 @@ void QuadDrawer::Draw(vk::CommandBuffer commandBuffer, vk::ImageView imageView, 
 	buffer->Update(vertices);
 	buffer->Bind(commandBuffer);
 
+	const u32 pushSize = pipeline->GetPushConstantSize();
 	if (color == nullptr)
 	{
 		static float fullWhite[] { 1.f, 1.f, 1.f, 1.f };
-		color = fullWhite;
+		// The accurate pipeline's push constants are a FrameAccuracy: all zero shows the picture as it is
+		static const FrameAccuracy noAccuracy {};
+		color = pushSize == sizeof(FrameAccuracy) ? noAccuracy.flicker : fullWhite;
 	}
-	commandBuffer.pushConstants(pipeline->GetPipelineLayout(), vk::ShaderStageFlagBits::eFragment, 0, sizeof(float) * 4, color);
+	// color points to pushSize bytes: 4 floats, or a whole FrameAccuracy for the accurate pipeline
+	commandBuffer.pushConstants(pipeline->GetPipelineLayout(), vk::ShaderStageFlagBits::eFragment, 0, pushSize, color);
 	buffer->Draw(commandBuffer);
 }
 

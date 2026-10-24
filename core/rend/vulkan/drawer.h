@@ -26,6 +26,7 @@
 #include "pipeline.h"
 #include "shaders.h"
 #include "texture.h"
+#include "quad.h"
 
 #include <memory>
 #include <vector>
@@ -44,6 +45,10 @@ protected:
 	TileClipping SetTileClip(vk::CommandBuffer cmdBuffer, u32 val, vk::Rect2D& clipRect);
 	void SetBaseScissor(const vk::Extent2D& viewport = vk::Extent2D());
 	void scaleAndWriteFramebuffer(vk::CommandBuffer commandBuffer, FramebufferAttachment *finalFB);
+	// The flicker filter (rend.FlickerFilter) and 16-bit packing (rend.Original16BitColour) of the
+	// screen frame being rendered, renderHeight lines tall. None for render to texture or with the
+	// framebuffer emulation (which writes the real 16-bit framebuffer itself).
+	FrameAccuracy MakeFrameAccuracy(u32 renderHeight) const;
 
 	void SetScissor(vk::CommandBuffer cmdBuffer, const vk::Rect2D& scissor)
 	{
@@ -213,6 +218,9 @@ protected:
 	CommandPool *commandPool = nullptr;
 	std::vector<std::unique_ptr<BufferData>> mainBuffers;
 	rend_context *rendContext = nullptr;
+	// What the PowerVR2 does to this frame as it writes it out (quad.h); made when the frame's
+	// rendering ends (rendContext is this frame's) and given to the context when it is presented.
+	FrameAccuracy frameAccuracy;
 };
 
 class Drawer;

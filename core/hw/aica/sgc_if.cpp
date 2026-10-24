@@ -29,6 +29,7 @@
 #include "serialize.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #undef FAR
@@ -157,10 +158,14 @@ public:
 	{
 		active = false;
 		att = 256;
-		waveIdx.full = 0;
-		waveStep = 0;
+		period = 0;
+		on = 0;
+		wave.phase = 0.0;
+		publish();
 	}
 
+	// period and on are the alarm's ALw and ALd: on of every period clock
+	// ticks high. Off leaves the last tone's, which the fade out still plays.
 	void update(int period, int on)
 	{
 		if (on == 0 || period == 0 || on >= period) {
@@ -168,12 +173,11 @@ public:
 		}
 		else
 		{
-			// on (duty cycle) is ignored
 			active = true;
-			// 6 MHz clock
-			int freq = 6000000 / 6 / period;
-			waveStep = freq * 1024 / 2698;
+			this->period = period;
+			this->on = on;
 		}
+		publish();
 	}
 
 	SampleType getSample()
@@ -181,10 +185,8 @@ public:
 		if (!active && att >= 256)
 			return 0;
 
-		waveIdx.full += waveStep;
-		waveIdx.ip %= std::size(wave);
-		int nextIdx = (waveIdx.ip + 1) % std::size(wave);
-		SampleType s = (FPMul(wave[waveIdx.ip], (int)(1024 - waveIdx.fp), 10) + FPMul(wave[nextIdx], (int)waveIdx.fp, 10)) * 2;
+		// About the level of the recording of a real VMU this replaced.
+		SampleType s = (SampleType)std::lround(wave.next(period, on, 44100.f) * 16384.f);
 
 		s = FPMul(s, tl_lut[att], 15);
 		if (active)
@@ -194,12 +196,24 @@ public:
 		return s;
 	}
 
+	bool params(int& period, int& on) const
+	{
+		const u32 v = shared.load(std::memory_order_acquire);
+		period = v & 0xff;
+		on = (v >> 8) & 0xff;
+		return (v >> 16) & 1;
+	}
+
+	// The tone and where in its cycle, in the room the table's position and
+	// step had (states from before carry no mark and load silent).
 	void serialize(Serializer& ser)
 	{
 		ser << active;
 		ser << att;
-		ser << waveIdx;
-		ser << waveStep;
+		const u32 tone = StateMark | (u32)(on & 0xff) << 8 | (u32)(period & 0xff);
+		ser << tone;
+		const int phase = (int)(wave.phase * (1 << 30));
+		ser << phase;
 	}
 
 	void deserialize(Deserializer& deser)
@@ -215,25 +229,38 @@ public:
 		{
 			deser >> active;
 			deser >> att;
-			deser >> waveIdx;
-			deser >> waveStep;
+			u32 tone;
+			deser >> tone;
+			int phase;
+			deser >> phase;
+			if ((tone & 0xff000000) == StateMark)
+			{
+				period = tone & 0xff;
+				on = (tone >> 8) & 0xff;
+				wave.phase = std::clamp(phase / (double)(1 << 30), 0.0, 1.0);
+				if (wave.phase >= 1.0)
+					wave.phase = 0.0;
+			}
+			else
+				init();
+			publish();
 		}
 	}
 
 private:
+	static constexpr u32 StateMark = 0x5a000000;
+
+	// For the PS5's pad speaker, read on its own thread.
+	void publish() {
+		shared.store((u32)(period & 0xff) | (u32)(on & 0xff) << 8 | (active ? 1u << 16 : 0u), std::memory_order_release);
+	}
+
 	bool active = false;
 	int att = 256;
-	fp_22_10 waveIdx {};
-	int waveStep = 0;
-
-	// 2698 Hz
-	static constexpr SampleType wave[] = {   503, -3519,
-		-7540, -8214, -8209, -8214, -8209, -5199, -1172,  2843,
-		 6873,  8207,  8214,  8209,  8212,  5866,  1840, -2175,
-		-6203, -8210, -8215, -8209, -8214, -6533, -2516,  1507,
-		 5526,  8212,  8210,  8212,  8210,  7206,  3187,  -841,
-		-4856, -8215, -8209, -8214, -8208, -7882, -3850,   162,
-		 4187,  8213,  8208,  8213,  8209,  8211,  4525 };
+	int period = 0;
+	int on = 0;
+	VmuBeepWave wave;
+	std::atomic<u32> shared{ 0 };
 };
 static VmuBeep beep;
 
@@ -1541,13 +1568,19 @@ void ReadCommonReg(u32 reg,bool byte)
 	}
 }
 
-static int beepBus = -1;
+static std::atomic<int> beepBus{ -1 };
 
-void vmuBeep(int on, int period, int bus)
+void vmuBeep(int period, int on, int bus)
 {
-	beep.update(on, period);
+	beep.update(period, on);
 	if (bus >= 0)
 		beepBus = bus;
+}
+
+bool vmuBeepParams(int& period, int& on, int& bus)
+{
+	bus = beepBus.load();
+	return beep.params(period, on);
 }
 
 constexpr int CDDA_SIZE = 2352 / 2;

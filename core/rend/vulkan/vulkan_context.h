@@ -109,6 +109,9 @@ public:
 	void EndFrame(vk::CommandBuffer cmdBuffer = vk::CommandBuffer());
 	void Present() noexcept;
 	void PresentFrame(vk::Image image, vk::ImageView imageView, const vk::Extent2D& extent, float aspectRatio) noexcept;
+	// What the next PresentFrame with a new image applies as it shows it (flicker filter, 16-bit
+	// packing; quad.h). The screen drawers set it right before presenting their frame.
+	void SetFrameAccuracy(const FrameAccuracy& accuracy) { pendingFrameAccuracy = accuracy; }
 	void PresentLastFrame();
 	bool GetLastFrame(std::vector<u8>& data, int& width, int& height);
 
@@ -276,11 +279,18 @@ private:
 	std::unique_ptr<QuadPipeline> quadRotatePipeline;
 	std::unique_ptr<QuadDrawer> quadDrawer;
 	std::unique_ptr<QuadDrawer> quadRotateDrawer;
+	// Show the game's frame with a FrameAccuracy applied (rend.FlickerFilter, rend.Original16BitColour)
+	std::unique_ptr<QuadPipeline> quadAccuratePipeline;
+	std::unique_ptr<QuadPipeline> quadAccurateRotatePipeline;
+	std::unique_ptr<QuadDrawer> quadAccurateDrawer;
+	std::unique_ptr<QuadDrawer> quadAccurateRotateDrawer;
 	std::unique_ptr<ShaderManager> shaderManager;
 
 	vk::ImageView lastFrameView;
 	vk::Extent2D lastFrameExtent;
 	float lastFrameAR = 0.f;
+	FrameAccuracy pendingFrameAccuracy;	// set by the renderer for the frame it presents next
+	FrameAccuracy lastFrameAccuracy;	// the one of lastFrameView
 
 	std::unique_ptr<VulkanOverlay> overlay;
 	std::vector<std::vector<std::unique_ptr<Deletable>>> inFlightObjects;

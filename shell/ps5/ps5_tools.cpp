@@ -36,6 +36,7 @@
 #include "cfg/option.h"
 #include "emulator.h"
 #include "hw/sh4/sh4_mem.h"
+#include "hw/pvr/spg.h"
 #include "imgui/imgui.h"
 #include "oslib/oslib.h"
 #include "ps5_diag.h"
@@ -340,7 +341,10 @@ std::string serial_, title_, path_, startCondition, practiceWhy;
 State runState = Idle;
 size_t at = 0;
 u64 frames = 0;
-double fpsNow = 60.0;
+// Emulated vblanks per second (spg_GetFieldRate(): ~59.94 NTSC, 50 PAL),
+// not the output's refresh rate, which on a 119.88 Hz display is twice
+// the game's and made game time run at half speed.
+double fpsNow = 59.94;
 u64 startedAt = 0;
 s64 finishedAt = 0;
 bool isPractice = false;
@@ -421,7 +425,7 @@ s64 now_()
 		return 0;
 	if (Clock == 1)
 		return (s64)(getTimeMs() - startedAt);
-	return (s64)((double)frames * 1000.0 / (fpsNow > 1.0 ? fpsNow : 60.0));
+	return (s64)((double)frames * 1000.0 / (fpsNow > 1.0 ? fpsNow : 59.94));
 }
 
 void save()
@@ -546,8 +550,9 @@ void vblank(Event, void *)
 	std::lock_guard<std::mutex> lock(mutex);
 	if (serial_.empty())
 		return;
-	if (settings.display.refreshRate > 1.f)
-		fpsNow = settings.display.refreshRate;
+	// The game's own field rate (this event comes once per emulated vblank).
+	const float fieldRate = spg_GetFieldRate();
+	fpsNow = fieldRate > 1.f ? fieldRate : 59.94;
 	// Fast forward does not count: a run with it is practice.
 	if (runState == Running && settings.input.fastForwardMode)
 		markPractice("fast forward");

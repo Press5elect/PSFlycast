@@ -68,6 +68,19 @@ void CalculateSync()
 #endif
 }
 
+// The rate at which the emulated machine produces vblanks (fields per
+// second: about 59.94 for NTSC and VGA, 50 for PAL), from the field length
+// in SH4 cycles that CalculateSync() (or a savestate) set. 0 before the SPG
+// has been programmed. Only reads the timing, never changes it. Read from
+// other threads too: an aligned 32-bit load, at worst one field stale.
+float spg_GetFieldRate()
+{
+	const u32 cycles = Frame_Cycles;
+	if (cycles == 0)
+		return 0.f;
+	return (float)((double)SH4_MAIN_CLOCK / (double)cycles);
+}
+
 static int getNextSpgInterrupt()
 {
 	if (SPG_HBLANK_INT.hblank_int_mode == 2)

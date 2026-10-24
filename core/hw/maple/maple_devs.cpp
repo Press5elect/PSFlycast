@@ -22,7 +22,7 @@ const char* maple_sega_kbd_name        = "Emulated Dreamcast Keyboard";
 const char* maple_sega_mouse_name      = "Emulated Dreamcast Mouse";
 const char* maple_sega_dreameye_name_1 = "Dreamcast Camera Flash  Device";
 const char* maple_sega_dreameye_name_2 = "Dreamcast Camera Flash LDevice";
-const char* maple_sega_mic_name        = "MicDevice for Dreameye";
+const char* maple_sega_mic_name        = "SoundInputPeripheral (S.I.P.)";	// the stand-alone microphone, not the Dreameye's
 const char* maple_sega_purupuru_name   = "Puru Puru Pack";
 const char* maple_sega_lightgun_name   = "Dreamcast Gun";
 const char* maple_sega_twinstick_name  = "Twin Stick";
@@ -810,11 +810,35 @@ struct maple_sega_vmu: maple_base
 	}
 };
 
+/*
+	The Sound Input Peripheral: the stand-alone microphone (function 4) that plugs
+	into a controller's expansion slot.
+
+	The game asks for up to 240 samples at a time (Get_Sampling_Data), at 11.025 or
+	8 kHz, as 14-bit linear samples sent as 16 bits or as 8-bit G.711 mu-law. It sets
+	the amplifier's gain, from -15 dB (00h) through 0 dB (0Fh, the default) to +16 dB
+	(1Fh), and what the two bits below the 14 are (EXTU_BIT). The device's buffer
+	holds 240 samples: a game that polls later than that loses samples, and the next
+	reply says so (SBFOV).
+
+	The host's microphone gives samples at the rate asked for (RecordAudio); the gain
+	is applied here, the sample clipped as the device's 14-bit converter clips, the
+	two low bits set and, if asked for, the sample encoded as mu-law.
+*/
 struct maple_microphone: maple_base
 {
+	static constexpr u32 MaxSamples = 240;	// the device's buffer, and the most one reply carries
+
 	u32 gain;
 	bool sampling;
 	bool eight_khz;
+	// Not kept in save states (they are reset when one is loaded): the game sets them
+	// again when it next starts sampling.
+	bool ulaw = false;
+	u32 extu = 0;					// EXTU_BIT: 0 low bits 00, 1 copy of the two above, 2 low bits 10
+	bool next_eight_khz = false;	// what Basic_Control asked for while sampling, used from the next start
+	bool next_ulaw = false;
+	u64 lastPoll = 0;				// SH4 cycle of the last Get_Sampling_Data while sampling, 0 unknown
 
 	~maple_microphone() override
 	{
@@ -841,15 +865,82 @@ struct maple_microphone: maple_base
 		deser >> gain;
 		deser >> sampling;
 		deser >> eight_khz;
+		setGain(std::min<u32>(gain, 0x1f));
+		ulaw = false;
+		extu = 0;
+		next_eight_khz = eight_khz;
+		next_ulaw = ulaw;
+		lastPoll = 0;
 		if (sampling)
 			StartAudioRecording(eight_khz);
 	}
 
 	void OnSetup() override
 	{
-		gain = 0xf;
+		setGain(0xf);
 		sampling = false;
 		eight_khz = false;
+		ulaw = false;
+		extu = 0;
+		next_eight_khz = false;
+		next_ulaw = false;
+		lastPoll = 0;
+	}
+
+	void setGain(u32 value)
+	{
+		gain = value;
+		AudioRecordingGainDb = (int)value - 15;
+	}
+
+	static u64 now()
+	{
+		u64 sh4_sched_now64();		// hw/sh4/sh4_sched.h
+		return sh4_sched_now64();
+	}
+
+	// How long the device's 240 samples last, in SH4 cycles: about 21.8 ms at
+	// 11.025 kHz, 30 ms at 8 kHz.
+	u64 bufferCycles() const
+	{
+		return (u64)MaxSamples * SH4_MAIN_CLOCK / (eight_khz ? 8000 : 11025);
+	}
+
+	// What the device's amplifier and converter make of the host's samples: the
+	// game's gain, clipped at the converter's full scale, 14 bits kept and the two
+	// below them set as EXTU_BIT says.
+	void shape(s16 *pcm, u32 count) const
+	{
+		const float scale = std::pow(10.f, ((int)gain - 15) / 20.f);
+		for (u32 i = 0; i < count; i++)
+		{
+			int v = (int)std::lround(pcm[i] * scale);
+			v = std::clamp(v, -32768, 32767) & ~3;
+			if (extu == 1)
+				v |= (v >> 2) & 3;
+			else if (extu == 2)
+				v |= 2;
+			pcm[i] = (s16)v;
+		}
+	}
+
+	// G.711 mu-law of a 14-bit sample (the top 14 bits of pcm).
+	static u8 toMuLaw(s16 pcm)
+	{
+		int v = pcm >> 2;
+		u8 mask = 0xff;
+		if (v < 0)
+		{
+			v = -v;
+			mask = 0x7f;
+		}
+		v = std::min(v, 8159) + 0x21;
+		int seg = 0;
+		while (seg < 8 && v >= (0x40 << seg))
+			seg++;
+		if (seg >= 8)
+			return 0x7f ^ mask;
+		return (u8)(((seg << 4) | ((v >> (seg + 1)) & 0xf)) ^ mask);
 	}
 
 	u32 dma(u32 cmd) override
@@ -866,15 +957,16 @@ struct maple_microphone: maple_base
 
 			//struct data
 			//3*4
-			w32(0xf0000000);
+			// The function's definition block: subcommands 01h to 04h (bytes 00 00 00 0F)
+			w32(0x0f000000);
 			w32(0);
 			w32(0);
 
 			//1	area code
 			w8(0xFF);
 
-			//1	direction
-			w8(0);
+			//1	direction: the device faces the connector of the controller it is in
+			w8(1);
 
 			//30
 			wstr(maple_sega_mic_name, 30);
@@ -888,7 +980,14 @@ struct maple_microphone: maple_base
 			//2
 			w16(0x012C);	// 30 mA
 
-			return cmd == MDC_DeviceRequest ? MDRS_DeviceStatus : MDRS_DeviceStatusAll;
+			if (cmd == MDC_AllStatusReq)
+			{
+				// The device's free status text: its version, then what it is.
+				wstr("Version 1.000,1998/05/22,315-6182", 40);
+				wstr("S4(SegaSoundSamplingSystem)/SamplingRate11.0257or8.085kHz/Bit14or8bit/NTSC only/Consumer Deveropment & Mamufacturing DIV.CSPD2-3", 132);
+				return MDRS_DeviceStatusAll;
+			}
+			return MDRS_DeviceStatus;
 
 		case MDC_DeviceReset:
 			DEBUG_LOG(MAPLE, "maple_microphone::dma MDC_DeviceReset");
@@ -913,50 +1012,102 @@ struct maple_microphone: maple_base
 				{
 				case 0x01:	// Get_Sampling_Data
 				{
-					gain = dt1;
+					// DT1 sets the gain too; 20h and above leave it as it is.
+					if (dt1 <= 0x1f)
+						setGain(dt1);
 					w32(MFID_4_Mic);
 
-					u8 micdata[240 * 2];
-					u32 samples = RecordAudio(micdata, 240);
+					// Zeroed, so that the padding after an odd count is not left over memory.
+					s16 pcm[MaxSamples] {};
+					u32 samples = std::min(RecordAudio(pcm, MaxSamples), MaxSamples);
+					shape(pcm, samples);
+
+					// Polled later than the buffer lasts: samples were lost. Said once.
+					bool overflow = false;
+					if (sampling)
+					{
+						const u64 t = now();
+						overflow = lastPoll != 0 && t - lastPoll > bufferCycles();
+						lastPoll = t;
+					}
 
 					//32 bit header
-			        //status: bit   7      6     5 4      3      2    1    0
-			        //        name  EX_BIT SBFOV 0 14LSB1 14LSB0 SMPL ulaw Fs
-					w8((sampling << 2) | eight_khz);
+					//status: bit   7  6     5  4      3      2    1    0
+					//        name  0  SBFOV 0  14LSB1 14LSB0 SMPL ulaw Fs
+					w8((overflow << 6) | (extu << 3) | (sampling << 2) | (ulaw << 1) | eight_khz);
 					w8(gain); // gain
 					w8(0);    //(unused)
 					w8(samples); // sample count (max 240)
 
-					wptr(micdata, ((samples + 1) >> 1) << 2);
+					if (ulaw)
+					{
+						// One byte a sample, the payload padded to whole words.
+						u8 law[MaxSamples] {};
+						for (u32 i = 0; i < samples; i++)
+							law[i] = toMuLaw(pcm[i]);
+						wptr(law, (samples + 3) & ~3u);
+					}
+					else
+					{
+						// 16 bits a sample, little-endian, padded to whole words.
+						wptr(pcm, ((samples + 1) >> 1) << 2);
+					}
 
 					return MDRS_DataTransfer;
 				}
 
 				case 0x02:	// Basic_Control
+				{
 					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl Basic_Control DT1 %02x", dt1);
-					eight_khz = ((dt1 >> 2) & 3) == 1;
-					if (((dt1 & 0x80) == 0x80) != sampling)
+					// Bits 3-2 the rate (00 11.025 kHz, 01 8 kHz), bits 1-0 the format
+					// (00 linear, 01 mu-law); 1x leaves either as it is.
+					const u32 fs = (dt1 >> 2) & 3;
+					const u32 q = dt1 & 3;
+					if (fs < 2)
+						next_eight_khz = fs == 1;
+					if (q < 2)
+						next_ulaw = q == 1;
+					const bool start = (dt1 & 0x80) != 0;
+					if (sampling && !start)
 					{
-						if (sampling)
-							StopAudioRecording();
-						else
-							StartAudioRecording(eight_khz);
-						sampling = (dt1 & 0x80) == 0x80;
+						StopAudioRecording();
+						sampling = false;
+					}
+					else if (!sampling && start)
+					{
+						eight_khz = next_eight_khz;
+						ulaw = next_ulaw;
+						StartAudioRecording(eight_khz);
+						sampling = true;
+						lastPoll = now();
+					}
+					// The device refuses a new rate or format while it samples; it is
+					// taken here, quietly, from the next start instead.
+					if (!sampling)
+					{
+						eight_khz = next_eight_khz;
+						ulaw = next_ulaw;
 					}
 					return MDRS_DeviceReply;
+				}
 
-				case 0x03:	// AMP_GAIN
-					gain = dt1;
-					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl set gain %x", gain);
+				case 0x03:	// AMP_Control
+					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl set gain %x", dt1);
+					if (dt1 > 0x1f)
+						return MDRE_UnknownCmd;		// the gain stays as it is
+					setGain(dt1);
 					return MDRS_DeviceReply;
 
 				case 0x04:	// EXTU_BIT
-					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl EXTU_BIT %#010x", dt1);
+					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl EXTU_BIT %02x", dt1);
+					if (dt1 > 2 || sampling)
+						return MDRE_UnknownCmd;
+					extu = dt1;
 					return MDRS_DeviceReply;
 
-				case 0x05:	// Volume_Mode
-					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl Volume_Mode %#010x", dt1);
-					return MDRS_DeviceReply;
+				case 0x05:	// Volume_Mode: the Dreameye's microphone only
+					DEBUG_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl Volume_Mode %02x", dt1);
+					return MDRE_UnknownCmd;
 
 				case MDRE_TransmitAgain:
 					WARN_LOG(MAPLE, "maple_microphone::dma MDCF_MICControl MDRE_TransmitAgain");
@@ -965,8 +1116,8 @@ struct maple_microphone: maple_base
 					return MDRS_DeviceReply;//MDRS_DataTransfer;
 
 				default:
-					INFO_LOG(MAPLE, "maple_microphone::dma UNHANDLED DT1 %02x DT23 %04x", dt1, dt23);
-					return MDRE_UnknownFunction;
+					INFO_LOG(MAPLE, "maple_microphone::dma UNHANDLED subcommand %02x DT1 %02x DT23 %04x", subcommand, dt1, dt23);
+					return MDRE_UnknownCmd;
 				}
 			}
 
@@ -987,10 +1138,27 @@ struct maple_microphone: maple_base
 	}
 };
 
+// The frequency the vibration pack of each player was last set to, in Hz,
+// for a host whose rumble can change its feel with it (the PS5's DualSense).
+// rumble() has no room for it, so it is left here before each call.
+float purupuruFrequencyHz[MAPLE_PORTS];
+
 struct maple_sega_purupuru : maple_base
 {
 	u16 AST = 19, AST_ms = 5000;
 	u32 VIBSET;
+
+	// Back to how the pack starts: not vibrating, and the auto-stop time its
+	// default of 5 seconds.
+	void reset()
+	{
+		AST = 19;
+		AST_ms = AST * 250 + 250;
+		VIBSET = 0;
+		if (player_num < MAPLE_PORTS)
+			purupuruFrequencyHz[player_num] = 0.f;
+		config->SetVibration(0.f, 0.f, 0);
+	}
 
 	MapleDeviceType get_device_type() override
 	{
@@ -1110,16 +1278,37 @@ struct maple_sega_purupuru : maple_base
 
 				float power = std::min((POW_POS + POW_NEG) / 7.0, 1.0);
 
+				// The FT8 spec: the vibration frequency is (Freq + 1) / 2 Hz, so a
+				// cycle lasts 2000 / (Freq + 1) ms; Freq 0 is a valid 0.5 Hz. A
+				// fade moves the level one step every INC cycles: a convergent one
+				// from the power down to 0 (that many steps), a divergent one from
+				// the power up to 7 (7 - power steps).
+				const float period_ms = 2000.f / (FREQ + 1);
+				const int pow = std::max(POW_POS, POW_NEG);
+				const int steps = INC > 0 ? pow : std::max(7 - pow, 1);
+				const float fade_ms = INC != 0 ? abs(INC) * steps * period_ms : 0.f;
+
 				u32 duration_ms;
-				if (FREQ > 0 && (!CNT || INC))
-					duration_ms = std::min((int)(1000 * (INC ? abs(INC) * std::max(POW_POS, POW_NEG) : 1) / FREQ), (int)AST_ms);
+				if (INC > 0)
+					// Convergent: over once the level reaches 0, continuous or not.
+					duration_ms = (u32)std::lround(fade_ms);
+				else if (INC < 0)
+					// Divergent: it stays at full afterwards when continuous.
+					duration_ms = CNT ? AST_ms : (u32)std::lround(fade_ms);
 				else
-					duration_ms = AST_ms;
+					// One cycle, or until the auto-stop time when continuous.
+					duration_ms = CNT ? AST_ms : (u32)std::lround(period_ms);
+				duration_ms = std::max<u32>(std::min<u32>(duration_ms, AST_ms), 1);
+
+				// The fraction of the way per millisecond: positive fades the
+				// starting level to 0 over the fade, negative raises it to full.
 				float inclination;
-				if (INC == 0 || power == 0)
+				if (INC == 0 || power == 0 || fade_ms <= 0.f)
 					inclination = 0.0;
 				else
-					inclination = FREQ / (1000.0 * INC * std::max(POW_POS, POW_NEG));
+					inclination = (INC > 0 ? 1.f : -1.f) / fade_ms;
+				if (player_num < MAPLE_PORTS)
+					purupuruFrequencyHz[player_num] = (FREQ + 1) / 2.f;
 				config->SetVibration(power, inclination, duration_ms);
 
 				relayMapleLink();
@@ -1128,9 +1317,9 @@ struct maple_sega_purupuru : maple_base
 			return MDRS_DeviceReply;
 
 		case MDC_DeviceReset:
-			return MDRS_DeviceReply;
-
 		case MDC_DeviceKill:
+			// Either stops the motor and forgets the auto-stop time set.
+			reset();
 			return MDRS_DeviceReply;
 
 		default:

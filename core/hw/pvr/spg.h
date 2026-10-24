@@ -10,6 +10,8 @@ void spg_Serialize(Serializer& ser);
 void spg_Deserialize(Deserializer& deser);
 
 void CalculateSync();
+// Emulated vblanks per second (fields: ~59.94 NTSC/VGA, 50 PAL); 0 if not yet known.
+float spg_GetFieldRate();
 void read_lightgun_position(int x, int y);
 void scheduleRenderDone(TA_context *cntx);
 void rescheduleSPG();

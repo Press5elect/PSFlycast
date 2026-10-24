@@ -20,6 +20,7 @@
 */
 #include "drawer.h"
 #include "hw/pvr/pvr_mem.h"
+#include "hw/pvr/pvr_regs.h"
 #include "rend/sorter.h"
 
 TileClipping BaseDrawer::SetTileClip(vk::CommandBuffer cmdBuffer, u32 val, vk::Rect2D& clipRect)
@@ -44,6 +45,72 @@ TileClipping BaseDrawer::SetTileClip(vk::CommandBuffer cmdBuffer, u32 val, vk::R
 void BaseDrawer::SetBaseScissor(const vk::Extent2D& viewport) {
 	Rect scissor = matrices.getBaseScissor();
 	baseScissor = vk::Rect2D{ {scissor.origin.x, scissor.origin.y}, {(u32)scissor.size.x, (u32)scissor.size.y} };
+}
+
+FrameAccuracy BaseDrawer::MakeFrameAccuracy(u32 renderHeight) const
+{
+	FrameAccuracy acc;
+	// Render to texture is not shown; the framebuffer emulation writes the 16-bit framebuffer itself
+	if (rendContext == nullptr || rendContext->isRTT || config::EmulateFramebuffer || renderHeight == 0)
+		return acc;
+	int pvrWidth, pvrHeight;
+	getPvrFramebufferSize(*rendContext, pvrWidth, pvrHeight);
+	if (pvrHeight <= 0)
+		return acc;
+	// One native pixel/line of the console's framebuffer in pixels of this frame (the render is the
+	// native size times the internal resolution's factor in both directions; getScaledFramebufferSize)
+	const float nativePixel = (float)renderHeight / pvrHeight;
+
+	// Flicker filter: in interlaced (TV) modes the Y scaler writes each line as a blend of it and the
+	// lines above and below, with the Y_COEFF weights: bits 7-0 the outer lines, bits 15-8 the centre
+	// line (typically 0x40 / 0x80). The scaler filters only when it scales down, so games ask for the
+	// filter at full size with 0x401, the reduction closest to 1.0; 0x400 is exactly 1.0 and unfiltered.
+	// Stretched or flicker-free-B scaling stays the framebuffer emulation's.
+	if (config::FlickerFilter && SPG_CONTROL.interlace)
+	{
+		const u32 vscale = rendContext->scaler_ctl.vscalefactor;
+		const u32 outer = Y_COEFF & 0xff;
+		const u32 centre = (Y_COEFF >> 8) & 0xff;
+		if (vscale == 0x401 && outer != 0 && centre != 0)
+		{
+			const float total = (float)(outer * 2 + centre);
+			acc.flicker[0] = nativePixel;
+			acc.flicker[1] = outer / total;
+			acc.flicker[2] = centre / total;
+			acc.flicker[3] = outer / total;
+		}
+	}
+
+	// 16-bit colour: the tile buffer is written to a 16-bit framebuffer (FB_W_CTRL.fb_packmode 0-3),
+	// with the 4x4 dither added first when FB_W_CTRL.fb_dither is set, else truncated. The video
+	// output reads it back with FB_R_CTRL.fb_concat in the low bits (as readFramebuffer16Line does).
+	// 24/32-bit modes (4-7) are left as they are.
+	const FB_W_CTRL_type fbw = rendContext->fb_W_CTRL;
+	if (config::Original16Bit && fbw.fb_packmode <= 3)
+	{
+		const float concat = (float)FB_R_CTRL.fb_concat;
+		switch (fbw.fb_packmode)
+		{
+		case 0: // 0555 KRGB
+		case 3: // 1555 ARGB
+			acc.quantStep[0] = acc.quantStep[1] = acc.quantStep[2] = 8.f;
+			acc.quantAux[2] = acc.quantAux[3] = concat;
+			break;
+		case 1: // 565 RGB
+			acc.quantStep[0] = acc.quantStep[2] = 8.f;
+			acc.quantStep[1] = 4.f;
+			acc.quantAux[2] = concat;
+			acc.quantAux[3] = (float)(FB_R_CTRL.fb_concat & 3);
+			break;
+		case 2: // 4444 ARGB
+			acc.quantStep[0] = acc.quantStep[1] = acc.quantStep[2] = 16.f;
+			break;
+		}
+		acc.quantStep[3] = 1.f;
+		acc.quantAux[0] = nativePixel;
+		acc.quantAux[1] = fbw.fb_dither ? 1.f : 0.f;
+	}
+	return acc;
 }
 
 void BaseDrawer::scaleAndWriteFramebuffer(vk::CommandBuffer commandBuffer, FramebufferAttachment *finalFB)
@@ -700,12 +767,14 @@ void ScreenDrawer::EndRenderPass()
 		if (emulateFramebuffer)
 		{
 			scaleAndWriteFramebuffer(currentCommandBuffer, colorAttachments[GetCurrentImage()].get());
+			frameAccuracy = FrameAccuracy();
 		}
 		else
 		{
 			currentCommandBuffer.end();
 			commandPool->EndFrame();
 			aspectRatio = getOutputFramebufferAspectRatio();
+			frameAccuracy = MakeFrameAccuracy(viewport.height);
 		}
 		frameRendered = true;
 	}
@@ -723,6 +792,9 @@ bool ScreenDrawer::PresentFrame()
 	if (!frameRendered)
 		return false;
 	frameRendered = false;
+#ifndef LIBRETRO
+	GetContext()->SetFrameAccuracy(frameAccuracy);
+#endif
 	GetContext()->PresentFrame(colorAttachments[GetCurrentImage()]->GetImage(),
 			colorAttachments[GetCurrentImage()]->GetImageView(), viewport, aspectRatio);
 

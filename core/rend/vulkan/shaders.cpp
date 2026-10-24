@@ -399,6 +399,59 @@ void main()
 }
 )";
 
+// Shows the frame as the PowerVR2 writes it out of its tile buffer (FrameAccuracy in quad.h), in the
+// console's order: first the Y scaler's flicker filter, then packing to the 16-bit framebuffer format
+// with dither or truncation. Distances are in native (640x480) pixels, so the effect is the same at
+// every internal resolution: one native pixel is quantAux.x texels, one native line flicker.x texels.
+static const char QuadAccurateFragmentShaderSource[] = R"(
+layout (set = 0, binding = 0) uniform sampler2D tex;
+
+layout (push_constant) uniform pushBlock
+{
+	vec4 flicker;	// x: one native line in texels (0 = off), y/z/w: weights of the lines above, here, below
+	vec4 quantStep;	// rgb: 8-bit step of each channel (8 = 5 bits, 4 = 6 bits, 16 = 4 bits), a: 1 = 16-bit packing
+	vec4 quantAux;	// x: one native pixel in texels, y: 1 = dither, z: low bits of R/B on readout, w: of G
+} pushConstants;
+
+layout (location = 0) in vec2 inUV;
+layout (location = 0) out vec4 FragColor;
+
+void main()
+{
+	vec2 texSize = vec2(textureSize(tex, 0));
+	vec3 color = texture(tex, inUV).rgb;
+	if (pushConstants.flicker.x > 0.0)
+	{
+		// 3-tap vertical filter (Y_COEFF): the native lines above and below this one
+		float lineV = pushConstants.flicker.x / texSize.y;
+		vec3 above = texture(tex, vec2(inUV.x, inUV.y - lineV)).rgb;
+		vec3 below = texture(tex, vec2(inUV.x, inUV.y + lineV)).rgb;
+		color = above * pushConstants.flicker.y + color * pushConstants.flicker.z + below * pushConstants.flicker.w;
+	}
+	if (pushConstants.quantStep.a > 0.0)
+	{
+		// The dither table the framebuffer emulation uses (shaders.cpp, oit_shaders.cpp), 4x4 native pixels
+		float ditherTable[16] = float[](
+			5., 13.,  7., 15.,
+			9.,  1., 11.,  3.,
+			6., 14.,  4., 12.,
+			10., 2.,  8.,  0.
+		);
+		vec2 nativePos = floor(inUV * texSize / pushConstants.quantAux.x);
+		float r = ditherTable[int(mod(nativePos.y, 4.)) * 4 + int(mod(nativePos.x, 4.))] * pushConstants.quantAux.y;
+		vec3 qstep = pushConstants.quantStep.rgb;
+		// 8-bit colour plus the dither offset (0 to just under one step), then truncated to the
+		// channel's bits; the top value stays the top value
+		vec3 c8 = floor(clamp(color, 0.0, 1.0) * 255.0 + 0.5) + r * qstep / 16.0;
+		vec3 q = min(floor(c8 / qstep), 256.0 / qstep - 1.0);
+		// Read back to 8 bits as the video output does: the bits, then FB_R_CTRL.fb_concat below them
+		vec3 low = vec3(pushConstants.quantAux.z, pushConstants.quantAux.w, pushConstants.quantAux.z);
+		color = (q * qstep + low) / 255.0;
+	}
+	FragColor = vec4(color, 1.0);
+}
+)";
+
 extern const char N2LightShaderSource[] = R"(
 
 layout (std140, set = 1, binding = 2) uniform N2VertexShaderUniforms
@@ -804,4 +857,11 @@ vk::UniqueShaderModule ShaderManager::compileQuadFragmentShader(bool ignoreTexAl
 	src.addConstant("IGNORE_TEX_ALPHA", (int)ignoreTexAlpha)
 			.addSource(QuadFragmentShaderSource);
 	return ShaderCompiler::Compile(vk::ShaderStageFlagBits::eFragment,src.generate());
+}
+
+vk::UniqueShaderModule ShaderManager::compileQuadAccurateFragmentShader()
+{
+	VulkanSource src;
+	src.addSource(QuadAccurateFragmentShaderSource);
+	return ShaderCompiler::Compile(vk::ShaderStageFlagBits::eFragment, src.generate());
 }

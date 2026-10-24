@@ -319,6 +319,7 @@ void writeDefaultConfig(const std::string& root)
 		"rend.vsync = yes\n"
 		"rend.AnisotropicFiltering = 1\n"
 		"rend.ShowFPS = no\n"
+		"aica.DSPEnabled = yes\n"
 		"Dynarec.Enabled = yes\n"
 		"Dreamcast.AutoSaveState = no\n"
 		"Dreamcast.AutoLoadState = no\n"
@@ -466,6 +467,19 @@ int main(int argc, char *argv[])
 		ps5::elevated = status == 0;
 		ps5::dataJailbroken = ps5::elevated;
 		ps5::diag::mark("usb: sandbox elevation %s (status %u)", ps5::elevated ? "granted" : "not granted", status);
+		ps5::diag::mark("ids: uid %d euid %d gid %d egid %d", (int)getuid(), (int)geteuid(), (int)getgid(), (int)getegid());
+		// The helper zeroes the real and saved ids but leaves the effective
+		// group as it was. Mesa only uses its on-disk shader cache for a
+		// "normal user" (effective ids equal to the real ones), so with the
+		// groups apart RADV's cache silently stays empty. With an effective
+		// uid of 0 the process may set its effective group back to the real one.
+		if (geteuid() == 0 && getgid() != getegid())
+		{
+			const int result = setegid(getgid());
+			const int error = result == 0 ? 0 : errno;
+			ps5::diag::mark("ids: setegid(%d) returned %d (errno %d); uid %d euid %d gid %d egid %d",
+					(int)getgid(), result, error, (int)getuid(), (int)geteuid(), (int)getgid(), (int)getegid());
+		}
 	}
 	std::vector<std::string> candidates;
 	if (ps5::elevated)
@@ -681,6 +695,17 @@ int main(int argc, char *argv[])
 		SaveSettings();
 		ps5::options().defaults = 8;
 		ps5::saveOptions();
+	}
+	if (ps5::options().defaults < 9)
+	{
+		// The sound chip's DSP makes the reverb and echo games were mixed
+		// with; without it they sound dry. On once, as the console sounds;
+		// the user's to turn off after that.
+		config::DSPEnabled.set(true);
+		SaveSettings();
+		ps5::options().defaults = 9;
+		ps5::saveOptions();
+		ps5::diag::mark("settings: the sound DSP turned on (reverb and echo as on the console)");
 	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();
