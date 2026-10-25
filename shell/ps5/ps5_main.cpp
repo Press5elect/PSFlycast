@@ -307,7 +307,7 @@ void redirectLogs(const std::string& root)
 
 // The console's defaults, as Press5elect chose them: transparency sorted per
 // pixel (96 layers) at 4x the Dreamcast's resolution, widescreen game patches,
-// 16x anisotropic and linear texture filtering, the sound DSP, a 32 ms audio
+// 16x anisotropic and linear texture filtering, the sound DSP, a 64 ms audio
 // buffer, the RGB cable, a save state when a game stops; the HLE BIOS only
 // when no BIOS is installed (Flycast falls back to it by itself), the folders
 // above, and PS5 audio. The rest is the v1.3.3 settings update in main().
@@ -771,7 +771,7 @@ int main(int argc, char *argv[])
 		move(ps5::SidePicture, 0, 1);
 		move(ps5::VmuScreenSize, 100, 200);
 		move(ps5::Upscaling, (int)ps5::UpscalingOff, (int)ps5::UpscalingFsrSharp);
-		move(config::AudioBufferSize, 5644, 1411);
+		move(config::AudioBufferSize, 5644, 2822);
 		move(config::VmuSound, false, true);
 		move(ps5::VmuSoundOutput, 0, 1);
 		move(config::Cable, 3, 2);
