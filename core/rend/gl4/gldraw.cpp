@@ -526,7 +526,7 @@ void OpenGL4Renderer::drawStrips(int width, int height)
 		if (gl.rendContext->clearFramebuffer)
 		{
 			// Clear framebuffer
-			glBindFramebuffer(GL_FRAMEBUFFER, geom_fbo[1]);
+			framebuffers[1]->bind();
 			glcache.ClearColor(VO_BORDER_COL.red(), VO_BORDER_COL.green(), VO_BORDER_COL.blue(), 1.f);
 			glClear(GL_COLOR_BUFFER_BIT);
 		}
@@ -544,7 +544,7 @@ void OpenGL4Renderer::drawStrips(int width, int height)
 	if (texSamplers[0] == 0)
 		glGenSamplers(2, texSamplers);
 
-	glBindFramebuffer(GL_FRAMEBUFFER, geom_fbo[0]);
+	framebuffers[0]->bind();
 	glcache.DepthMask(GL_TRUE);
 	glClearDepthf(0.f);
 	glcache.StencilMask(0xFF);
