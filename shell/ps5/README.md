@@ -42,7 +42,7 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.3** (build 86). It is built
+Latest release: **v1.3.3** (build 87). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
 v1.3.1, v1.3.2 and v1.3.3 have not been run on a console: their changes are
