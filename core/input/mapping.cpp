@@ -489,7 +489,10 @@ void InputMapping::load(hostfs::File* fp)
 			key = key.substr(0, key.size() - 1);
 		}
 		DreamcastKey id = getKeyId(key);
-		set_button(port, id, code);
+		// A key can have several inputs (save() writes one bind for each), so each
+		// one is added: set_button would leave the key with only the last of them.
+		// A file with one bind per key loads exactly as before.
+		add_button(port, id, code);
 	}
 	bindIndex = 0;
 	while (true)
@@ -575,7 +578,8 @@ void InputMapping::load(hostfs::File* fp)
 					sequential = true;
 				}
 			}
-			set_button(port, id, ButtonCombo{inputs, sequential});
+			// Added, like the digital binds above: the key keeps its other inputs.
+			add_button(port, id, ButtonCombo{inputs, sequential});
 		}
 	}
 	std::string triggers = mf.get("emulator", "triggers", "");
@@ -755,18 +759,35 @@ bool InputMapping::set_button(u32 port, DreamcastKey id, const InputMapping::But
 		return false;
 	}
 
+	// Remove the existing by ID, then add the new one
+	clear_button(port, id);
+	return add_button(port, id, combo);
+}
+
+bool InputMapping::add_button(u32 port, DreamcastKey id, const InputMapping::ButtonCombo& combo)
+{
+	if (port >= NUM_PORTS || combo.inputs.size() <= 0)
+	{
+		// Invalid port or combo
+		return false;
+	}
+
 	std::map<ButtonCombo, DreamcastKey>& inputMap = buttonMap[port];
 	std::multimap<DreamcastKey, ButtonCombo>& revInputMap = reverseButtonMap[port];
 
-	// Remove the existing by ID
-	clear_button(port, id);
-
-	// Remove all combos that intersect this
+	// Remove all combos that intersect this, whichever key has them. Only that
+	// combo leaves its key: the key keeps its other inputs.
 	for (std::map<ButtonCombo, DreamcastKey>::const_iterator iter = inputMap.begin(); iter != inputMap.end();)
 	{
 		if (combo.intersects(iter->first))
 		{
-			revInputMap.erase(iter->second);
+			const auto& range = revInputMap.equal_range(iter->second);
+			for (auto rev = range.first; rev != range.second; ++rev)
+				if (rev->second == iter->first)
+				{
+					revInputMap.erase(rev);
+					break;
+				}
 			iter = inputMap.erase(iter);
 		}
 		else
@@ -801,6 +822,17 @@ InputMapping::ButtonCombo InputMapping::get_button_combo(u32 port, DreamcastKey 
 
 	// Not found
 	return ButtonCombo();
+}
+
+std::vector<InputMapping::ButtonCombo> InputMapping::get_button_combos(u32 port, DreamcastKey key) const
+{
+	std::vector<ButtonCombo> combos;
+	if (port >= NUM_PORTS)
+		return combos;
+	const auto& range = reverseButtonMap[port].equal_range(key);
+	for (auto iter = range.first; iter != range.second; ++iter)
+		combos.push_back(iter->second);
+	return combos;
 }
 
 u32 InputMapping::get_button_code(u32 port, DreamcastKey key) const

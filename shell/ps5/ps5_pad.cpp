@@ -81,6 +81,9 @@ config::Option<int> PadRightTriggers("PadRightTriggers", 0, "ps5");
 namespace
 {
 
+// What the first player's layout has on the sticks' directions (boundStickDirections), from its last poll.
+std::atomic<u32> player1Sticks{0};
+
 // The pad's state, as scePadReadState gives it: the layout PS5 RetroArch and
 // PS5SX2 read the buttons, sticks and connection flag from, and ProsperoLight
 // (BlackBearReloaded) the motion sensor and the touch pad.
@@ -346,15 +349,24 @@ public:
 			stick(raw.lx), stick(raw.ly), stick(raw.rx), stick(raw.ry),
 			trigger(raw.l2), trigger(raw.r2)
 		};
+		// A right stick axis with a control on either of its directions (the game's layout,
+		// the Controls page) is that control's alone: it is not also the second stick, the
+		// triggers, the turn or the mouse (ps5_usbinput.cpp), so a push does one thing.
+		const u32 bound = boundStickDirections(input_mapper.get());
+		if (maple_port() == 0)
+			player1Sticks = bound;
+		const bool xBound = (bound & RightStickX) != 0;
+		const bool yBound = (bound & RightStickY) != 0;
 		// The right stick, as the settings shape it (Settings > Controls): s.px and s.py.
-		const float rightX = s.px, rightY = s.py;
+		const float rightX = xBound ? 0.f : s.px, rightY = yBound ? 0.f : s.py;
 		axes[2] = (int)std::lround(std::clamp(rightX, -1.f, 1.f) * 32767.f);
 		axes[3] = (int)std::lround(std::clamp(rightY, -1.f, 1.f) * 32767.f);
 		// The right stick, left and right, is the Dreamcast's L and R triggers, where the game
 		// is asked to (a camera turned with the triggers): as far as the stick is pushed, so a
 		// half push is a half press, and L2 and R2 still work (the further pressed counts). Not
-		// while the right stick is the mouse.
-		const bool asTriggers = PadRightTriggers != 0 && ::settings.platform.isConsole() && !bind::current().mouse;
+		// while the right stick is the mouse, nor when its left or right has a control on it.
+		const bool asTriggers = PadRightTriggers != 0 && ::settings.platform.isConsole() && !bind::current().mouse
+				&& !xBound;
 		if (asTriggers)
 		{
 			const int left = (int)std::lround(std::clamp(-rightX, 0.f, 1.f) * 65535.f) - 32768;
@@ -364,7 +376,7 @@ public:
 			axes[2] = 0;	// and not a second stick as well
 		}
 		// The right stick turns as the left one does, where the game is asked to.
-		else if (PadRightTurns != 0 && ::settings.platform.isConsole())
+		else if (PadRightTurns != 0 && ::settings.platform.isConsole() && !xBound)
 			axes[0] = std::clamp(axes[0] + (int)std::lround(rightX * 32767.f), -32768, 32767);
 		for (u32 i = 0; i < 6; i++)
 			if (axes[i] != lastAxes[i])
@@ -1333,6 +1345,25 @@ const char *stickDirectionName(int direction)
 		"Right stick up", "Right stick down", "Right stick left", "Right stick right",
 	};
 	return direction >= 0 && direction < StickDirections ? names[direction] : "";
+}
+
+u32 boundStickDirections(const InputMapping *mapping)
+{
+	u32 bound = 0;
+	if (mapping == nullptr)
+		return bound;
+	for (int d = 0; d < StickDirections; d++)
+	{
+		const InputMapping::InputSet input{ InputMapping::InputDef::from_button(StickCodeBase + (u32)d) };
+		if (mapping->get_button_id(0, input) != EMU_BTN_NONE)
+			bound |= 1u << d;
+	}
+	return bound;
+}
+
+u32 player1BoundSticks()
+{
+	return player1Sticks;
 }
 
 int stickDirectionHeld(const State& s, float threshold)

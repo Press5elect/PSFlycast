@@ -449,7 +449,12 @@ void padInput(const ps5::pad::State& pad)
 		if (mouseOn && profile.mouse)
 		{
 			// The stick is shaped already (dead zone, response, smoothing, directions): ps5::pad::shapeRight.
-			const float magnitude = std::min(1.f, std::hypot(pad.px, pad.py));
+			// An axis with a control of the game's layout on one of its directions (the Controls
+			// page) is that control's, and does not move the mouse as well.
+			const u32 bound = ps5::pad::player1BoundSticks();
+			const float px = (bound & ps5::pad::RightStickX) != 0 ? 0.f : pad.px;
+			const float py = (bound & ps5::pad::RightStickY) != 0 ? 0.f : pad.py;
+			const float magnitude = std::min(1.f, std::hypot(px, py));
 			if (magnitude > 0.f)
 			{
 				// Counts a frame at full push. The game takes whole counts and some turn a long way
@@ -457,8 +462,8 @@ void padInput(const ps5::pad::State& pad)
 				// a frame, speed 20 five a frame.
 				const int steps = std::clamp((int)PadMouseSpeed, 1, 20);
 				const float full = steps <= 10 ? 0.1f * steps : 1.f + 0.4f * (steps - 10);
-				carryX += pad.px * full;
-				carryY += pad.py * full;
+				carryX += px * full;
+				carryY += py * full;
 				const float dx = std::trunc(carryX), dy = std::trunc(carryY);
 				carryX -= dx;
 				carryY -= dy;

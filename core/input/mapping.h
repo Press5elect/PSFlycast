@@ -216,16 +216,34 @@ public:
 		return set_button(0, id, buttonCode);
 	}
 
+	//! Adds a set of inputs to a DreamcastKey, keeping the inputs it already has
+	//! (set_button replaces them). Any combo of another key (or of this one) that
+	//! intersects the new one is still removed, so an input never drives two keys.
+	//! @param[in] port The port that the id should be mapped [0,NUM_PORTS)
+	//! @param[in] id The key to map
+	//! @param[in] combo Combination of inputs that should also activate the key
+	//! @return true iff the combo has been added
+	bool add_button(u32 port, DreamcastKey id, const ButtonCombo& combo);
+	inline bool add_button(u32 port, DreamcastKey id, u32 buttonCode) {
+		return add_button(port, id, ButtonCombo{InputSet{InputDef{buttonCode, InputDef::InputType::BUTTON}}, false});
+	}
+
 	//! @param[in] port The port [0,NUM_PORTS)
 	//! @param[in] key The key
 	//! @return the ButtonCombo associated with the given key at the given port
 	ButtonCombo get_button_combo(u32 port, DreamcastKey key) const;
 
+	//! @param[in] port The port [0,NUM_PORTS)
+	//! @param[in] key The key
+	//! @return every ButtonCombo that activates the given key at the given port, in the order they were added
+	std::vector<ButtonCombo> get_button_combos(u32 port, DreamcastKey key) const;
+
 	//! Get the button code if and only if the given key is mapped to a single code
 	//! @param[in] port The port [0,NUM_PORTS)
 	//! @param[in] key The key
 	//! @return the button code for the given key if found
-	//! @return InputDef::INVALID_CODE if multiple inputs are mapped to this key or none are mapped
+	//! @return the first single-button input when the key has several (use get_button_combos to see them all)
+	//! @return InputDef::INVALID_CODE if only multi-input combos are mapped to this key or none are mapped
 	u32 get_button_code(u32 port, DreamcastKey key) const;
 
 	inline DreamcastKey get_axis_id(u32 port, u32 code, bool pos)

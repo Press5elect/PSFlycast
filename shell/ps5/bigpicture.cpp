@@ -8134,29 +8134,106 @@ std::vector<PadControl> controlsShown()
 	return rows;
 }
 
-// The DualSense button a control is on.
+// Whether a pad input code is one of the sticks' directions (ps5_pad.h).
+bool isStickCode(u32 code)
+{
+	return code >= ps5::pad::StickCodeBase && code < ps5::pad::StickCodeBase + ps5::pad::StickDirections;
+}
+
+// The short name of a pad input code: "Square", "R stick left".
+std::string inputCodeName(GamepadDevice& pad, u32 code)
+{
+	if (isStickCode(code))
+	{
+		static const char *const names[ps5::pad::StickDirections] = {
+			"L stick up", "L stick down", "L stick left", "L stick right",
+			"R stick up", "R stick down", "R stick left", "R stick right",
+		};
+		return names[code - ps5::pad::StickCodeBase];
+	}
+	const char *name = pad.get_button_name(code);
+	return name != nullptr ? name : "Button " + std::to_string(code);
+}
+
+// The single-input button codes a control is on, in the game's layout: its
+// buttons and, with sticks = true, the stick directions instead.
+std::vector<u32> buttonCodesOf(const InputMapping& mapping, DreamcastKey key, bool sticks)
+{
+	std::vector<u32> codes;
+	for (const InputMapping::ButtonCombo& combo : mapping.get_button_combos(0, key))
+		if (combo.inputs.size() == 1 && combo.inputs.begin()->is_button()
+				&& isStickCode(combo.inputs.begin()->code) == sticks)
+			codes.push_back(combo.inputs.begin()->code);
+	return codes;
+}
+
+// What drives a control besides the stick directions: its buttons (a combo of
+// several as "A & B"), and the axis it is on. Empty when there is none.
+std::string buttonsOf(GamepadDevice& pad, InputMapping& mapping, DreamcastKey key)
+{
+	std::string out;
+	auto add = [&](const std::string& part) { out += (out.empty() ? "" : " + ") + part; };
+	for (const InputMapping::ButtonCombo& combo : mapping.get_button_combos(0, key))
+	{
+		if (combo.inputs.size() == 1 && combo.inputs.begin()->is_button() && isStickCode(combo.inputs.begin()->code))
+			continue;
+		std::string part;
+		for (const InputMapping::InputDef& input : combo.inputs)
+		{
+			std::string name;
+			if (input.is_button())
+				name = inputCodeName(pad, input.code);
+			else
+			{
+				const char *axis = pad.get_axis_name(input.code);
+				name = axis != nullptr ? axis : "Axis " + std::to_string(input.code);
+			}
+			part += (part.empty() ? "" : " & ") + name;
+		}
+		add(part);
+	}
+	const u32 axis = mapping.get_axis_code(0, key).first;
+	if (axis != InputMapping::INVALID_CODE)
+	{
+		const char *name = pad.get_axis_name(axis);
+		add(name != nullptr ? name : "Axis " + std::to_string(axis));
+	}
+	return out;
+}
+
+// The stick directions a control is on, as "R stick left + R stick up". Empty when none.
+std::string sticksOf(GamepadDevice& pad, const InputMapping& mapping, DreamcastKey key)
+{
+	std::string out;
+	for (u32 code : buttonCodesOf(mapping, key, true))
+		out += (out.empty() ? "" : " + ") + inputCodeName(pad, code);
+	return out;
+}
+
+// Everything a control is on: "Square + R stick left"; "Not set" for nothing.
 std::string boundTo(GamepadDevice& pad, DreamcastKey key)
 {
 	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
 	if (mapping == nullptr)
 		return "";
-	const u32 button = mapping->get_button_code(0, key);
-	if (button != InputMapping::INVALID_CODE)
-	{
-		const char *name = pad.get_button_name(button);
-		return name != nullptr ? name : "Button " + std::to_string(button);
-	}
-	const u32 axis = mapping->get_axis_code(0, key).first;
-	if (axis != InputMapping::INVALID_CODE)
-	{
-		const char *name = pad.get_axis_name(axis);
-		return name != nullptr ? name : "Axis " + std::to_string(axis);
-	}
-	return "Not set";
+	std::string out = buttonsOf(pad, *mapping, key);
+	const std::string sticks = sticksOf(pad, *mapping, key);
+	if (!sticks.empty())
+		out += (out.empty() ? "" : " + ") + sticks;
+	return out.empty() ? "Not set" : out;
+}
+
+// Whether a control has any stick direction in the game's layout.
+bool hasStick(GamepadDevice& pad, DreamcastKey key)
+{
+	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
+	return mapping != nullptr && !buttonCodesOf(*mapping, key, true).empty();
 }
 
 // Puts a control on a DualSense button, in the game's own layout (made now if
-// the game had none). What the button did before, it no longer does.
+// the game had none). What the button did before, it no longer does. The
+// control's other button leaves it; the stick directions it is on stay (they
+// are added one by one, bindStick).
 void bindControl(GamepadDevice& pad, DreamcastKey key, u32 bit)
 {
 	if (!pad.isPerGameMapping())
@@ -8164,6 +8241,7 @@ void bindControl(GamepadDevice& pad, DreamcastKey key, u32 bit)
 	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
 	if (mapping == nullptr)
 		return;
+	const std::vector<u32> sticks = buttonCodesOf(*mapping, key, true);
 	const bool onTrigger = bit == ps5::pad::L2 || bit == ps5::pad::R2;
 	const u32 axis = bit == ps5::pad::L2 ? ps5::pad::AxisCodeL2 : ps5::pad::AxisCodeR2;
 	if (onTrigger)
@@ -8182,11 +8260,16 @@ void bindControl(GamepadDevice& pad, DreamcastKey key, u32 bit)
 		pad.clearButtonMapping(0, key);
 		mapping->set_axis(0, key, axis, true);
 	}
+	// The stick directions it had, back on it.
+	for (u32 code : sticks)
+		mapping->add_button(0, key, code);
 	mapping->set_dirty();
 	pad.save_mapping();
 }
 
-// Puts a control on a direction of a stick, in the game's own layout.
+// Adds a direction of a stick to a control, in the game's own layout: the
+// control keeps its button (a camera on X and Y turned with the right stick as
+// well). A control that had the direction before no longer has it.
 void bindStick(GamepadDevice& pad, DreamcastKey key, u32 code)
 {
 	if (!pad.isPerGameMapping())
@@ -8194,13 +8277,33 @@ void bindStick(GamepadDevice& pad, DreamcastKey key, u32 code)
 	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
 	if (mapping == nullptr)
 		return;
-	mapping->set_button(0, key, code);
-	pad.clearAxisMapping(0, key);
+	mapping->add_button(0, key, code);
 	mapping->set_dirty();
 	pad.save_mapping();
 }
 
-// Takes a control off its button, in the game's own layout.
+// Takes the stick directions off a control, in the game's own layout; its button stays.
+void unbindSticks(GamepadDevice& pad, DreamcastKey key)
+{
+	if (!pad.isPerGameMapping())
+		pad.setPerGameMapping(true);
+	const std::shared_ptr<InputMapping> mapping = pad.get_input_mapping();
+	if (mapping == nullptr)
+		return;
+	std::vector<InputMapping::ButtonCombo> keep;
+	for (const InputMapping::ButtonCombo& combo : mapping->get_button_combos(0, key))
+		if (!(combo.inputs.size() == 1 && combo.inputs.begin()->is_button() && isStickCode(combo.inputs.begin()->code)))
+			keep.push_back(combo);
+	// Cleared (which also lets the control go, if a direction held it), then the rest back.
+	pad.clearButtonMapping(0, key);
+	for (const InputMapping::ButtonCombo& combo : keep)
+		mapping->add_button(0, key, combo);
+	mapping->set_dirty();
+	pad.save_mapping();
+}
+
+// Takes a control off everything it is on (its button and its stick
+// directions), in the game's own layout.
 void unbindControl(GamepadDevice& pad, DreamcastKey key)
 {
 	if (!pad.isPerGameMapping())
@@ -8301,11 +8404,13 @@ PadPart partOfOption(const GameOption& option)
 	return PadPart::None;
 }
 
-// What drives a Dreamcast control: the DualSense input's name, and when the
-// profile gives that input away, what it is there instead.
+// What drives a Dreamcast control: the DualSense input's name, the stick
+// directions it is on as well, and when the profile gives that input away,
+// what it is there instead.
 struct Driver
 {
 	std::string name;		// "Cross", "Not set"
+	std::string sticks;		// "R stick left": also on these, under the name
 	std::string instead;	// "Key Space": the controller no longer has it
 };
 
@@ -8318,32 +8423,62 @@ Driver driverOf(GamepadDevice *pad, DreamcastKey key, const ps5::pad::bind::Prof
 		d.name = "No controller";
 		return d;
 	}
-	d.name = boundTo(*pad, key);
 	const std::shared_ptr<InputMapping> mapping = pad->get_input_mapping();
-	if (mapping == nullptr || !profileLive)
+	if (mapping == nullptr)
+		return d;
+	d.name = buttonsOf(*pad, *mapping, key);
+	d.sticks = sticksOf(*pad, *mapping, key);
+	if (d.name.empty())
+	{
+		// On stick directions only: they are its name.
+		d.name = d.sticks.empty() ? "Not set" : d.sticks;
+		d.sticks.clear();
+	}
+	if (!profileLive)
 		return d;
 	int input = -1;
-	const u32 button = mapping->get_button_code(0, key);
+	const std::vector<u32> buttons = buttonCodesOf(*mapping, key, false);
 	const u32 axis = mapping->get_axis_code(0, key).first;
+	auto onButton = [&](u32 bit) {
+		return std::find(buttons.begin(), buttons.end(), ps5::pad::buttonCode(bit)) != buttons.end();
+	};
 	for (int i = 0; i < B::Inputs && input < 0; i++)
 	{
 		const u32 bit = B::inputButton(i);
-		if (bit != 0 && button != InputMapping::INVALID_CODE && ps5::pad::buttonCode(bit) == button)
+		if (bit != 0 && onButton(bit))
 			input = i;
 	}
 	if (input < 0 && axis != InputMapping::INVALID_CODE)
 		input = axis == ps5::pad::AxisCodeL2 ? 6 : axis == ps5::pad::AxisCodeR2 ? 7 : -1;
-	if (input < 0 && button != InputMapping::INVALID_CODE)
+	if (input < 0)
 	{
 		// L2 and R2 as buttons.
-		if (button == ps5::pad::buttonCode(ps5::pad::L2))
+		if (onButton(ps5::pad::L2))
 			input = 6;
-		else if (button == ps5::pad::buttonCode(ps5::pad::R2))
+		else if (onButton(ps5::pad::R2))
 			input = 7;
 	}
 	if (input >= 0 && profile.action[input] != B::Controller)
 		d.instead = B::actionName(profile.action[input]);
 	return d;
+}
+
+// The name of the control a pad input code is on in a layout ("X", "Button 4"), or "" for none.
+std::string controlOnCode(InputMapping& mapping, u32 code)
+{
+	const InputMapping::InputSet input{ InputMapping::InputDef::from_button(code) };
+	const DreamcastKey key = mapping.get_button_id(0, input);
+	if (key == EMU_BTN_NONE)
+		return "";
+	const bool arcade = ::settings.platform.isArcade();
+	for (const PadControl& control : controlsShown())
+		if (control.key == key)
+		{
+			const char *name = arcade ? control.arcade : control.console;
+			if (name != nullptr)
+				return name;
+		}
+	return "a control";
 }
 
 const char *slotText(int device)
@@ -8433,17 +8568,24 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 	}
 
 	// The captions: what drives each control, in a column on each side.
-	auto caption = [&](PadPart p, const std::string& name, const std::string& instead, ImVec2 from, float ty, bool leftSide) {
+	// The stick directions a control is also on go on a line of their own under its name.
+	auto caption = [&](PadPart p, const std::string& name, const std::string& instead, ImVec2 from, float ty, bool leftSide,
+			const std::string& sticks = "") {
 		const bool on = p == lit;
 		const ImU32 c = on ? col::text : !instead.empty() ? col::warm : name == "Not set" ? col::faint : col::dim;
 		const float edge = leftSide ? x - 16 : x + w + 16;
 		dl->AddLine(V(from.x, from.y), V(edge + (leftSide ? 6 : -6), ty + 11), alpha(on ? col::accent : col::line, 0.95f), 1.5f * S);
 		const std::string second = instead.empty() ? "" : "now " + instead;
+		const std::string third = sticks.empty() ? "" : "+ " + sticks;
 		const float nw = textSize(bold(), 19, name.c_str()).x;
 		const float sw = second.empty() ? 0.f : textSize(regular(), 16, second.c_str()).x;
-		const float lx = leftSide ? edge - std::max(nw, sw) : edge;
+		const float tw = third.empty() ? 0.f : textSize(regular(), 16, third.c_str()).x;
+		const float widest = std::max({ nw, sw, tw });
+		const float lx = leftSide ? edge - widest : edge;
+		const float thirdY = ty + (second.empty() ? 24 : 44);
 		if (on)
-			rect(dl, lx - 8, ty - 4, std::max(nw, sw) + 16, second.empty() ? 30 : 50, alpha(col::accent, 0.85f), 8);
+			rect(dl, lx - 8, ty - 4, widest + 16, third.empty() ? (second.empty() ? 30 : 50) : thirdY - ty + 26,
+					alpha(col::accent, 0.85f), 8);
 		text(dl, bold(), 19, leftSide ? edge - nw : lx, ty, c, name.c_str());
 		if (!second.empty())
 		{
@@ -8452,19 +8594,27 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 			dl->AddLine(V(nx, ty + 12), V(nx + nw, ty + 12), on ? col::text : col::warm, 1.5f * S);
 			text(dl, regular(), 16, leftSide ? edge - sw : lx, ty + 24, on ? col::text : col::warm, second.c_str());
 		}
+		if (!third.empty())
+			text(dl, regular(), 16, leftSide ? edge - tw : lx, thirdY, on ? col::text : col::dim, third.c_str());
 	};
 	auto control = [&](PadPart p, DreamcastKey key, ImVec2 from, float ty, bool leftSide) {
 		const Driver d = driverOf(pad.get(), key, profile, live);
-		caption(p, d.name, d.instead, from, ty, leftSide);
+		caption(p, d.name, d.instead, from, ty, leftSide, d.sticks);
 	};
+	// The right stick's directions the layout has a control on: those axes are the
+	// controls' alone (ps5_pad.cpp), not the triggers, the turn or the mouse as well.
+	const std::shared_ptr<InputMapping> layout = pad != nullptr ? pad->get_input_mapping() : nullptr;
+	const u32 sticksBound = ps5::pad::boundStickDirections(layout.get());
+	const bool rightXBound = (sticksBound & ps5::pad::RightStickX) != 0;
+	const bool rightYBound = (sticksBound & ps5::pad::RightStickY) != 0;
 	// Left: the left trigger, the stick, the D-pad.
 	// With the right stick as the triggers, each trigger has it as well.
-	const bool stickTriggers = live && ps5::pad::PadRightTriggers != 0 && !profile.mouse;
+	const bool stickTriggers = live && ps5::pad::PadRightTriggers != 0 && !profile.mouse && !rightXBound;
 	auto trigger = [&](PadPart p, DreamcastKey key, ImVec2 from, float ty, bool leftSide, const char *side) {
 		Driver d = driverOf(pad.get(), key, profile, live);
 		if (stickTriggers)
 			d.name += std::string(" or right stick ") + side;
-		caption(p, d.name, d.instead, from, ty, leftSide);
+		caption(p, d.name, d.instead, from, ty, leftSide, d.sticks);
 	};
 	trigger(PadPart::LT, DC_AXIS_LT, P(0.18f, 0.06f), y - 8, true, "left");
 	{
@@ -8500,7 +8650,28 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 		ey += 30;
 	};
 	std::string right;
-	if (live && profile.mouse)
+	if (rightXBound || rightYBound)
+	{
+		// The controls of the layout on its directions: "X (left), Y (right)". An axis with
+		// none of them on it does what the options say, which is shown after them.
+		static const struct { int direction; const char *name; } dirs[] = {
+			{ ps5::pad::StickRightUp, "up" }, { ps5::pad::StickRightDown, "down" },
+			{ ps5::pad::StickRightLeft, "left" }, { ps5::pad::StickRightRight, "right" },
+		};
+		for (const auto& dir : dirs)
+			if (sticksBound & (1u << dir.direction))
+			{
+				const std::string name = controlOnCode(*layout, ps5::pad::StickCodeBase + (u32)dir.direction);
+				right += (right.empty() ? "" : ", ") + name + " (" + dir.name + ")";
+			}
+		if (live && profile.mouse)
+			right += rightXBound && rightYBound ? "" : rightXBound ? "; up, down: the mouse" : "; left, right: the mouse";
+		else if (!rightXBound && live && ps5::pad::PadRightTriggers != 0)
+			right += "; left, right: the L and R triggers";
+		else if (!rightXBound && ps5::pad::PadRightTurns != 0)
+			right += "; left, right: turns";
+	}
+	else if (live && profile.mouse)
 		right = "The mouse";
 	else if (live && ps5::pad::PadRightTriggers != 0)
 		right = "The L and R triggers (left, right)";
@@ -8510,7 +8681,7 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 		right = "The second stick";
 	else
 		right = "Nothing in most games";
-	extra("Right stick", right, live && profile.mouse, lit == PadPart::RightStick);
+	extra("Right stick", right, live && profile.mouse && !(rightXBound && rightYBound), lit == PadPart::RightStick);
 	// L1, R1, L3, R3, touch pad: the Dreamcast control on them, or the profile's action.
 	struct Extra { int input; u32 bit; };
 	const Extra extras[] = { { 4, ps5::pad::L1 }, { 5, ps5::pad::R1 }, { 8, ps5::pad::L3 }, { 9, ps5::pad::R3 } };
@@ -8530,12 +8701,16 @@ void drawPadPicture(ImDrawList *dl, float x, float y, float w, PadPart lit)
 			what = "Nothing";
 			if (mapping != nullptr)
 				for (const PadControl& control : padControls)
-					if (mapping->get_button_code(0, control.key) == ps5::pad::buttonCode(e.bit))
+				{
+					// A control can be on more than one input: any of them.
+					const std::vector<u32> codes = buttonCodesOf(*mapping, control.key, false);
+					if (std::find(codes.begin(), codes.end(), ps5::pad::buttonCode(e.bit)) != codes.end())
 					{
 						const char *name = ::settings.platform.isArcade() ? control.arcade : control.console;
 						if (name != nullptr)
 							what = name;
 					}
+				}
 		}
 		const bool on = lit == PadPart::Extras || (lit == PadPart::C && e.input == 5) || (lit == PadPart::Z && e.input == 4);
 		extra(B::inputName(e.input), what, warm, on && lit != PadPart::Extras ? true : false);
@@ -8576,13 +8751,17 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	// The focused row is one of the emulator's own controls, and is on a button.
 	const bool removable = pad != nullptr && qm.listening < 0 && focusedControl != nullptr && focusedControl->emulator
 			&& boundTo(*pad, focusedControl->key) != "Not set";
+	// The focused row is on a stick direction as well: Square takes those off it (first).
+	const bool sticksOff = pad != nullptr && qm.listening < 0 && focusedControl != nullptr && hasStick(*pad, focusedControl->key);
 
 	if (qm.listening >= 0)
 	{
 		// Waiting for the button: the first one pressed once all were let go.
 		const ps5::pad::State& state = ps5::pad::player1();
 		const u32 held = state.buttons & ~ps5::pad::Intercepted;
-		// A stick pushed most of its way is taken as a button: a lever's direction.
+		// A stick pushed most of its way is taken as a button: a lever's direction. It is
+		// added to the control (bindStick), which keeps its button; a button replaces the
+		// control's button and keeps its directions (bindControl).
 		const int stick = ps5::pad::stickDirectionHeld(state, 0.75f);
 		if (!qm.listenArmed)
 			qm.listenArmed = held == 0 && ps5::pad::stickDirectionHeld(state, 0.3f) < 0;
@@ -8646,6 +8825,8 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			qm.listenArmed = false;
 			qm.listenAt = timeNow;
 		}
+		else if (sticksOff && in.square)
+			unbindSticks(*pad, focusedControl->key);
 		else if (removable && in.square)
 			unbindControl(*pad, focusedControl->key);
 		if (in.back || in.options)
@@ -8665,7 +8846,9 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	// What the bottom bar offers for this row (the hints are drawn with the menu's).
 	qm.controlCross = qm.controlFocus == RowLayout ? (own ? "As for every game" : "")
 			: qm.controlFocus == RowProfiles ? "Open" : onOptionNow ? "Next" : "Change";
-	qm.controlSquare = removableNow ? "No button"
+	const bool sticksOffNow = pad != nullptr && qm.listening < 0 && controlNow != nullptr && hasStick(*pad, controlNow->key);
+	qm.controlSquare = sticksOffNow ? "No stick"
+			: removableNow ? "No button"
 			: onOptionNow && options[qm.controlFocus - optionsAt].get() != settingsValue(options[qm.controlFocus - optionsAt]) ? "As in Settings"
 			: "";
 
@@ -8750,7 +8933,8 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	std::string note;
 	bool nextStart = false;
 	if (qm.listening >= 0)
-		note = "Press the DualSense button for it, or push a stick all the way. The touch pad leaves it as it is.";
+		note = "Press the DualSense button for it (in place of its button), or push a stick all the way to add that "
+				"direction (it keeps its button). The touch pad leaves it as it is.";
 	else if (qm.controlFocus == RowLayout)
 		note = own ? "This game has a layout of its own. Cross puts it back to the one every game has."
 				: "This game uses the layout every game has. Changing a button below gives it one of its own.";
@@ -8768,10 +8952,21 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 	}
 	else if (controlNow != nullptr && controlNow->emulator)
 		note = "A press turns fast forward on, the next one off: not in netplay. Cross, then the button for it; "
-				"Square takes it off its button. L3 and R3 are free in Dreamcast games.";
+				"Square takes it off its stick directions, then off its button. L3 and R3 are free in Dreamcast games.";
 	else
-		note = "Cross, then the DualSense button for it, or a push of a stick (a lever's direction). "
-				"A button that did something else stops doing it. L2 and R2 are analog for the triggers.";
+	{
+		note = "Cross, then a button for it, or push a stick to add that direction (it keeps its button). "
+				"Square takes the directions off. An input another control had leaves it.";
+		// The right stick can be a control's and something of the options' at once: the control has it.
+		const u32 bound = ps5::pad::boundStickDirections(pad != nullptr ? pad->get_input_mapping().get() : nullptr);
+		const bool xBound = (bound & ps5::pad::RightStickX) != 0, yBound = (bound & ps5::pad::RightStickY) != 0;
+		const ps5::pad::bind::Profile profile = B::current();
+		if (!arcade && (xBound || yBound) && profile.mouse)
+			note += "\nThe right stick's bound directions do not move the mouse.";
+		else if (!arcade && xBound && (ps5::pad::PadRightTriggers != 0 || ps5::pad::PadRightTurns != 0))
+			note += ps5::pad::PadRightTriggers != 0 ? "\nRight stick as the triggers is off while its left or right has a control."
+					: "\nRight stick turns is off while its left or right has a control.";
+	}
 	text(dl, regular(), 20, px + 56, top + viewH + 14, nextStart ? col::dim : col::faint, note.c_str(), listW - 112);
 
 	if (picture)

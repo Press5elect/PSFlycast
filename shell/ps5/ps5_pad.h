@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+class InputMapping;
+
 namespace ps5::pad
 {
 
@@ -78,6 +80,15 @@ enum { StickLeftUp, StickLeftDown, StickLeftLeft, StickLeftRight,
 const char *stickDirectionName(int direction);
 // The stick direction held on this state past `threshold` (0..1), the first of them; -1 for none.
 int stickDirectionHeld(const struct State& s, float threshold);
+// The stick directions a layout has a control on: bit n for StickCodeBase + n.
+// A control can be on a direction as well as on a button (the Controls page
+// adds a direction to a control and keeps its button).
+u32 boundStickDirections(const InputMapping *mapping);
+// The same for the first player's pad, as its last poll found it.
+u32 player1BoundSticks();
+// The right stick's directions, left and right, and up and down, as those bits.
+constexpr u32 RightStickX = (1u << StickRightLeft) | (1u << StickRightRight);
+constexpr u32 RightStickY = (1u << StickRightUp) | (1u << StickRightDown);
 
 // Whether the left stick is also the d-pad: a setting, and a game can have its
 // own. Automatic is on in the arcade games that read no analog stick, whose
