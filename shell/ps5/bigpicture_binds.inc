@@ -213,16 +213,16 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 		const int first = bindsWindow(ui.picking ? ui.choice : 0, count, shown);
 		if (!ui.picking)
 			text(dl, regular(), 22, rx + 28, top + 28, col::dim,
-					own ? "Cross changes the entry on the left: the controller keeps it, it does nothing, "
-							"it is a mouse button or the wheel, or it is a key.\n\n"
-							"An input the profile gives away is not the Dreamcast controller's as well, so nothing is pressed twice. "
-							"What stays \"Controller\" is the controller's as before.\n\n"
-							"Triangle makes this profile the one in use."
-						: "A built-in profile, which cannot change. Square copies it into one of your own "
-							"(Custom 1 to 4), which can.\n\n"
-							"Controller: the controller alone. Controller and mouse: the right stick aims, the controller keeps every button. "
-							"Mouse and keyboard: for a game played with those, with the keys an FPS on a PC expects.\n\n"
-							"Triangle makes this profile the one in use.", rw - 56);
+					own ? "Press Cross to change the entry on the left: keep it on the controller, disable it, "
+							"or make it a mouse button, the mouse wheel or a key.\n\n"
+							"An input the profile reassigns is no longer sent to the Dreamcast controller, so nothing is pressed twice. "
+							"Entries left as \"Controller\" work as before.\n\n"
+							"Press Triangle to use this profile."
+						: "Built-in profiles cannot be changed. Press Square to copy this one into a profile of your own "
+							"(Custom 1 to 4).\n\n"
+							"Controller: the controller alone. Controller and mouse: the right stick aims; every button stays on the controller. "
+							"Mouse and keyboard: for games played with them, with PC-style FPS keys.\n\n"
+							"Press Triangle to use this profile.", rw - 56);
 		else
 			for (int n = 0; n < shown && first + n < count; n++)
 			{
@@ -240,7 +240,7 @@ void bindsDialog(ImDrawList *dl, const Input& given)
 		text(dl, regular(), 22, x0, noteY, ui.noteBad ? col::warm : col::text, ui.note.c_str(), inner);
 	else
 		text(dl, regular(), 22, x0, noteY, col::faint,
-				"The profile in use is a setting, and a game can have its own (quick menu > Controls). The mouse and keyboard take their ports when a game starts", inner);
+				"The profile in use is a setting, and each game can have its own (quick menu > Controls). The mouse and keyboard take their ports when a game starts.", inner);
 	float bx = x0;
 	if (!ui.picking)
 	{

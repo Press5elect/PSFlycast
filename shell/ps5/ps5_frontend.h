@@ -109,7 +109,7 @@ struct Options
 	bool menuSounds = true;		// a sound for moving, choosing and going back
 	bool lightBar = true;		// each pad's light bar in its player's colour
 	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
-	bool vrr = false;			// ask the display for variable refresh (from the next start)
+	bool vrr = true;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts
 	// The graphics driver (Settings > System, PlayStation 5; Crux2's lessons):
 	// its command recording on a thread of its own (RADV_THREADED_RECORDING,
@@ -132,7 +132,7 @@ struct Options
 	int accent = 0;
 	int backdrop = 0;
 	int motion = 0;
-	// Accessibility: the interface's size in percent (100 to 130), black behind
+	// Accessibility: the interface's size in percent (70 to 130), black behind
 	// the screens with brighter text, and blue and orange where green marks good.
 	int uiScale = 100;
 	bool highContrast = false;

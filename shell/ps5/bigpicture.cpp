@@ -1057,7 +1057,7 @@ void readInput()
 ImDrawList *beginScreen(const char *id, bool opaque)
 {
 	const ImGuiIO& io = ImGui::GetIO();
-	H = 1080.f * 100.f / (float)std::clamp(ps5::options().uiScale, 100, 130);
+	H = 1080.f * 100.f / (float)std::clamp(ps5::options().uiScale, 70, 130);
 	S = io.DisplaySize.y / H;
 	W = io.DisplaySize.x / S;
 	timeNow = ImGui::GetTime();
@@ -2824,17 +2824,17 @@ const std::vector<GameOption>& gameOptions()
 {
 	using G = GameOption;
 	static const std::vector<GameOption> rows = {
-		patchSwitch("60 FPS patch", "Makes this game run at 60 frames a second. Turn it off if the game runs too fast or breaks",
+		patchSwitch("60 FPS patch", "Modify the game so that it runs at 60 frames per second. Disable it if the game runs too fast or glitches.",
 				"ps5.patch.60fps", "60fps"),
 		patchSwitch("Widescreen patch",
-				"The game draws a 16:9 picture itself. For a game the Widescreen game patches option does nothing for",
+				"Modify the game so that it draws a 16:9 picture itself. For games that Widescreen game patches does not support.",
 				"ps5.patch.widescreen", "widescreen"),
 		ownChoice("Object draw distance",
-				"For Sonic Adventure and Sonic Adventure 2: rings, enemies and boxes appear from further away. Experimental: too far can slow the game or break it",
+				"Draw objects and enemies from further away. Supported games only. Experimental: higher values may slow down or break the game.",
 				"ps5.drawdist", { "Off", "1.5x", "2x", "3x", "5x" }, { 100, 150, 200, 300, 500 }),
 
 		combined("Transparency sorting",
-				"Per-triangle suits most games. Per-pixel is the most accurate, and the heaviest",
+				"Per-triangle: fast but may produce graphical glitches. Per-strip: faster but may produce graphical glitches. Per-pixel: slower but accurate.",
 				{ "Per-triangle", "Per-strip", "Per-pixel" },
 				{ part("config.pvr.rend", config::RendererType), part("config.rend.PerStripSorting", config::PerStripSorting) },
 				{ { (int)RenderType::Vulkan, 0 }, { (int)RenderType::Vulkan, 1 }, { (int)RenderType::Vulkan_OIT, G::Any } },
@@ -2843,15 +2843,15 @@ const std::vector<GameOption>& gameOptions()
 		// itself sets a number that is none of these (core/emulator.cpp): it
 		// is shown as that number (oddValue).
 		pick("Per-pixel layers",
-				"For per-pixel sorting: the see-through surfaces it orders at a pixel. More is slower; 32 suits most",
+				"Maximum number of transparent layers. May need to be increased for some complex scenes. Decreasing it may improve performance.",
 				"config.rend.PerPixelLayers", { "8", "16", "32", "64", "96", "128" }, { 8, 16, 32, 64, 96, 128 },
 				config::PerPixelLayers, G::Video),
-		pick("Internal resolution", "The Dreamcast renders 640 x 480; higher looks sharper on a 4K TV",
+		pick("Internal resolution", "Internal render resolution. Higher is better, but more demanding on the GPU. Native is the Dreamcast's own 640 x 480.",
 				"config.rend.Resolution",
 				{ "Native (480p)", "2x (960p)", "3x (1440p)", "4x (1920p)", "5x (2400p)", "6x (2880p)", "7x (3360p)",
 						"8x (3840p)", "9x (4320p)", "10x (4800p)" },
 				{ 480, 960, 1440, 1920, 2400, 2880, 3360, 3840, 4320, 4800 }, config::RenderResolution, G::Video),
-		onOff("Widescreen", "Draws outside the 4:3 frame where the game allows it", "config.rend.WideScreen",
+		onOff("Widescreen", "Draw geometry outside of the normal 4:3 aspect ratio. May produce graphical glitches in the revealed areas.", "config.rend.WideScreen",
 				config::Widescreen, G::Video),
 		[] {
 			// Flycast's own settings grey this out with "Super widescreen" and
@@ -2860,7 +2860,7 @@ const std::vector<GameOption>& gameOptions()
 			// first rule is kept here, for an emu.cfg that has super widescreen
 			// on: it is then not turned on.
 			GameOption o = onOff("Stretch to fill",
-					"Stretches the 4:3 picture over the whole screen: no black bars, and everything a third wider",
+					"Stretch the picture to fill the entire screen.",
 					"config.rend.StretchToFill", config::StretchToFill, GameOption::Video);
 			o.set = [](int v) { config::StretchToFill.set(v != 0 && !config::SuperWidescreen); };
 			return o;
@@ -2868,7 +2868,7 @@ const std::vector<GameOption>& gameOptions()
 		[] {
 			// Flycast greys out stretching to fill with this one, so one turns the other off.
 			GameOption o = onOff("Super widescreen",
-					"With Widescreen: draws much further to the sides, for a 21:9 or wider picture. Some games show their edges",
+					"Use the full width of the screen when its aspect ratio is greater than 16:9. Requires Widescreen. Not compatible with integer scaling.",
 					"config.rend.SuperWideScreen", config::SuperWidescreen, GameOption::Video);
 			o.set = [](int v) {
 				config::SuperWidescreen.set(v != 0);
@@ -2878,234 +2878,229 @@ const std::vector<GameOption>& gameOptions()
 			return o;
 		}(),
 		range("Horizontal stretching",
-				"Makes the picture wider without drawing more of the game: 100% is as the Dreamcast made it, 133% fills a 16:9 screen",
+				"Stretch the screen horizontally. 100% is the original width; 133% fills a 16:9 screen.",
 				"config.rend.ScreenStretching", 100, 150, 1, "%", G::Video,
 				[] { return (int)config::ScreenStretching.get(); },
 				[](int v) { config::ScreenStretching.set(v); }),
 		onOff("Rotate screen 90 degrees",
-				"For the arcade games that were made for a screen turned on its side. Upscaling filters are off while it is on",
+				"Rotate the screen 90 degrees counterclockwise, for vertical arcade games. Upscaling filters are disabled while it is on.",
 				"config.rend.Rotate90", config::Rotate90, G::Video),
-		onOff("Fog", "The haze that hides what is far away. Off shows the whole scene clearly, and some games look wrong",
+		onOff("Fog", "Enable fog effects",
 				"config.rend.Fog", config::Fog, G::Video),
-		onOff("Shadows (modifier volumes)", "The shadows most games draw. Off is a little faster",
+		onOff("Shadows (modifier volumes)", "Enable modifier volumes, usually used for shadows",
 				"config.rend.ModifierVolumes", config::ModifierVolumes, G::Video),
 		onOff("Translucent depth mask",
-				"Fixes see-through surfaces drawn behind what they should be in front of, in a few games. Off for most",
+				"Fixes translucent polygons drawn behind objects they should be in front of, in a few games. Leave it disabled for most games.",
 				"config.rend.TranslucentPolygonDepthMask", config::TranslucentPolygonDepthMask, G::Video),
 		onOff("Fix edge bleeding in upscaled pictures",
-				"Stops thin lines at the edges of textures when the resolution is above native. Off if pixels seem to shift",
+				"Helps with texture bleeding case when upscaling. Disabling it can help if pixels are warping when upscaling in 2D games.",
 				"config.rend.FixUpscaleBleedingEdge", config::FixUpscaleBleedingEdge, G::Video),
-		onOff("Widescreen game patches", "Built-in 16:9 patches for the games that have one",
+		onOff("Widescreen game patches", "Modify the game so that it displays in 16:9 anamorphic format and use horizontal screen stretching. Only some games are supported.",
 				"config.rend.WidescreenGameHacks", config::WidescreenGameHacks, G::Video, true),
-		pick("Anisotropic filtering", "Sharper textures at grazing angles", "config.rend.AnisotropicFiltering",
+		pick("Anisotropic filtering", "Higher values make textures viewed at oblique angles look sharper, but are more demanding on the GPU. This option only has a visible impact on mipmapped textures.", "config.rend.AnisotropicFiltering",
 				{ "Off", "2x", "4x", "8x", "16x" }, { 1, 2, 4, 8, 16 }, config::AnisotropicFiltering, G::Video),
-		pick("Texture filtering", "How textures are sampled", "config.rend.TextureFiltering",
+		pick("Texture filtering", "Game default uses the game's own texture filtering. Nearest gives a crisper look, Linear a smoother one; forcing either may cause rendering issues.", "config.rend.TextureFiltering",
 				{ "Game default", "Nearest (pixelated)", "Linear (smooth)" }, { 0, 1, 2 }, config::TextureFiltering,
 				G::Video),
-		onOff("Accurate mipmaps", "Mipmaps as the Dreamcast picks them: one level, as sharp as the console. Off: blended, sharper",
+		onOff("Accurate mipmaps", "Choose mipmap levels the way the Dreamcast does, for the original look. When disabled, levels are blended and textures look sharper.",
 				"config.rend.AccurateMipmaps", config::AccurateMipmaps, G::Video),
-		onOff("Original 16-bit colour", "16-bit colour with the console's dither, as games wrote it. Off: smooth 32-bit colour",
+		onOff("Original 16-bit colour", "Render 16-bit colour with the console's dithering, as games originally looked. When disabled, colours are smooth 32-bit.",
 				"config.rend.Original16BitColour", config::Original16Bit, G::Video),
-		onOff("Flicker filter", "The console's vertical softening in TV modes. Off: sharper lines that can shimmer",
+		onOff("Flicker filter", "Apply the console's vertical softening in TV modes. When disabled, lines are sharper but may shimmer.",
 				"config.rend.FlickerFilter", config::FlickerFilter, G::Video),
-		pick("Texture upscaling", "xBRZ upscaling of the game's textures (uses CPU)", "config.rend.TextureUpscale2",
+		pick("Texture upscaling", "Upscale textures with xBRZ to enhance hand-drawn 2D pixel art. Should only be used with 2D pixelated games. Uses the CPU.", "config.rend.TextureUpscale2",
 				{ "Off", "2x", "3x", "4x", "5x", "6x" }, { 1, 2, 3, 4, 5, 6 }, config::TextureUpscale, G::Video),
-		pick("Upscale textures up to", "The largest texture that is upscaled. Larger sizes take more memory and can make a game hitch",
+		pick("Upscale textures up to", "Textures larger than this are not upscaled. Larger sizes use more memory and may cause stutter.",
 				"config.rend.MaxFilteredTextureSize", { "256 x 256", "512 x 512", "1024 x 1024" }, { 256, 512, 1024 },
 				config::MaxFilteredTextureSize, G::Video),
-		onOff("Custom textures", "Replacement textures from data/textures/<the game's ID>, for a texture pack you have",
+		onOff("Custom textures", "Load custom/high-res textures from data/textures/<game id>.",
 				"config.rend.CustomTextures", config::CustomTextures, G::Video),
 		pick("Texture dump",
-				"Saves the textures the game loads as PNG pictures named by their hash, to be redrawn in higher resolution and put back with Custom textures. 2D: drawn flat on the screen (menus, HUD, sprites); 3D: the rest. Takes effect when a game starts. Not tried on a console yet",
+				"Dump the textures a game loads as PNG files, to be redrawn and loaded back with Custom textures. 2D is menus, HUD and sprites; 3D is the rest. Experimental.",
 				"ps5.TextureDump", { "Off", "2D and 3D", "2D only", "3D only" },
 				{ ps5::texdump::ModeOff, ps5::texdump::ModeAll, ps5::texdump::Mode2D, ps5::texdump::Mode3D },
 				ps5::texdump::Mode, G::Video, true),
 		pick("Dump textures to",
-				"The console's own storage (the app's data folder, texdump), the first USB drive that can be written to (PSFlyCast/Texture dumps), or the network share (PSFlyCast/Texture dumps beside the games). In folders named for the game, with 2D and 3D inside",
+				"Where dumped textures are saved, in a folder for each game. Console storage uses the texdump folder; a writable USB drive or the network share use PSFlyCast/Texture dumps.",
 				"ps5.TextureDumpTo", { "Console storage", "USB drive", "Network share" },
 				{ ps5::texdump::ToInternal, ps5::texdump::ToUsb, ps5::texdump::ToNetwork }, ps5::texdump::Where,
 				G::Video, true),
-		onOff("Skip changing textures", "Leaves out textures that the game redraws as it plays (video, animated pictures), which would fill the folder with copies",
+		onOff("Skip changing textures", "Skip dumping video (YUV) and already updated textures",
 				"config.rend.DumpUniqueTextures", config::DumpUniqueTextures, G::Video),
-		onOff("Mipmaps", "Smaller copies of a texture for far surfaces; off for a game whose textures look wrong",
+		onOff("Mipmaps", "When enabled, textures use smaller versions of themselves when they appear farther away, which reduces shimmering. Disable it if textures look wrong.",
 				"config.rend.UseMipmaps", config::UseMipmaps, G::Video),
-		pick("Automatic frame skipping", "Skips rendering frames when the game runs slow", "config.pvr.AutoSkipFrame",
+		pick("Automatic frame skipping", "Normal: skip a frame when the GPU and CPU are both running slow. Maximum: skip a frame when the GPU is running slow.", "config.pvr.AutoSkipFrame",
 				{ "Off", "Normal", "Maximum" }, { 0, 1, 2 }, config::AutoSkipFrame, G::Video),
 		onOff("Native depth interpolation",
-				"Stops textures warping on this console's graphics chip; a few games draw better with it off",
+				"Helps with texture corruption and depth issues on AMD GPUs, such as the PS5's. A few games draw better with it disabled.",
 				"config.rend.NativeDepthInterpolation", config::NativeDepthInterpolation, G::Video),
 		onOff("Full framebuffer emulation",
-				"For the few games that draw straight to the screen; slower, and the picture stays at 480p",
+				"Fully accurate VRAM framebuffer emulation. Helps games that directly access the framebuffer for special effects. Very slow and incompatible with upscaling and wide screen.",
 				"config.rend.EmulateFramebuffer", config::EmulateFramebuffer, G::Video),
-		onOff("Copy rendered textures to VRAM", "For games that read back what they drew; slower",
+		onOff("Copy rendered textures to VRAM", "Copy rendered-to textures back to VRAM. Slower but accurate",
 				"config.rend.RenderToTextureBuffer", config::RenderToTextureBuffer, G::Video),
-		onOff("Delay frame swapping", "Avoids a flashing screen and glitchy videos in some games",
+		onOff("Delay frame swapping", "Useful to avoid flashing screen or glitchy videos. Not recommended on slow platforms",
 				"config.rend.DelayFrameSwapping", config::DelayFrameSwapping, G::Video),
-		onOff("Show frame rate", "How fast the game runs and its pictures a second, in the corner", "config.rend.ShowFPS", config::ShowFPS, G::Video),
+		onOff("Show frame rate", "Show on-screen frame/sec counter", "config.rend.ShowFPS", config::ShowFPS, G::Video),
 		// Flycast's overlay (core/rend/vulkan/overlay.cpp): each memory card's
 		// 48 x 32 dots at 288 x 192 pixels of a 4K screen, three quarters opaque,
 		// 24 pixels from its corner. The first controller's card has the top
 		// left corner, the second controller's the top right.
-		onOff("Memory card screen", "Shows the memory card's little screen in a corner of the picture while you play",
+		onOff("Memory card screen", "Show the VMU LCD screens while in-game",
 				"config.rend.FloatVMUs", config::FloatVMUs, G::Video),
 		pick("Beside the picture",
-				"What fills the screen beside a 4:3 picture. The picture's light: the picture blurred wide and soft. Gradient: a quiet "
-				"tone of the interface's colour. Your picture: borders/<game ID>.png, or default.png, in the title's folder. "
-				"Carried on: the picture's edges mirrored and blurred outwards",
+				"What fills the screen beside a 4:3 picture. The picture's light blurs it outwards; Carried on mirrors its edges. My picture uses borders/<game ID>.png or default.png.",
 				"ps5.SidePicture", { "Black", "The picture's light", "Gradient", "My picture", "Carried on" }, { 0, 1, 2, 3, 4 },
 				ps5::SidePicture, G::Video),
-		range("Frame skipping", "Draws only one frame in this many more: 0 draws every frame. Helps a game that cannot hold full speed, "
-				"and looks choppy", "config.ta.skip", 0, 5, 1, "", G::Video,
+		range("Frame skipping", "Number of frames to skip between two actually rendered frames", "config.ta.skip", 0, 5, 1, "", G::Video,
 				[] { return (int)config::SkipFrame.get(); }, [](int v) { config::SkipFrame.set(v); }),
-		range("Memory card screen size", "How large the memory card's screen is, with Memory card screen on", "ps5.VmuScreenSize",
+		range("Memory card screen size", "Size of the VMU screen shown while in-game.", "ps5.VmuScreenSize",
 				50, 300, 10, "%", G::Video, [] { return (int)ps5::VmuScreenSize; }, [](int v) { ps5::VmuScreenSize.set(v); }),
-		onOff("Integer scaling", "Whole-number scaling of the picture, no blur", "config.rend.IntegerScale",
+		onOff("Integer scaling", "Scales the output by the maximum integer multiple allowed by the display resolution.", "config.rend.IntegerScale",
 				config::IntegerScale, G::Video),
-		onOff("Smooth scaling", "Bilinear filtering of the final picture", "config.rend.LinearInterpolation",
+		onOff("Smooth scaling", "Scales the output with linear interpolation. Will use nearest neighbor interpolation otherwise. Disable with integer scaling.", "config.rend.LinearInterpolation",
 				config::LinearInterpolation, G::Video),
-		pick("Upscaling", "FSR 1, NIS and CAS sharpen the enlarged picture; sharp bilinear keeps pixels crisp. Scanlines and CRT show it as an old TV would",
+		pick("Upscaling", "Upscale the final picture. FSR 1, NIS and CAS sharpen it; Sharp bilinear keeps pixels crisp. Scanlines and CRT imitate an old TV.",
 				"ps5.Upscaling", { "Off", "FSR 1 (soft)", "FSR 1", "FSR 1 (sharp)", "Sharp bilinear", "NIS", "CAS", "Scanlines", "CRT" },
 				{ ps5::UpscalingOff, ps5::UpscalingFsrSoft, ps5::UpscalingFsr, ps5::UpscalingFsrSharp, ps5::UpscalingSharpBilinear,
 						ps5::UpscalingNis, ps5::UpscalingCas, ps5::UpscalingScanlines, ps5::UpscalingCrt },
 				ps5::Upscaling, G::Video),
-		pick("Sharpening", "How much NIS and CAS sharpen the picture", "ps5.Sharpening", { "Soft", "Normal", "Sharp" }, { 0, 1, 2 },
+		pick("Sharpening", "Strength of NIS and CAS sharpening.", "ps5.Sharpening", { "Soft", "Normal", "Sharp" }, { 0, 1, 2 },
 				ps5::Sharpening, G::Video),
-		pick("Film grain", "A fine grain over the picture that moves every frame, strongest in the middle tones",
+		pick("Film grain", "Add a fine, moving film grain over the picture, strongest in the mid-tones.",
 				"ps5.FilmGrain", { "Off", "Light", "Medium", "Strong" }, { 0, 1, 2, 3 }, ps5::FilmGrain, G::Video),
-		range("Brightness", "50% to 150%; 100% is as the game made it", "ps5.Brightness", 50, 150, 5, "%", G::Video,
+		range("Brightness", "Adjust the picture brightness. 100% is the original.", "ps5.Brightness", 50, 150, 5, "%", G::Video,
 				[] { return (int)ps5::Brightness; }, [](int v) { ps5::Brightness.set(v); }),
-		range("Contrast", "50% to 150%; 100% is as the game made it", "ps5.Contrast", 50, 150, 5, "%", G::Video,
+		range("Contrast", "Adjust the picture contrast. 100% is the original.", "ps5.Contrast", 50, 150, 5, "%", G::Video,
 				[] { return (int)ps5::Contrast; }, [](int v) { ps5::Contrast.set(v); }),
-		range("Colour", "How strong the colours are: 0% is black and white, 100% as the game made them", "ps5.Saturation", 0, 150, 5, "%",
+		range("Colour", "Adjust colour saturation. 0% is black and white; 100% is the original.", "ps5.Saturation", 0, 150, 5, "%",
 				G::Video, [] { return (int)ps5::Saturation; }, [](int v) { ps5::Saturation.set(v); }),
-		range("Gamma", "50% to 150%; higher is brighter in the shadows", "ps5.Gamma", 50, 150, 5, "%", G::Video,
+		range("Gamma", "Adjust gamma. Higher values brighten the shadows; 100% is the original.", "ps5.Gamma", 50, 150, 5, "%", G::Video,
 				[] { return (int)ps5::Gamma; }, [](int v) { ps5::Gamma.set(v); }),
 		// Pictures made in between the game's own (ps5_framegen.cpp).
 		// Light makes one between two of the game's; Full one for every present that would repeat a picture.
 		pick("Frame generation",
-				"Experimental: pictures made in between the game's own. Light makes one, Full as many as fit",
+				"Generate frames in between the game's own. Light adds one, Full as many as fit. Experimental.",
 				"ps5.FrameGeneration", { "Off", "Light", "Full" }, { 0, 1, 2 }, ps5::FrameGeneration, G::Video),
 		pick("Generation method",
-				"How those pictures are made. PSFlyCast's own looks for the way each part moved. AMD FSR3's optical flow "
-				"(ps5-framegen) keeps text and the HUD still. MihawkGen is a small trained network that looks at the two pictures",
+				"How generated frames are made. PSFlyCast's own tracks how each part moved; AMD FSR3 optical flow keeps text and the HUD still; MihawkGen uses a small trained network.",
 				"ps5.FrameGenMethod", { "PSFlyCast's own", "AMD FSR3 optical flow", "MihawkGen" }, { 0, 1, 2 },
 				ps5::FrameGenMethod, G::Video),
 		onOff("Show the movement",
-				"With AMD FSR3's optical flow: the made pictures show what it decided in colours (grey: still, green: moving, "
-				"red and blue: an edge). To see how it works, not to play",
+				"Debug view for AMD FSR3 optical flow: generated frames show motion in colour (grey still, green moving, red and blue edges). Not meant for playing.",
 				"ps5.FrameGenDebug", ps5::FrameGenDebug, G::Video),
 		// The software model of the Dreamcast's graphics chip (core/rend/soft):
 		// it takes the place of the graphics processor from the next frame.
 		onOff("Software renderer",
-				"Experimental: the processor draws each pixel the way the Dreamcast's chip did. Slower, and at 480p",
+				"Render each pixel on the CPU the way the Dreamcast's graphics chip did. Slower, and limited to 480p. Experimental.",
 				"ps5.SoftwareRenderer", ps5::SoftwareRenderer, G::Video),
 		combined("Frame pacing",
-				"Sync to display is the smoothest: the sound follows the TV. VSync: the sound keeps its exact rate",
+				"Synchronizes the frame rate with the screen refresh rate. Sync to display is the smoothest and lets the sound follow the TV; VSync keeps the exact sound rate.",
 				{ "Sync to display", "VSync", "Off" },
 				{ part("config.rend.vsync", config::VSync), part("ps5.SyncToDisplay", ps5::SyncToDisplay) },
 				{ { 1, 1 }, { 1, 0 }, { 0, G::Any } }, G::Video),
 
-		range("Volume", "Master volume", "config.aica.Volume", 0, 100, 5, "%", G::Audio,
+		range("Volume", "Adjust the emulator's audio level", "config.aica.Volume", 0, 100, 5, "%", G::Audio,
 				[] { return (int)config::AudioVolume.get(); },
 				[](int v) { config::AudioVolume.set(v); config::AudioVolume.calcDbPower(); }),
-		onOff("DSP emulation", "The sound chip's effects (reverb, echo); needed by some games",
+		onOff("DSP emulation", "Enable emulation of the Dreamcast's audio DSP (digital signal processor). Improves the accuracy of generated sound, but increases performance requirements.",
 				"config.aica.DSPEnabled", config::DSPEnabled, G::Audio),
-		pick("Audio buffer", "How much sound is kept ready. A larger buffer stops crackling when a game is slow, and delays the sound a little",
+		pick("Audio buffer", "Sets the maximum audio latency. A larger buffer stops crackling when a game runs slow, but delays the sound a little.",
 				"config.aica.BufferSize", { "32 ms", "64 ms", "96 ms", "128 ms", "192 ms", "256 ms" },
 				{ 1411, 2822, 4233, 5644, 8467, 11289 }, config::AudioBufferSize, G::Audio),
-		onOff("VMU sounds", "The beeps of the VMU", "audio.VmuSound", config::VmuSound, G::Audio),
+		onOff("VMU sounds", "Play VMU beeps when enabled.", "audio.VmuSound", config::VmuSound, G::Audio),
 		pick("VMU sound plays in",
-				"With VMU sounds on: the TV, the speaker of the controller whose memory card beeps, or both. Controller speaker: not tried on a console yet",
+				"Where VMU beeps play: the TV, the speaker of the controller whose VMU beeps, or both. The controller speaker is experimental.",
 				"ps5.VmuSoundOutput", { "The TV", "The controller", "TV and controller" }, { 0, 1, 2 },
 				ps5::VmuSoundOutput, G::Audio),
 
-		range("Vibration", "How strongly the DualSense rumbles", nullptr, 0, 100, 10, "%", G::Controls,
+		range("Vibration", "Rumble power", nullptr, 0, 100, 10, "%", G::Controls,
 				[] { auto p = pad1(); return p ? p->get_rumble_power() : 100; },
 				[](int v) { if (auto p = pad1()) p->set_rumble_power(v); }),
-		range("Stick dead zone", "Stick movement ignored around the centre", nullptr, 0, 40, 2, "%", G::Controls,
+		range("Stick dead zone", "Minimum deflection to register as input", nullptr, 0, 40, 2, "%", G::Controls,
 				[] { auto p = pad1(); return p ? (int)std::lround(p->get_dead_zone() * 100) : 10; },
 				[](int v) { if (auto p = pad1()) p->set_dead_zone(v / 100.f); }),
 		pick("Left stick as D-pad",
-				"The left stick also moves a digital joystick. Automatic: in arcade games that have no analog stick",
+				"The left stick also works as the D-pad. Automatic enables it for arcade games without an analog stick.",
 				"ps5.StickAsDpad", { "Automatic", "On", "Off" },
 				{ ps5::pad::StickDpadAuto, ps5::pad::StickDpadOn, ps5::pad::StickDpadOff }, ps5::pad::StickAsDpad,
 				G::Controls),
 		pick("Turbo button",
-				"A button that is pressed again and again while it is held, for games that ask for hammering",
+				"Repeatedly press the chosen button while it is held, for games that need rapid pressing.",
 				"ps5.TurboButtons", { "Off", "Cross", "Circle", "Square", "Triangle", "L1", "R1", "Cross and Square", "L1 and R1" },
 				{ 0, ps5::pad::Cross, ps5::pad::Circle, ps5::pad::Square, ps5::pad::Triangle, ps5::pad::L1, ps5::pad::R1,
 						ps5::pad::Cross | ps5::pad::Square, ps5::pad::L1 | ps5::pad::R1 },
 				ps5::pad::TurboButtons, G::Controls),
-		pick("Turbo speed", "How fast a button with turbo is pressed while it is held",
+		pick("Turbo speed", "How many times a second a turbo button is pressed.",
 				"ps5.TurboRate", { "7 a second", "10 a second", "15 a second" }, { 0, 1, 2 }, ps5::pad::TurboRate, G::Controls),
-		pick("Controller slot 2", "What is in the controller beside the memory card; rumble needs the rumble pack. Microphone: the Dreamcast's, hearing the DualSense's microphone, for the games that listen. Not tried on a console yet",
+		pick("Controller slot 2", "The device in the controller's second slot. Rumble needs the rumble pack. Microphone uses the DualSense's microphone in games that support it. Experimental.",
 				"input.device1.2", { "Rumble pack", "Memory card", "Microphone" }, { (int)MDT_PurupuruPack, (int)MDT_SegaVMU, (int)MDT_Microphone },
 				config::MapleExpansionDevices[0][1], G::Controls, true),
-		range("Microphone volume", "How loud the DualSense's microphone is to a game that has the Dreamcast microphone in a controller slot. 50% matches the Dreamcast microphone's level; the game's own volume comes on top, as on the console", "ps5.MicVolume", 10, 200, 10, "%",
+		range("Microphone volume", "Volume of the DualSense microphone when it acts as the Dreamcast microphone. 50% matches the original microphone's level; the game's own volume still applies.", "ps5.MicVolume", 10, 200, 10, "%",
 				G::Controls, [] { return (int)ps5::MicVolume; }, [](int v) { ps5::MicVolume.set(v); }),
-		pick("Controller slot 1", "What is in the controller's first slot: the memory card the game saves to, the rumble pack, the microphone (the DualSense's), or nothing",
+		pick("Controller slot 1", "The device in the controller's first slot, usually the memory card the game saves to. Microphone uses the DualSense's microphone.",
 				"input.device1.1", { "Memory card", "Rumble pack", "Microphone", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_Microphone, (int)MDT_None },
 				config::MapleExpansionDevices[0][0], G::Controls, true),
 		onOff("Own memory card for each game",
-				"On: each game saves to a card of its own, named after it. Off: all games share one card for port A, slot 1",
+				"When enabled, each game has its own VMU on port 1 of controller A.",
 				"config.PerGameVmu", config::PerGameVmu, G::System, true),
-		pick("Player 2 memory card", "The first slot of the second controller",
+		pick("Player 2 memory card", "The device in the second controller's first slot.",
 				"input.device2.1", { "Memory card", "Rumble pack", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
 				config::MapleExpansionDevices[1][0], G::Controls, true),
-		pick("Player 3 memory card", "The first slot of the third controller",
+		pick("Player 3 memory card", "The device in the third controller's first slot.",
 				"input.device3.1", { "Memory card", "Rumble pack", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
 				config::MapleExpansionDevices[2][0], G::Controls, true),
-		pick("Player 4 memory card", "The first slot of the fourth controller",
+		pick("Player 4 memory card", "The device in the fourth controller's first slot.",
 				"input.device4.1", { "Memory card", "Rumble pack", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_None },
 				config::MapleExpansionDevices[3][0], G::Controls, true),
 		pick("Controller profile",
-				"What the controller is in the Dreamcast's ports beside its controller: alone; with the right stick as a mouse; as a mouse and a keyboard with the keys an FPS on a PC expects (WASD or the arrows); or one of your own (Controller profiles, below). An input the profile gives away is not the controller's as well. The mouse and keyboard take a free port each when a game starts. Not tried on a console yet",
+				"Use the controller alone, with the right stick as a mouse, or as a mouse and keyboard with PC-style FPS keys; or one of your own profiles. Experimental.",
 				"ps5.PadProfile", { "Controller", "Controller and mouse", "Mouse and keyboard, WASD", "Mouse and keyboard, arrows", "Custom 1", "Custom 2", "Custom 3", "Custom 4" },
 				{ 0, 1, 2, 3, 4, 5, 6, 7 }, ps5::pad::PadProfile, G::Controls, true),
-		range("Mouse speed", "How fast the mouse moves for a full push of the right stick. 1 sends a step every ten frames, 10 one a frame, 20 five a frame; a game turns a long way for each step, so start low", "ps5.PadMouseSpeed", 1, 20, 1, "",
+		range("Mouse speed", "Mouse speed at full right-stick deflection. 1 moves a step every ten frames, 10 one per frame, 20 five per frame. Games turn far per step, so start low.", "ps5.PadMouseSpeed", 1, 20, 1, "",
 				G::Controls, [] { return (int)ps5::pad::PadMouseSpeed; }, [](int v) { ps5::pad::PadMouseSpeed.set(v); }),
-		range("Right stick dead zone", "How far the right stick must be pushed before it does anything (the mouse, the turning, a second stick), on top of the stick's own; raise it if it drifts",
+		range("Right stick dead zone", "Minimum right-stick deflection to register as input, on top of the stick's own dead zone. Increase it if the stick drifts.",
 				"ps5.PadMouseDeadZone", 0, 60, 5, "%", G::Controls, [] { return (int)ps5::pad::PadMouseDeadZone; },
 				[](int v) { ps5::pad::PadMouseDeadZone.set(v); }),
 		pick("Right stick response",
-				"How a push becomes movement. Linear: as it is. Precise: fine near the centre, for aiming. Aggressive: quick near the centre. S-curve: slow at both ends. For the mouse, the turning and a second stick",
+				"How stick deflection becomes movement. Precise is finer near the centre, for aiming; Aggressive is quicker there; S-curve is slower at both ends.",
 				"ps5.PadMouseCurve", { "Linear", "Precise", "Aggressive", "S-curve" },
 				{ ps5::pad::CurveLinear, ps5::pad::CurvePrecise, ps5::pad::CurveAggressive, ps5::pad::CurveS },
 				ps5::pad::PadMouseCurve, G::Controls),
-		range("Right stick smoothing", "Keeps part of the last frame's push so that jitter and sudden jumps are softened; 0% is none",
+		range("Right stick smoothing", "Blend in part of the previous frame's input to soften jitter and sudden jumps. 0% disables it.",
 				"ps5.PadSmoothing", 0, 90, 10, "%", G::Controls, [] { return (int)ps5::pad::PadSmoothing; },
 				[](int v) { ps5::pad::PadSmoothing.set(v); }),
-		pick("Right stick left and right", "Normal, the other way round, or off",
+		pick("Right stick left and right", "Normal, inverted or disabled.",
 				"ps5.PadAxisX", { "Normal", "Inverted", "Off" },
 				{ ps5::pad::AxisNormal, ps5::pad::AxisInverted, ps5::pad::AxisOff }, ps5::pad::PadAxisX, G::Controls),
-		pick("Right stick up and down", "Normal, the other way round (pushing up looks down), or off",
+		pick("Right stick up and down", "Normal, inverted (pushing up looks down) or disabled.",
 				"ps5.PadAxisY", { "Normal", "Inverted", "Off" },
 				{ ps5::pad::AxisNormal, ps5::pad::AxisInverted, ps5::pad::AxisOff }, ps5::pad::PadAxisY, G::Controls),
 		onOff("Right stick turns like the left stick",
-				"The right stick, left and right, adds to the left stick's: the game turns with it exactly as it does with the left stick, with the game's own sensitivity. For games that read no second stick; use it instead of Right stick as mouse. Not tried on a console yet",
+				"Add the right stick's horizontal movement to the left stick, so games without second-stick support turn with it. Use it instead of the mouse. Experimental.",
 				"ps5.PadRightTurns", ps5::pad::PadRightTurns, G::Controls),
 		onOff("Right stick as the triggers",
-				"The right stick, left and right, presses the Dreamcast's L and R triggers, as far as it is pushed: a camera turned with the triggers turns with the right stick. L2 and R2 still work. Not while the right stick is the mouse",
+				"The right stick's horizontal movement presses the L and R triggers, for games that turn the camera with them. L2 and R2 still work. Not available while the right stick is the mouse.",
 				"ps5.PadRightTriggers", ps5::pad::PadRightTriggers, G::Controls),
 		pick("Controller type",
-				"Standard: the Dreamcast controller. Second stick: a controller that reports the right stick, which only software written for one reads; a game made for the standard controller does not. Not tried on a console yet",
+				"Standard is the Dreamcast controller. Second stick also reports the right stick, which only software written for it reads. Experimental.",
 				"ps5.PadType", { "Standard", "Second stick" }, { ps5::pad::PadTypeStandard, ps5::pad::PadTypeSecondStick },
 				ps5::pad::PadType, G::Controls, true),
-		pick("Port A", "A light gun in place of the controller, for the Dreamcast games that are played with one; or the Twin Stick, for the games made for it (the left stick and the D-pad its left lever, the right stick its right lever)",
+		pick("Port A", "The device in port A: a controller, a light gun, or the Twin Stick, with the left stick and D-pad as its left lever and the right stick as its right.",
 				"input.device1", { "Controller", "Light gun", "Twin Stick" }, { (int)MDT_SegaController, (int)MDT_LightGun, (int)MDT_TwinStick },
 				config::MapleMainDevices[0], G::Own, true),
 		pick("Light gun aiming",
-				"The left stick, a finger on the touch pad, or turning the controller (a touch on the pad centres it)",
+				"Aim the light gun with the left stick, the touch pad, or by turning the controller. Touch the pad to recentre motion aiming.",
 				"ps5.LightGunAim", { "Left stick", "Touch pad", "Motion" },
 				{ ps5::pad::AimStick, ps5::pad::AimTouch, ps5::pad::AimMotion }, ps5::pad::LightGunAim, G::Controls),
-		pick("Motion aiming direction", "For a gun that goes the other way when the controller turns",
+		pick("Motion aiming direction", "Swap directions if the gun moves the wrong way when the controller turns.",
 				"ps5.MotionAimDirection", { "As it is", "Left and right swapped", "Up and down swapped", "Both swapped" },
 				{ 0, 1, 2, 3 }, ps5::pad::MotionAimDirection, G::Controls),
-		combined("Light gun crosshair", "Shows where each gun points: white for player 1, then red, green and pink",
+		combined("Light gun crosshair", "Show where each gun points: white for player 1, then red, green and pink.",
 				{ "Off", "On" },
 				{ part("config.rend.CrossHairColor1", config::CrosshairColor[0]),
 						part("config.rend.CrossHairColor2", config::CrosshairColor[1]),
@@ -3113,26 +3108,26 @@ const std::vector<GameOption>& gameOptions()
 						part("config.rend.CrossHairColor4", config::CrosshairColor[3]) },
 				{ { 0, 0, 0, 0 }, { (int)0xC0FFFFFF, (int)0xC00000FF, (int)0xC000FF00, (int)0xC0FF00FF } }, G::Controls),
 
-		pick("Region", "The console's region", "config.Dreamcast.Region",
+		pick("Region", "BIOS region", "config.Dreamcast.Region",
 				{ "Japan", "USA", "Europe", "Follow the game" }, { 0, 1, 2, 3 }, config::Region, G::System, true),
-		pick("Language", "The Dreamcast's system language", "config.Dreamcast.Language",
+		pick("Language", "The language as configured in the Dreamcast BIOS", "config.Dreamcast.Language",
 				{ "Japanese", "English", "German", "French", "Spanish", "Italian", "Follow the game" },
 				{ 0, 1, 2, 3, 4, 5, 6 }, config::Language, G::System, true),
-		pick("Broadcast", "The TV standard the console reports", "config.Dreamcast.Broadcast",
+		pick("Broadcast", "TV broadcasting standard for non-VGA modes", "config.Dreamcast.Broadcast",
 				{ "NTSC", "PAL", "PAL-M", "PAL-N", "Follow the game" }, { 0, 1, 2, 3, 4 }, config::Broadcast, G::System,
 				true),
-		pick("Video cable", "VGA gives the sharpest picture; some games need TV", "config.Dreamcast.Cable",
+		pick("Video cable", "Video connection type. VGA gives the sharpest picture; some games require TV.", "config.Dreamcast.Cable",
 				{ "VGA", "RGB", "TV (composite)" }, { 0, 2, 3 }, config::Cable, G::System, true),
-		onOff("Built-in BIOS", "Boot without dc_boot.bin (a real BIOS is more compatible)", "config.UseReios",
+		onOff("Built-in BIOS", "Force high-level BIOS emulation instead of dc_boot.bin. A real BIOS is more compatible.", "config.UseReios",
 				config::UseReios, G::System, true),
-		onOff("Fast disc loading", "Shorter load times (a few games need it off)", "config.FastGDRomLoad",
+		onOff("Fast disc loading", "Speeds up GD-ROM loading. Inaccurate: a few games need it disabled.", "config.FastGDRomLoad",
 				config::FastGDRomLoad, G::System),
-		onOff("CPU recompiler", "The dynarec; turning it off is much slower", "config.Dynarec.Enabled",
+		onOff("CPU recompiler", "Use the dynamic recompiler. Recommended in most cases", "config.Dynarec.Enabled",
 				config::DynarecEnabled, G::System),
 		[] {
 			// The Dreamcast's processor, slower or faster than the real one's 200 MHz.
 			GameOption o = pick("CPU clock",
-					"Overclocking smooths a game that slows down or stutters; some games break or run too fast. The Dreamcast hardware mods run at +10% and +20%",
+					"Change the SH4 main CPU clock from the default 200 MHz. Overclocking may increase the frame rate for some games. Use with caution.",
 					"config.Sh4Clock",
 					{ "100 MHz (half)", "150 MHz", "200 MHz (standard)", "220 MHz (+10%, the hardware mod)",
 						"240 MHz (+20%, the hardware mod)", "250 MHz", "300 MHz", "350 MHz", "400 MHz (double)" },
@@ -3145,13 +3140,12 @@ const std::vector<GameOption>& gameOptions()
 			};
 			return o;
 		}(),
-		onOff("Arcade free play", "NAOMI and Atomiswave games: play without putting in credits where the game allows it",
+		onOff("Arcade free play", "Configure NAOMI and Atomiswave games in Free Play mode.",
 				"config.ForceFreePlay", config::ForceFreePlay, G::System),
-		onOff("32 MB of memory", "Gives the Dreamcast the 32 MB some homebrew and modded games expect instead of 16 MB. "
-				"Most games do not want it", "config.Dreamcast.RamMod32MB", config::RamMod32MB, G::System, true),
-		onOff("Auto save state", "Saves the game's state when you quit it", "config.Dreamcast.AutoSaveState",
+		onOff("32 MB of memory", "Enables 32MB RAM Mod for Dreamcast. May affect compatibility", "config.Dreamcast.RamMod32MB", config::RamMod32MB, G::System, true),
+		onOff("Auto save state", "Save the state of the game when stopping", "config.Dreamcast.AutoSaveState",
 				config::AutoSaveState, G::System),
-		onOff("Auto load state", "Resumes from that state when the game starts", "config.Dreamcast.AutoLoadState",
+		onOff("Auto load state", "Load the last saved state of the game when starting", "config.Dreamcast.AutoLoadState",
 				config::AutoLoadState, G::System),
 	};
 	return rows;
@@ -6134,6 +6128,10 @@ struct Row
 	std::function<std::string()> info;	// Info: the value shown
 	std::function<void()> action;
 	bool restart = false;				// the change takes effect when PSFlyCast is started again
+	// The Settings for one game (the quick menu's "Game options"): the option
+	// the row stands for, whose value in the Settings tells whether the game
+	// has one of its own. Null in the Settings for every game.
+	std::shared_ptr<const GameOption> game;
 };
 
 struct Category
@@ -6235,6 +6233,81 @@ SpaceNow& spaceNow(bool force = false)
 
 bool rebuildCategories;		// a row changed what the rows are (the network folders)
 
+// A row of the Settings for one of the options a game can also have of its
+// own: a switch, a slider for a range, or a choice.
+Row optionRow(const GameOption& option)
+{
+	Row r{ option.isBool ? Row::Toggle : option.step > 0 ? Row::Slider : Row::Choice, option.label, option.desc };
+	if (option.step > 0)
+	{
+		r.minValue = option.values.front();
+		r.maxValue = option.values.back();
+		r.step = option.step;
+		r.unit = option.unit;
+	}
+	else if (!option.isBool)
+	{
+		r.choices.assign(option.names.begin(), option.names.end());
+		r.values = option.values;
+	}
+	r.get = option.get;
+	r.set = option.set;
+	return r;
+}
+
+// The options the running game's Settings offer: every option it can have of
+// its own (its patches only if it has them), the controller's too. Not the
+// vibration and the dead zone: they are the controller's, the same for every
+// game, and stay in the Settings and on the quick menu's Controls page.
+std::vector<GameOption> gameSettingsOptions()
+{
+	std::vector<GameOption> rows = optionsFor(::settings.content.fileName, false, true);
+	rows.erase(std::remove_if(rows.begin(), rows.end(), [](const GameOption& option) { return option.key == nullptr; }),
+			rows.end());
+	return rows;
+}
+
+// The Settings for the running game (the quick menu's "Game options"): the
+// same screen with only the options a game can have of its own, in the
+// Settings' categories, and first what only a game has (its patches, its
+// draw distance). What is the front end's own is the same for every game and
+// is not here.
+std::vector<Category> buildGameCategories()
+{
+	enum { ThisGame, Video, Audio, Controls, System };
+	std::vector<Category> cats = {
+		{ ICON_FA_SLIDERS, "This game" }, { ICON_FA_DISPLAY, "Video" }, { ICON_FA_VOLUME_HIGH, "Audio" },
+		{ ICON_FA_GAMEPAD, "Controls" }, { ICON_FA_MICROCHIP, "System" },
+	};
+	for (const GameOption& option : gameSettingsOptions())
+	{
+		int at = ThisGame;
+		// Port A (a light gun, the Twin Stick) is the game's own, and a control.
+		if (isControlOption(option) && option.patch == nullptr)
+			at = Controls;
+		else if (option.category == GameOption::Video)
+			at = Video;
+		else if (option.category == GameOption::Audio)
+			at = Audio;
+		else if (option.category == GameOption::System)
+			at = System;
+		Row r = optionRow(option);
+		// When it takes effect, after what it does: a patch's from the
+		// community chart, at the next start; some options at the next start too.
+		// (On a line of its own; a description that ends without a full stop gets one.)
+		const std::string end = r.desc.empty() || r.desc.back() == '.' ? "\n" : ".\n";
+		if (option.patch != nullptr)
+			r.desc += end + "From the community chart's " + ps5::patches::label(::settings.content.fileName, option.patch)
+					+ "; from the next start of the game.";
+		else if (option.nextStart)
+			r.desc += end + "Takes effect the next time this game starts.";
+		r.game = std::make_shared<const GameOption>(option);
+		cats[at].rows.push_back(std::move(r));
+	}
+	cats.erase(std::remove_if(cats.begin(), cats.end(), [](const Category& c) { return c.rows.empty(); }), cats.end());
+	return cats;
+}
+
 std::vector<Category> buildCategories()
 {
 	std::vector<Category> cats;
@@ -6243,46 +6316,28 @@ std::vector<Category> buildCategories()
 	// (gameOptions), so that the Settings never lack one of them.
 	auto addOptions = [](Category& cat, GameOption::Category which) {
 		for (const GameOption& option : gameOptions())
-		{
-			if (option.category != which)
-				continue;
-			Row r{ option.isBool ? Row::Toggle : option.step > 0 ? Row::Slider : Row::Choice, option.label, option.desc };
-			if (option.step > 0)
-			{
-				r.minValue = option.values.front();
-				r.maxValue = option.values.back();
-				r.step = option.step;
-				r.unit = option.unit;
-			}
-			else if (!option.isBool)
-			{
-				r.choices.assign(option.names.begin(), option.names.end());
-				r.values = option.values;
-			}
-			r.get = option.get;
-			r.set = option.set;
-			cat.rows.push_back(r);
-		}
+			if (option.category == which)
+				cat.rows.push_back(optionRow(option));
 	};
 
 	Category video{ ICON_FA_DISPLAY, "Video" };
 	addOptions(video, GameOption::Video);
 	{
-		Row r{ Row::Info, "Textures saved", "While a game runs with Texture dump on" };
+		Row r{ Row::Info, "Textures saved", "Textures dumped while a game runs with Texture dump enabled." };
 		r.info = [] { return ps5::texdump::status(); };
 		video.rows.push_back(r);
 	}
 	{
 		// The front end's own: the driver takes the mode, or not, when Flycast starts.
 		Row r{ Row::Toggle, "120 Hz output",
-				"On a TV that takes 4K at 120 Hz. From the next start; About says what the display runs at" };
+				"Output 4K at 120 Hz on a TV that supports it. Takes effect the next time PSFlyCast starts; About shows the current mode." };
 		r.get = [] { return ps5::options().hz120 ? 1 : 0; };
 		r.set = [](int v) { ps5::options().hz120 = v != 0; ps5::saveOptions(); };
 		video.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Toggle, "Variable refresh rate",
-				"Experimental, on a VRR display with 120 Hz output: a frame shows as soon as it is ready. Next start" };
+				"Show each frame as soon as it is ready, on a VRR display with 120 Hz output. Takes effect the next time PSFlyCast starts. Experimental." };
 		r.get = [] { return ps5::options().vrr ? 1 : 0; };
 		r.set = [](int v) { ps5::options().vrr = v != 0; ps5::saveOptions(); };
 		video.rows.push_back(r);
@@ -6297,12 +6352,12 @@ std::vector<Category> buildCategories()
 	addOptions(controls, GameOption::Controls);
 	{
 		Row r{ Row::Action, "Controller profiles",
-				"The four built-in profiles and four of your own: for each, whether the right stick is the mouse, and what every button, trigger and direction of the left stick does: stays the controller's, nothing, a mouse button, the wheel, or a key" };
+				"Four built-in profiles and four of your own. Set whether the right stick is the mouse, and what each button, trigger and left-stick direction does." };
 		r.action = [] { openBinds(); };
 		controls.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Restore the default layout", "Console games: the standard layout. Arcade games: their button order" };
+		Row r{ Row::Action, "Restore the default layout", "Restore the standard layout for console games, and the original button order for arcade games." };
 		r.action = [] {
 			for (int i = 0; i < GamepadDevice::GetGamepadCount(); i++)
 				if (auto p = GamepadDevice::GetGamepad(i); p && p->api_name() == "PS5")
@@ -6316,7 +6371,7 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Info, "Controllers",
-				"Another player joins from a second DualSense, with its PS button" };
+				"Another player joins by pressing the PS button on a second DualSense." };
 		r.info = [] {
 			const std::string usb = ps5::usb::text();
 			return ps5::pad::portsText() + (usb.empty() ? "" : "; USB " + usb);
@@ -6325,14 +6380,14 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Toggle, "Light bar in the player's colour",
-				"Blue for player 1, red for 2, green for 3, pink for 4. Off: the console's own colour" };
+				"Blue for player 1, red for 2, green for 3, pink for 4. When disabled, the console's own colour is used." };
 		r.get = [] { return ps5::options().lightBar ? 1 : 0; };
 		r.set = [](int v) { ps5::options().lightBar = v != 0; ps5::saveOptions(); };
 		controls.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Toggle, "USB keyboard and mouse",
-				"Plugged into the console, they are the Dreamcast's: in the ports after the controllers', from a game's start" };
+				"Use a USB keyboard and mouse plugged into the console, in the ports after the controllers. Takes effect when a game starts." };
 		r.get = [] { return ps5::options().usbInput ? 1 : 0; };
 		r.set = [](int v) { ps5::options().usbInput = v != 0; ps5::saveOptions(); };
 		controls.rows.push_back(r);
@@ -6359,7 +6414,7 @@ std::vector<Category> buildCategories()
 	addOptions(system, GameOption::System);
 	{
 		Row r{ Row::Toggle, "Rewind",
-				"Keeps a game's last three minutes: the quick menu's Rewind goes back into them. Experimental" };
+				"Keep the last three minutes of play, so the quick menu's Rewind can go back into them. Experimental." };
 		r.get = [] { return ps5::options().rewind ? 1 : 0; };
 		r.set = [](int v) {
 			ps5::options().rewind = v != 0;
@@ -6370,13 +6425,13 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Toggle, "Back up memory cards to the network share",
-				"When you quit a game, the cards that changed are copied to PSFlyCast/Memory cards on the first share in network.cfg" };
+				"When you quit a game, copy the memory cards that changed to PSFlyCast/Memory cards on the first share in network.cfg." };
 		r.get = [] { return ps5::smb::CardBackup ? 1 : 0; };
 		r.set = [](int v) { ps5::smb::CardBackup.set(v != 0); };
 		system.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Back up memory cards now", "Copies the cards that changed since the last copy. The share needs write access" };
+		Row r{ Row::Action, "Back up memory cards now", "Copy the memory cards that changed since the last backup. The share needs write access." };
 		r.info = [] { return cardBackupResult(); };
 		r.action = [] {
 			if (game_started)
@@ -6390,7 +6445,7 @@ std::vector<Category> buildCategories()
 		system.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Memory cards", "The saves on each card: copy one to another card, delete it, or take it to and from a file" };
+		Row r{ Row::Action, "Memory cards", "Manage the saves on each memory card: copy them to another card, delete them, or import and export them as files." };
 		r.action = [] {
 			// Flycast holds a loaded game's cards open: changed under it, its saves would be lost.
 			if (game_started)
@@ -6409,8 +6464,7 @@ std::vector<Category> buildCategories()
 	system.rows.push_back(heading("PlayStation 5"));
 	{
 		Row r{ Row::Toggle, "Graphics driver on its own thread",
-				"The driver records the graphics commands on a thread of its own. It made a heavy scene of Crux2's 20% faster; "
-				"not yet measured with PSFlyCast, so off by default. From the next start" };
+				"Record graphics commands on a separate driver thread, which made a heavy scene in Crux2 20% faster. Experimental. Takes effect the next time PSFlyCast starts." };
 		r.get = [] { return ps5::options().threadedRecording ? 1 : 0; };
 		r.set = [](int v) { ps5::options().threadedRecording = v != 0; ps5::saveOptions(); };
 		r.restart = true;
@@ -6418,7 +6472,7 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Slider, "GPU wait: spin",
-				"How long a wait for the graphics chip checks in a loop before it sleeps. 1500 is the driver's own. From the next start" };
+				"How long a wait for the GPU keeps checking before it sleeps. 1500 is the driver's default. Takes effect the next time PSFlyCast starts." };
 		r.minValue = 0; r.maxValue = 5000; r.step = 250; r.unit = " us";
 		r.get = [] { return ps5::options().gpuWaitSpinUs; };
 		r.set = [](int v) { ps5::options().gpuWaitSpinUs = std::clamp(v, 0, 10000); ps5::saveOptions(); };
@@ -6427,7 +6481,7 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Slider, "GPU wait: sleep",
-				"Then how long it sleeps between checks. 1000 is the driver's own. From the next start" };
+				"How long that wait then sleeps between checks. 1000 is the driver's default. Takes effect the next time PSFlyCast starts." };
 		r.minValue = 100; r.maxValue = 4000; r.step = 100; r.unit = " us";
 		r.get = [] { return ps5::options().gpuWaitSleepUs; };
 		r.set = [](int v) { ps5::options().gpuWaitSleepUs = std::clamp(v, 100, 10000); ps5::saveOptions(); };
@@ -6436,16 +6490,14 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Toggle, "Short display queue",
-				"Experimental: two frames at most wait for the screen while a game keeps up (what you see follows the controls more "
-				"closely), all but one while it falls behind. Needs this build's graphics driver. Off: the driver's own way" };
+				"Keep at most two frames waiting for the screen while a game keeps up, so the picture follows the controls more closely. Needs this build's graphics driver. Experimental." };
 		r.get = [] { return ps5::options().shortQueue ? 1 : 0; };
 		r.set = [](int v) { ps5::options().shortQueue = v != 0; ps5::saveOptions(); };
 		system.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Toggle, "Sound and controls first",
-				"The console runs the sound and the interface before the emulator, and background jobs (covers, disc reads) after it, "
-				"as Crux2 does. Not yet measured with PSFlyCast, so off by default. From the next start" };
+				"Run sound and the interface ahead of the emulator, and background jobs such as covers and disc reads after it. Experimental. Takes effect the next time PSFlyCast starts." };
 		r.get = [] { return ps5::ThreadPriorities ? 1 : 0; };
 		r.set = [](int v) { ps5::ThreadPriorities.set(v != 0); SaveSettings(); };
 		r.restart = true;
@@ -6458,7 +6510,7 @@ std::vector<Category> buildCategories()
 	Category online{ ICON_FA_GLOBE, "Online" };
 	{
 		Row r{ Row::Choice, "Netplay",
-				"Two players in one game, each on a console or PC of their own. Every game then waits for the other",
+				"Enable networking using GGPO: two players in one game, each on their own console or PC. Each side waits for the other.",
 				{ "Off", "Host: player 1", "Join: player 2" }, { 0, 1, 2 } };
 		r.get = [] { return !config::GGPOEnable ? 0 : config::ActAsServer ? 1 : 2; };
 		r.set = [](int v) {
@@ -6474,13 +6526,13 @@ std::vector<Category> buildCategories()
 		online.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Other player", "Their address on the network. Each player enters the other's" };
+		Row r{ Row::Action, "Other player", "Your peer IP address. Each player enters the other's." };
 		r.info = [] { return otherPlayerText(); };
 		r.action = [] { openAddress(); };
 		online.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Slider, "Input delay", "Frames a press waits, to hide a slow connection: 0 to 2 at home" };
+		Row r{ Row::Slider, "Input delay", "Sets Frame Delay, advisable for sessions with ping >100 ms. 0 to 2 is enough on a home network." };
 		r.minValue = 0; r.maxValue = 20; r.step = 1; r.unit = " frames";
 		r.get = [] { return (int)config::GGPODelay.get(); };
 		r.set = [](int v) { config::GGPODelay.set(v); };
@@ -6488,14 +6540,14 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Choice, "Left stick in netplay",
-				"Dreamcast games: how much of the left stick is sent to the other player. Both choose the same",
+				"How much of the left stick is sent to the other player in Dreamcast games. Both players must choose the same.",
 				{ "Not sent", "Left and right", "Every direction" }, { 0, 1, 2 } };
 		r.get = [] { return (int)config::GGPOAnalogAxes.get(); };
 		r.set = [](int v) { config::GGPOAnalogAxes.set(v); };
 		online.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "This console", "What the other player enters. From outside your home: your router's address, UDP port 19713" };
+		Row r{ Row::Info, "This console", "The address the other player enters. From outside your home, they use your router's address, UDP port 19713." };
 		r.info = [] {
 			const std::string own = ps5::net::localAddress();
 			return own.empty() ? std::string("Not connected") : own + ", UDP port " + std::to_string(NetplayPort);
@@ -6504,26 +6556,26 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Info, "Both players need",
-				"A Dreamcast game also needs one save state on both, as <game>.state.net in data/savestates" };
+				"A Dreamcast game also needs the same save state on both, as <game>.state.net in data/savestates." };
 		r.info = [] { return std::string("The same game file and BIOS"); };
 		online.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Toggle, "Open the router's port (UPnP)",
-				"Asks the router to let the other player in. Off: forward UDP port 19713 to this console yourself" };
+				"Automatically configure your network router for netplay. When disabled, forward UDP port 19713 to this console yourself." };
 		r.get = [] { return config::EnableUPnP ? 1 : 0; };
 		r.set = [](int v) { config::EnableUPnP.set(v != 0); };
 		online.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Name online", "The name a game's own online mode signs in with: typed on the console's keyboard" };
+		Row r{ Row::Action, "Name online", "The name a game's own online mode signs in with, typed on the console's keyboard." };
 		r.info = [] { return config::ISPUsername.get().empty() ? std::string("The console's own") : config::ISPUsername.get(); };
 		r.action = [] { openKeyboard(KeyboardName, "Name online", "Letters and numbers, no spaces", config::ISPUsername.get(), 28); };
 		online.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Choice, "Dreamcast online",
-				"How a game's own online mode connects. DCNet is Flycast's service for games' revived servers",
+				"How a game's own online mode connects: the modem or the Broadband Adapter (BBA), through the DCNet cloud service or directly.",
 				{ "Modem, through DCNet", "Broadband adapter, through DCNet", "Modem, direct", "Broadband adapter, direct" },
 				{ 0, 1, 2, 3 } };
 		r.get = [] { return (config::UseDCNet ? 0 : 2) + (config::EmulateBBA ? 1 : 0); };
@@ -6536,13 +6588,13 @@ std::vector<Category> buildCategories()
 	Category trophies{ ICON_FA_TROPHY, "Achievements" };
 	{
 		Row r{ Row::Toggle, "RetroAchievements",
-				"Earns the achievements of retroachievements.org as you play. Needs an account on the site" };
+				"Track your game achievements using RetroAchievements.org. Requires an account on the site." };
 		r.get = [] { return config::EnableAchievements ? 1 : 0; };
 		r.set = [](int v) { config::EnableAchievements.set(v != 0); };
 		trophies.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Account", "Signs in with the console's keyboard. Kept afterwards: a key from the site, not the password" };
+		Row r{ Row::Action, "Account", "Sign in with the console's keyboard. Only a login token from the site is kept, not the password." };
 		r.info = [] { return accountText(); };
 		r.action = [] {
 			if (config::EnableAchievements)
@@ -6556,12 +6608,12 @@ std::vector<Category> buildCategories()
 		trophies.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "Mode", "Save states, cheats, rewind and fast forward stay as they are. Hardcore mode is not offered" };
+		Row r{ Row::Info, "Mode", "Save states, cheats, rewind and fast forward stay available. Hardcore mode is not offered." };
 		r.info = [] { return std::string("Softcore"); };
 		trophies.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "In a game", "An achievement earned is shown over the game as it happens" };
+		Row r{ Row::Info, "In a game", "Achievements are shown over the game as they are earned." };
 		r.info = [] { return std::string("The quick menu lists its achievements"); };
 		trophies.rows.push_back(r);
 	}
@@ -6585,48 +6637,46 @@ std::vector<Category> buildCategories()
 			accentNames.push_back(one.name);
 		for (const char *name : backdropNames)
 			backNames.push_back(name);
-		look.rows.push_back(option("Skin", "The colours of every screen, and what moves behind them. Midnight is the first look",
+		look.rows.push_back(option("Skin", "The colours of every screen, and the animation behind them. Midnight is the default.",
 				skinNames, ps5::options().skin));
-		look.rows.push_back(option("Accent colour", "The colour of what is focused or switched on", accentNames, ps5::options().accent));
-		look.rows.push_back(option("Background", "What is behind the screens: still, or alive in one of six ways",
+		look.rows.push_back(option("Accent colour", "The colour of focused and enabled items.", accentNames, ps5::options().accent));
+		look.rows.push_back(option("Background", "What is shown behind the screens: a still picture, or one of six animations.",
 				backNames, ps5::options().backdrop));
 		look.rows.push_back(option("Motion",
-				"All: living background, screens that slide, cards that rise. Less: fades only. None: everything is at once",
+				"All: animated background, sliding screens and rising cards. Less: fades only. None: no animation.",
 				{ "All", "Less", "None" }, ps5::options().motion));
 		Row size{ Row::Choice, "Interface size",
-				"How large everything in the interface is. Larger sizes show fewer rows on a screen",
-				{ "100%", "110%", "120%", "130%" } };
-		size.values = { 0, 1, 2, 3 };
-		size.get = [] { return (std::clamp(ps5::options().uiScale, 100, 130) - 100) / 10; };
-		size.set = [](int v) { ps5::options().uiScale = 100 + 10 * std::clamp(v, 0, 3); ps5::saveOptions(); };
+				"Adjust the size of UI elements and fonts. Larger sizes show fewer rows on a screen.",
+				{ "70%", "80%", "90%", "100%", "110%", "120%", "130%" } };
+		size.values = { 0, 1, 2, 3, 4, 5, 6 };
+		size.get = [] { return (std::clamp(ps5::options().uiScale, 70, 130) - 70) / 10; };
+		size.set = [](int v) { ps5::options().uiScale = 70 + 10 * std::clamp(v, 0, 6); ps5::saveOptions(); };
 		look.rows.push_back(size);
-		Row contrast{ Row::Toggle, "High contrast", "Black behind the screens, and brighter grey text" };
+		Row contrast{ Row::Toggle, "High contrast", "Use a black background and brighter grey text." };
 		contrast.get = [] { return ps5::options().highContrast ? 1 : 0; };
 		contrast.set = [](int v) { ps5::options().highContrast = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(contrast);
-		Row blind{ Row::Toggle, "Colour-blind safe colours", "Blue and orange where green and red would tell things apart" };
+		Row blind{ Row::Toggle, "Colour-blind safe colours", "Use blue and orange instead of green and red where colour tells things apart." };
 		blind.get = [] { return ps5::options().colourBlind ? 1 : 0; };
 		blind.set = [](int v) { ps5::options().colourBlind = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(blind);
 		look.rows.push_back(option("Start-up animation",
-				"Random: one of the four each time PSFlyCast starts, never the same twice running. Any button ends it",
+				"The animation shown when PSFlyCast starts. Random picks a different one each time. Press any button to skip it.",
 				std::vector<std::string>(std::begin(splashChoices), std::end(splashChoices)), ps5::options().splash));
 		Row sound{ Row::Toggle, "Start-up sound",
-				"The sound that goes with it: sounds/startup.wav in the title's folder, or a WAV file of your own there" };
+				"Play sounds/startup.wav from the title's folder with the start-up animation. A WAV file of your own can replace it." };
 		sound.get = [] { return ps5::options().splashSound ? 1 : 0; };
 		sound.set = [](int v) { ps5::options().splashSound = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(sound);
-		Row menu{ Row::Toggle, "Menu sounds", "A soft note for moving, choosing, going back and changing tab" };
+		Row menu{ Row::Toggle, "Menu sounds", "Play a soft sound when moving, selecting, going back and changing tab." };
 		menu.get = [] { return ps5::options().menuSounds ? 1 : 0; };
 		menu.set = [](int v) { ps5::options().menuSounds = v != 0; ps5::saveOptions(); };
 		look.rows.push_back(menu);
 		look.rows.push_back(choice("OLED care",
-				"Moves the picture and the interface a few pixels in a slow loop so nothing stays lit in one place. "
-				"Pixel shift + dim also darkens the library after two minutes without a button and moves a small mark over it",
+				"Shift the picture and interface a few pixels in a slow loop so nothing stays lit in one place. With dim, the library also darkens after two idle minutes.",
 				{ "Off", "Pixel shift", "Pixel shift + dim when idle" }, { 0, 1, 2 }, ps5::OledCare));
 		Row videos{ Row::Choice, "Game videos",
-				"The game's video plays in the library where its cover is, when one is found beside the games (a videos folder). "
-				"Silent plays without sound",
+				"Play a game's video in place of its cover in the library, when one is found in a videos folder beside the games. Silent plays it without sound.",
 				{ "Off", "Silent", "Quiet", "Medium", "Loud" }, { 0, 1, 2, 3, 4 } };
 		videos.get = [] {
 			if (!ps5::GameVideos)
@@ -6647,7 +6697,7 @@ std::vector<Category> buildCategories()
 	Category storage{ ICON_FA_FOLDER_OPEN, "Library" };
 	storage.rows.push_back(heading("Games"));
 	{
-		Row r{ Row::Action, "Scan for games", "Looks for new games in the games folder, on USB drives and on the network share" };
+		Row r{ Row::Action, "Scan for games", "Look for new games in the games folder, on USB drives and on the network share." };
 		r.action = [] {
 			scanner().refresh();
 			ps5::rescanUsb();
@@ -6658,7 +6708,7 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Choice, "Library view", "How the games are laid out: shelves, a compact grid, or a list",
+		Row r{ Row::Choice, "Library view", "Show the games as shelves, a compact grid or a list.",
 			{ "Shelves", "Grid", "List" }, { 0, 1, 2 } };
 		r.get = [] { return ps5::options().view; };
 		r.set = [](int v) { ps5::options().view = v; ps5::saveOptions(); };
@@ -6666,20 +6716,20 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Toggle, "Group the discs of a game",
-			"A game with several discs is one entry; it starts from the disc last played, and Details chooses another" };
+			"Show a multi-disc game as one entry. It starts from the disc last played; Details lets you choose another." };
 		r.get = [] { return ps5::options().groupDiscs ? 1 : 0; };
 		r.set = [](int v) { ps5::options().groupDiscs = v != 0; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{
 		Row r{ Row::Toggle, "Show hidden games",
-			"They are listed again, dimmed, so that a game's details, under Manage, can bring it back" };
+			"List hidden games again, dimmed, so they can be restored from their details, under Manage." };
 		r.get = [] { return ps5::options().showHidden ? 1 : 0; };
 		r.set = [](int v) { ps5::options().showHidden = v != 0; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "Hidden games", "A game is hidden from its details, under Manage, and is then in none of the lists" };
+		Row r{ Row::Info, "Hidden games", "Hide a game from its details, under Manage. Hidden games appear in no list." };
 		r.info = [] {
 			return hiddenGames == 0 ? std::string("None") : std::to_string(hiddenGames) + (hiddenGames == 1 ? " game" : " games");
 		};
@@ -6688,7 +6738,7 @@ std::vector<Category> buildCategories()
 	storage.rows.push_back(heading("Covers"));
 	{
 		Row r{ Row::Toggle, "Download covers and descriptions",
-			"Box art from the libretro thumbnails collection; descriptions and dates from TheGamesDB" };
+			"Fetch box art from the libretro thumbnails collection, and descriptions and release dates from TheGamesDB.net." };
 		r.get = [] { return ps5::options().covers ? 1 : 0; };
 		r.set = [](int v) {
 			ps5::options().covers = v != 0;
@@ -6700,7 +6750,7 @@ std::vector<Category> buildCategories()
 	storage.rows.push_back(heading("USB drives"));
 	{
 		Row r{ Row::Toggle, "USB drives",
-			"A USB tab for games in a flycast or dreamcast folder on a drive (needs elfldr)" };
+			"Show a USB tab for games in a flycast or dreamcast folder on a USB drive. Requires elfldr." };
 		r.restart = true;
 		r.get = [] { return ps5::options().usb ? 1 : 0; };
 		r.set = [](int v) { ps5::options().usb = v != 0; ps5::saveOptions(); };
@@ -6725,7 +6775,7 @@ std::vector<Category> buildCategories()
 	storage.rows.push_back(heading("USB CD or DVD drive"));
 	{
 		Row r{ Row::Toggle, "USB disc drive",
-			"A Disc Drive tab for a Dreamcast disc in a USB CD or DVD drive (needs elfldr)" };
+			"Show a Disc Drive tab for a Dreamcast disc in a USB CD or DVD drive. Requires elfldr." };
 		r.restart = true;
 		r.get = [] { return ps5::options().discDrive ? 1 : 0; };
 		r.set = [](int v) { ps5::options().discDrive = v != 0; ps5::saveOptions(); };
@@ -6733,7 +6783,7 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Choice, "Disc drive speed",
-			"Quiet is 8x, Normal 24x. Maximum lets the drive go as fast as it can. A drive that fails to read is slowed by itself",
+			"Quiet reads at 8x, Normal at 24x, Maximum as fast as the drive can. The drive slows down by itself when a read fails.",
 			{ "Quiet", "Normal", "Maximum" }, { 0, 1, 2 } };
 		r.get = [] { return ps5::options().discSpeed; };
 		r.set = [](int v) { ps5::options().discSpeed = v; ps5::saveOptions(); };
@@ -6742,13 +6792,13 @@ std::vector<Category> buildCategories()
 	storage.rows.push_back(heading("Network"));
 	{
 		Row r{ Row::Toggle, "Load network games into memory",
-			"On: the whole game is read before it starts and the NAS can sleep. Off: it is streamed while you play" };
+			"Read the whole game into memory before it starts, so the NAS can sleep. When disabled, the game is streamed while you play." };
 		r.get = [] { return ps5::options().ramCache ? 1 : 0; };
 		r.set = [](int v) { ps5::options().ramCache = v != 0; ps5::saveOptions(); };
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Info, "Network folders", "SMB shares (Windows sharing, most NAS boxes). Added here, and kept in network.cfg" };
+		Row r{ Row::Info, "Network folders", "SMB shares, as used by Windows file sharing and most NAS devices. Added here and saved in network.cfg." };
 		r.info = [] {
 			const auto& folders = ps5::smb::gameFolders();
 			if (folders.empty())
@@ -6765,8 +6815,7 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Action, "Add a network folder",
-				"Type server/share/folder, the server by its IP address: for example 192.168.1.10/Games/Dreamcast. "
-				"The folder and those inside it are scanned for games" };
+				"Enter server/share/folder with the server's IP address, for example 192.168.1.10/Games/Dreamcast. The folder and its subfolders are scanned for games." };
 		r.action = [] {
 			openKeyboard(KeyboardNetPath, "Network folder: server/share/folder", "192.168.1.10/Games/Dreamcast", "", 200);
 		};
@@ -6774,7 +6823,7 @@ std::vector<Category> buildCategories()
 	}
 	for (size_t i = 0; i < ps5::smb::gameFolders().size(); i++)
 	{
-		Row r{ Row::Action, "Remove " + ps5::smb::gameFolders()[i].substr(6), "Takes this folder off the list. The games stay where they are" };
+		Row r{ Row::Action, "Remove " + ps5::smb::gameFolders()[i].substr(6), "Remove this folder from the list. The games themselves are not deleted." };
 		r.action = [i] {
 			const std::string gone = ps5::smb::removeFolder(i);
 			if (!gone.empty())
@@ -6788,7 +6837,7 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Network user", "The account for the folders above. guest with no password for an open share" };
+		Row r{ Row::Action, "Network user", "The account for the folders above. Use guest with no password for an open share." };
 		r.info = [] { return ps5::smb::user(); };
 		r.action = [] {
 			openKeyboard(KeyboardNetUser, "Network user", "guest", ps5::smb::user(), 64, ps5::ime::Kind::Name);
@@ -6796,7 +6845,7 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Network password", "Typed on the console's keyboard and kept in network.cfg in PSFlyCast's folder" };
+		Row r{ Row::Action, "Network password", "Typed on the console's keyboard and saved in network.cfg in PSFlyCast's folder." };
 		r.info = [] { return std::string(ps5::smb::hasPassword() ? "Set" : "None"); };
 		r.action = [] {
 			openKeyboard(KeyboardNetPassword, "Network password", "", "", 64, ps5::ime::Kind::Password);
@@ -6804,7 +6853,7 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Scan the network folders now", "Looks for games again, and shows if the share does not answer" };
+		Row r{ Row::Action, "Scan the network folders now", "Look for games again, and report a share that does not respond." };
 		r.action = [] {
 			ps5::smb::retryNow();
 			scannedCount = (size_t)-1;
@@ -6826,14 +6875,14 @@ std::vector<Category> buildCategories()
 	}
 	storage.rows.push_back(heading("Free up space"));
 	{
-		Row r{ Row::Info, "Free space", "On the console's disk, where PSFlyCast keeps its files" };
+		Row r{ Row::Info, "Free space", "Free space on the console's disk, where PSFlyCast keeps its files." };
 		r.info = [] { return spaceNow().freeText; };
 		storage.rows.push_back(r);
 	}
 	for (const auto& [label, desc, which] : std::vector<std::tuple<std::string, std::string, int>>{
-			{ "Unpacked archives", "Disc images taken out of zip, 7z and rar archives to play them. Unpacked again when needed", 0 },
-			{ "Shader cache", "Compiled shaders. Games compile them again as they run, and may stutter for a few minutes", 1 },
-			{ "Log files", "What PSFlyCast wrote while it ran: for finding a problem, not needed to play", 2 } })
+			{ "Unpacked archives", "Disc images extracted from zip, 7z and rar archives to play them. They are extracted again when needed.", 0 },
+			{ "Shader cache", "Compiled shaders. Games compile them again as they run, and may stutter for a few minutes.", 1 },
+			{ "Log files", "Logs PSFlyCast wrote while running. Useful for troubleshooting, not needed to play.", 2 } })
 	{
 		Row r{ Row::Action, label, desc };
 		const int w = which;
@@ -6868,12 +6917,12 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Action, "Check for updates",
-				"Asks the project's GitHub page for a newer release, which PSFlyCast can then download and install" };
+				"Check the project's GitHub page for a newer release, which PSFlyCast can then download and install." };
 		r.action = [] { openUpdate(true); };
 		about.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Toggle, "Look for updates at start-up", "A release asks GitHub once as it starts. Off: only when you ask, above" };
+		Row r{ Row::Toggle, "Look for updates at start-up", "Release builds check GitHub once at start-up. When disabled, updates are only checked when you ask." };
 		r.get = [] { return ps5::options().updateCheck ? 1 : 0; };
 		r.set = [](int v) { ps5::options().updateCheck = v != 0; ps5::saveOptions(); };
 		about.rows.push_back(r);
@@ -6934,7 +6983,7 @@ std::vector<Category> buildCategories()
 		about.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Quit PSFlyCast", "Closes the app" };
+		Row r{ Row::Action, "Quit PSFlyCast", "Close the app." };
 		r.action = [] { dc_exit(); };
 		about.rows.push_back(r);
 	}
@@ -6956,7 +7005,20 @@ struct SettingsState
 	float rowY = 0, rowH = 76;
 	int shownCat = -1;
 	double catAt = 0;
+	// The Settings for the running game only (from the quick menu's "Game
+	// options"): its categories are in cats while they show; the place in the
+	// Settings for every game is kept, for when they are opened again.
+	bool forGame = false;
+	int keptCat = 0, keptRow = 0;
+	double allAsked = -10;			// Triangle was pressed once: pressed again, every option is as in Settings
 } st;
+
+// The option of a row of the running game's Settings has a value of the
+// game's own (one the Settings do not have).
+bool ownValue(const Row& r)
+{
+	return r.game != nullptr && r.get() != settingsValue(*r.game);
+}
 
 std::string valueText(const Row& r)
 {
@@ -6968,7 +7030,8 @@ std::string valueText(const Row& r)
 		for (size_t i = 0; i < r.values.size(); i++)
 			if (r.values[i] == v)
 				return r.choices[i];
-		return std::to_string(v);
+		// A game's value that is none of the choices (one Flycast gave it).
+		return r.game != nullptr ? oddValue(*r.game, v) : std::to_string(v);
 	}
 	case Row::Slider:
 		return std::to_string(r.get()) + r.unit;
@@ -7024,13 +7087,49 @@ int settle(const Category& cat, int row, int dir)
 
 void leaveSettings()
 {
+	// What was changed is saved: for the running game's Settings, to its
+	// section of emu.cfg (per-game config is on).
 	if (st.dirty)
 	{
 		SaveSettings();
 		st.dirty = false;
 	}
 	st.inRows = false;
+	if (st.forGame)
+	{
+		// Back to the Settings for every game, as they were, for the next time.
+		st.forGame = false;
+		st.cats.clear();
+		st.cat = st.keptCat;
+		st.row = st.keptRow;
+		st.shownCat = -1;
+	}
 	gui_setState(game_started ? GuiState::Commands : GuiState::Main);
+}
+
+// Opens the Settings for the running game (the quick menu's "Game options").
+// A change is in effect at once (a few at the game's next start) and is kept
+// for this game only: per-game config is on, so SaveSettings writes the
+// game's section of emu.cfg, with an entry for each option that differs from
+// the Settings. Circle and OPTIONS go back to the quick menu.
+void openGameSettings()
+{
+	config::Settings::instance().setPerGameConfig(true);
+	if (!st.forGame)
+	{
+		st.keptCat = st.cat;
+		st.keptRow = st.row;
+	}
+	st.forGame = true;
+	st.cats = buildGameCategories();
+	st.cat = 0;
+	st.row = st.cats.empty() ? 0 : settle(st.cats[0], 0, 1);
+	st.inRows = false;
+	st.dirty = false;
+	st.scroll = 0;
+	st.shownCat = -1;
+	st.allAsked = -10;
+	gui_setState(GuiState::Settings);
 }
 
 } // namespace
@@ -7038,12 +7137,18 @@ void leaveSettings()
 void settings()
 {
 	if (st.cats.empty())
-		st.cats = buildCategories();
+		st.cats = st.forGame ? buildGameCategories() : buildCategories();
+	if (st.cats.empty())
+	{
+		// A game with no options of its own to offer: nothing to show.
+		leaveSettings();
+		return;
+	}
 	if (rebuildCategories)
 	{
 		rebuildCategories = false;
 		const int keepCat = st.cat, keepRow = st.row;
-		st.cats = buildCategories();
+		st.cats = st.forGame ? buildGameCategories() : buildCategories();
 		st.cat = std::min(keepCat, (int)st.cats.size() - 1);
 		st.row = std::min(keepRow, std::max(0, (int)st.cats[st.cat].rows.size() - 1));
 	}
@@ -7153,10 +7258,34 @@ void settings()
 			else
 				change(r, 1);
 		}
+		// The running game's Settings: Square gives the option back to the
+		// Settings (the game's own value leaves its section when saved).
+		if (in.square && ownValue(r))
+		{
+			r.set(settingsValue(*r.game));
+			st.dirty = true;
+		}
 		if (in.back)
 			st.inRows = false;
 	}
-	if (!dialog && in.square && !st.restartFor.empty())
+	if (st.forGame && in.triangle)
+	{
+		// Every option of the game as in Settings: asked twice, as all of the
+		// game's own values go.
+		if (timeNow < st.allAsked + 4)
+		{
+			for (Category& c : st.cats)
+				for (Row& one : c.rows)
+					if (ownValue(one))
+						one.set(settingsValue(*one.game));
+			st.dirty = true;
+			st.allAsked = -10;
+			os_notify("Every option of this game is as in Settings", 2500);
+		}
+		else
+			st.allAsked = timeNow;
+	}
+	if (!dialog && !st.forGame && in.square && !st.restartFor.empty())
 	{
 		// Starts PSFlyCast again, as the updater does.
 		ps5::restartOnExit = true;
@@ -7177,6 +7306,19 @@ void settings()
 	const Layer content = beginLayer(dl);
 	st.catAnim = motion() == MotionOff ? (float)st.cat : approach(st.catAnim, (float)st.cat, 18);
 	text(dl, bold(), 54, listX, top - 10, col::text, "Settings");
+	if (st.forGame)
+	{
+		// Whose they are, beside the title: the running game's only.
+		const char *scope = ICON_FA_GAMEPAD "   For this game only";
+		const ImVec2 ss = textSize(bold(), 22, scope);
+		const float sx = listX + textSize(bold(), 54, "Settings").x + 32, sh = 40, sy = top - 10 + 31 - sh / 2;
+		rect(dl, sx, sy, ss.x + 36, sh, col::accent, sh / 2);
+		text(dl, bold(), 22, sx + 18, sy + (sh - ss.y) / 2, col::text, scope);
+		const std::string title = !::settings.content.title.empty() ? ::settings.content.title : ::settings.content.fileName;
+		const float tx = sx + ss.x + 36 + 24;
+		const std::string shown = fit(regular(), 26, title, W - 96 - tx);
+		text(dl, regular(), 26, tx, sy + (sh - textSize(regular(), 26, shown.c_str()).y) / 2, col::dim, shown.c_str());
+	}
 	// The highlight slides from one category to the next.
 	rect(dl, listX - 16, top + 90 + st.catAnim * 76, listW, 64, st.inRows ? col::panelHi : col::accent, 12);
 	for (int i = 0; i < (int)st.cats.size(); i++)
@@ -7185,6 +7327,16 @@ void settings()
 		const bool on = i == st.cat;
 		const std::string label = std::string(st.cats[i].icon) + "     " + st.cats[i].name;
 		text(dl, bold(), 28, listX + 12, y + 16, on ? col::text : col::dim, label.c_str());
+	}
+	if (st.forGame)
+	{
+		// How the game's own values work, under the categories.
+		const float ny = top + 90 + st.cats.size() * 76 + 28;
+		rect(dl, listX, ny, listW - 32, 1, col::line);
+		text(dl, regular(), 22, listX, ny + 20, col::faint,
+				"A change is in effect at once and kept for this game only; the Settings stay as they are. "
+				"A dot marks a value of the game's own; \"As in Settings\", one that follows the Settings. "
+				"Square gives an option back to the Settings, Triangle (twice) all of them.", listW - 32);
 	}
 
 	// ---- rows
@@ -7250,14 +7402,30 @@ void settings()
 
 		const float right = px + pw - 52;
 		const float cy = r.desc.empty() ? y + (h - 8) / 2 : y + 34;		// beside the name, above the description
+		// The running game's Settings: a dot marks a value of the game's own;
+		// one that follows the Settings is fainter and says so, left of it.
+		const bool own = ownValue(r);
+		// (A patch, which only a game can have, has nothing to follow: it is off.)
+		const bool follows = r.game != nullptr && !own && r.game->category != GameOption::Patch;
+		if (own)
+			dl->AddCircleFilled(V(px + 32, y + 34), 6 * S, col::accent);
+		auto followNote = [&](float valueX) {
+			if (!follows)
+				return;
+			const char *note = "As in Settings";
+			const ImVec2 ns = textSize(regular(), 22, note);
+			text(dl, regular(), 22, valueX - 24 - ns.x, cy - ns.y / 2, col::faint, note);
+		};
 		switch (r.kind)
 		{
 		case Row::Toggle:
 		{
 			const bool v = r.get() != 0;
 			const float sw = 84, sh = 44;
-			rect(dl, right - sw, cy - sh / 2, sw, sh, v ? col::accent : col::rgba(255, 255, 255, 40), sh / 2);
+			rect(dl, right - sw, cy - sh / 2, sw, sh, v ? (follows ? alpha(col::accent, 0.45f) : col::accent)
+					: col::rgba(255, 255, 255, 40), sh / 2);
 			dl->AddCircleFilled(V(right - sw + (v ? sw - sh / 2 : sh / 2), cy), (sh / 2 - 5) * S, col::text);
+			followNote(right - sw);
 			break;
 		}
 		case Row::Choice:
@@ -7272,17 +7440,18 @@ void settings()
 				const float frac = (float)(r.get() - r.minValue) / std::max(1, r.maxValue - r.minValue);
 				x = right - bw;
 				rect(dl, x, cy - 4, bw, 8, col::rgba(255, 255, 255, 40), 4);
-				rect(dl, x, cy - 4, bw * frac, 8, col::accent, 4);
+				rect(dl, x, cy - 4, bw * frac, 8, follows ? alpha(col::accent, 0.45f) : col::accent, 4);
 				dl->AddCircleFilled(V(x + bw * frac, cy), 13 * S, col::text);
 				x -= vs.x + 28;
 			}
-			text(dl, bold(), 26, x, cy - vs.y / 2, on ? col::text : col::dim, v.c_str());
+			text(dl, bold(), 26, x, cy - vs.y / 2, on && !follows ? col::text : col::dim, v.c_str());
 			if (on && r.kind == Row::Choice)
 			{
 				const ImU32 a = col::accent;
 				dl->AddTriangleFilled(V(x - 30, cy), V(x - 18, cy - 10), V(x - 18, cy + 10), a);
 				dl->AddTriangleFilled(V(right + 30, cy), V(right + 18, cy - 10), V(right + 18, cy + 10), a);
 			}
+			followNote(on && r.kind == Row::Choice ? x - 30 : x);
 			break;
 		}
 		case Row::Heading:
@@ -7318,7 +7487,8 @@ void settings()
 	endEntrance(content, e);
 
 	// Settings that only take effect when PSFlyCast is started again: said once, with the way to do it.
-	if (!st.restartFor.empty())
+	// (Not in a game's Settings: none of its options needs it.)
+	if (!st.forGame && !st.restartFor.empty())
 	{
 		std::string names;
 		for (const std::string& n : st.restartFor)
@@ -7336,7 +7506,23 @@ void settings()
 	// Over the library's tab, which stays lit: the Settings are not a tab.
 	topBar(dl, lib.source, game_started, Reach::None);
 	std::vector<Hint> hints;
-	if (!st.inRows)
+	if (st.forGame)
+	{
+		// The running game's: Square and Triangle give its options back to the Settings.
+		const char *all = timeNow < st.allAsked + 4 ? "Again: all as in Settings" : "All as in Settings";
+		if (!st.inRows)
+			hints = { { Glyph::DPadUD, "Category" }, { Glyph::Cross, "Select" }, { Glyph::Triangle, all },
+					{ Glyph::Circle, "Back to the menu" } };
+		else
+		{
+			hints = { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" } };
+			if (ownValue(cat.rows[st.row]))
+				hints.push_back({ Glyph::Square, "As in Settings" });
+			hints.push_back({ Glyph::Triangle, all });
+			hints.push_back({ Glyph::Circle, "Back" });
+		}
+	}
+	else if (!st.inRows)
 		hints = { { Glyph::DPadUD, "Category" }, { Glyph::Cross, "Select" }, { Glyph::Options, "Close" }, { Glyph::Circle, "Back" } };
 	else
 	{
@@ -7348,7 +7534,7 @@ void settings()
 		else
 			hints = { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } };
 	}
-	if (!st.restartFor.empty())
+	if (!st.forGame && !st.restartFor.empty())
 		hints.push_back({ Glyph::Square, "Restart now" });
 	hintBar(dl, hints);
 	endScreen();
@@ -7382,11 +7568,10 @@ struct QuickState
 	float cheatScroll = 0;
 	std::vector<std::string> cheatFiles;	// best match first
 	int cheatFile = -1;				// index in cheatFiles, -1 for none
-	// The Game options page.
-	bool options = false;
-	float optionsAnim = 0;
-	int optionFocus = 0;
-	float optionScroll = 0;
+	// "Game options" opens the Settings for the running game: the row the
+	// menu comes back to when they are left (the menu opens again then).
+	int backTo = 0;
+	// The game's options were changed on the Controls page: saved when it is left.
 	bool optionsDirty = false;
 	// The Controls page.
 	bool controls = false;
@@ -7852,135 +8037,22 @@ void toolsPage(ImDrawList *dl, float px, float pw, float top)
 	dl->PopClipRect();
 }
 
-// How many options the running game has of its own.
+// How many options the running game has of its own, of those its Settings
+// ("Game options") show.
 int ownOptions()
 {
 	int own = 0;
-	for (const GameOption& option : optionsFor(::settings.content.fileName, false, false))
+	for (const GameOption& option : gameSettingsOptions())
 		own += option.get() != settingsValue(option) ? 1 : 0;
 	return own;
 }
 
+// "Game options": the Settings screen for the running game only
+// (openGameSettings). Leaving them comes back to the quick menu, on this row.
 void openGameOptions()
 {
-	qm.options = true;
-	qm.optionFocus = 0;
-	qm.optionScroll = 0;
-	qm.optionsDirty = false;
-	// From here on what is saved is saved for this game: each option that
-	// differs from the Settings goes to the game's section of emu.cfg, and
-	// one that is the same again leaves it.
-	config::Settings::instance().setPerGameConfig(true);
-}
-
-// The Game options page, in the quick menu's panel: the options of the
-// running game. A change is in effect when the game resumes (a few when it is
-// next started) and is kept for this game only; the Settings are not touched.
-void optionsPage(ImDrawList *dl, float px, float pw, float top)
-{
-	const std::vector<GameOption> options = optionsFor(::settings.content.fileName, false, false);
-	const int count = (int)options.size();
-	const int rows = count + 1;		// and "As in Settings, all of them"
-	if (in.up && qm.optionFocus > 0) qm.optionFocus--;
-	if (in.down && qm.optionFocus < rows - 1) qm.optionFocus++;
-	if (in.l2) qm.optionFocus = std::max(0, qm.optionFocus - 8);
-	if (in.r2) qm.optionFocus = std::min(rows - 1, qm.optionFocus + 8);
-	if (qm.optionFocus < count)
-	{
-		const GameOption& option = options[qm.optionFocus];
-		const int choice = choiceOf(option, option.get());
-		const int last = (int)option.values.size() - 1;
-		int next = choice;
-		if (in.left && choice > 0) next = choice - 1;
-		else if (in.right && choice < last) next = choice + 1;
-		else if (in.accept) next = choice >= last ? 0 : choice + 1;
-		if (next != choice)
-		{
-			option.set(option.values[next]);
-			qm.optionsDirty = true;
-		}
-		else if (in.square && option.get() != settingsValue(option))
-		{
-			option.set(settingsValue(option));
-			qm.optionsDirty = true;
-		}
-	}
-	else if (in.accept)
-	{
-		for (const GameOption& option : options)
-			option.set(settingsValue(option));
-		qm.optionsDirty = true;
-	}
-	if (in.back || in.options)
-	{
-		if (qm.optionsDirty)
-			SaveSettings();
-		qm.optionsDirty = false;
-		qm.options = false;
-	}
-
-	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_SLIDERS "   Game options");
-	{
-		const char *scope = "For this game only";
-		const ImVec2 ss = textSize(regular(), 22, scope);
-		text(dl, regular(), 22, px + pw - 60 - ss.x, top - 52, col::faint, scope);
-	}
-	const float rowH = 62;
-	const float noteH = 92;			// the focused option, described, under the list
-	const float viewH = H - 96 - noteH - top;
-	const float visible = viewH / rowH;
-	const float target = std::clamp((float)qm.optionFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)rows - visible));
-	qm.optionScroll = approach(qm.optionScroll, target, 18);
-	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
-	for (int i = 0; i < rows; i++)
-	{
-		const float y = top + (i - qm.optionScroll) * rowH;
-		if (y > top + viewH || y + rowH < top - rowH)
-			continue;
-		const bool on = i == qm.optionFocus;
-		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
-		const float right = px + pw - 60;
-		const float cy = y + rowH / 2 - 1;
-		if (i == count)
-		{
-			text(dl, bold(), 24, px + 72, y + 16, on ? col::text : col::dim, ICON_FA_ROTATE_LEFT "   As in Settings, all of them");
-			continue;
-		}
-		const GameOption& option = options[i];
-		const int value = option.get();
-		const bool own = value != settingsValue(option);
-		// A dot marks an option this game has of its own.
-		if (own)
-			dl->AddCircleFilled(V(px + 54, cy), 5 * S, on ? col::text : col::accent);
-		text(dl, bold(), 24, px + 72, y + 16, on || own ? col::text : col::dim, option.label);
-		const int choice = choiceOf(option, value);
-		const std::string label = fit(regular(), 24, choice < 0 ? oddValue(option, value) : option.names[choice], pw * 0.42f);
-		const ImVec2 ls = textSize(regular(), 24, label.c_str());
-		text(dl, regular(), 24, right - 22 - ls.x, cy - ls.y / 2, on || own ? col::text : col::faint, label.c_str());
-		if (on)
-		{
-			dl->AddTriangleFilled(V(right - 42 - ls.x, cy), V(right - 30 - ls.x, cy - 10), V(right - 30 - ls.x, cy + 10), col::text);
-			dl->AddTriangleFilled(V(right, cy), V(right - 12, cy - 10), V(right - 12, cy + 10), col::text);
-		}
-	}
-	dl->PopClipRect();
-	if (qm.optionFocus < count)
-	{
-		const GameOption& option = options[qm.optionFocus];
-		std::string note = option.desc;
-		if (option.nextStart)
-			note += ".\nTakes effect the next time this game starts.";
-		else if (option.key == nullptr)
-			note += ".\nThe controller's own: the same for every game.";
-		if (option.patch != nullptr)
-			note = std::string(option.desc) + ".\nFrom the community chart's " + ps5::patches::label(::settings.content.fileName, option.patch)
-					+ "; from the next start of the game.";
-		text(dl, regular(), 20, px + 56, top + viewH + 14, option.nextStart ? col::dim : col::faint, note.c_str(), pw - 112);
-	}
-	else
-		text(dl, regular(), 20, px + 56, top + viewH + 14, col::faint,
-				"This game goes back to the Settings for every option here.", pw - 112);
+	qm.backTo = qm.focus;
+	openGameSettings();
 }
 
 // ---- the Controls page: which DualSense button is which Dreamcast one
@@ -8941,11 +9013,12 @@ void quickMenu()
 	}
 	if (qm.open < 0.01f)
 	{
-		qm.focus = 0;
+		// The first row, or "Game options" when its Settings were just left.
+		qm.focus = qm.backTo;
+		qm.backTo = 0;
+		qm.focusAnim = (float)qm.focus;
 		qm.cheats = false;
 		qm.cheatsAnim = 0;
-		qm.options = false;
-		qm.optionsAnim = 0;
 		qm.controls = false;
 		qm.controlsAnim = 0;
 		qm.listening = -1;
@@ -9126,12 +9199,11 @@ void quickMenu()
 	QuickItem& cur = items[std::clamp(qm.focus, 0, n - 1)];
 	bool closing = false;
 	const bool onCheats = qm.cheats;	// the page handles its own input, below
-	const bool onOptions = qm.options;
 	const bool onControls = qm.controls;
 	const bool onRewind = qm.rewind;
 	const bool onTrophies = qm.trophies;
 	const bool onTools = qm.tool != 0;
-	const bool onPage = onCheats || onOptions || onControls || onRewind || onTrophies || onTools;
+	const bool onPage = onCheats || onControls || onRewind || onTrophies || onTools;
 	if (!onPage)
 	{
 		if (in.up) qm.focus = (qm.focus + n - 1) % n;
@@ -9154,7 +9226,6 @@ void quickMenu()
 	if (closing)
 		qm.open = 0;
 	qm.cheatsAnim = approach(qm.cheatsAnim, qm.cheats ? 1.f : 0.f, 16);
-	qm.optionsAnim = approach(qm.optionsAnim, qm.options ? 1.f : 0.f, 16);
 	qm.controlsAnim = approach(qm.controlsAnim, qm.controls ? 1.f : 0.f, 16);
 	qm.rewindAnim = approach(qm.rewindAnim, qm.rewind ? 1.f : 0.f, 16);
 	qm.trophiesAnim = approach(qm.trophiesAnim, qm.trophies ? 1.f : 0.f, 16);
@@ -9166,7 +9237,7 @@ void quickMenu()
 	// ---- the panel, sliding in from the right
 	// The pages are wider; the Rewind page, a short list, is not.
 	// The Controls page is wider still: the controller's picture is beside its list.
-	const float pw = std::max(640 + 260 * std::max({ qm.cheatsAnim, qm.optionsAnim, qm.trophiesAnim, qm.toolAnim }),
+	const float pw = std::max(640 + 260 * std::max({ qm.cheatsAnim, qm.trophiesAnim, qm.toolAnim }),
 			640 + (std::min(1700.f, W - 120) - 640) * qm.controlsAnim);
 	const float px = W - pw * (0.15f + 0.85f * t) + (1 - t) * 0;
 	gradientH(dl, px - 120, 0, 120, H, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, (int)(120 * t)));
@@ -9194,8 +9265,6 @@ void quickMenu()
 	const float itemsTop = 250, ih = std::min(78.f, std::floor((H - 100 - itemsTop) / n));
 	if (onCheats)
 		cheatsPage(dl, px, pw, itemsTop + 70);
-	else if (onOptions)
-		optionsPage(dl, px, pw, itemsTop + 70);
 	else if (onControls)
 		controlsPage(dl, px, pw, itemsTop + 70);
 	else if (onRewind)
@@ -9291,12 +9360,6 @@ void quickMenu()
 			hint(Glyph::Cross, qm.cheatFocus == 0 ? "Next file" : "On / off");
 			if (qm.cheatFocus == 0)
 				hint(Glyph::DPadLR, "File");
-			hint(Glyph::Circle, "Back");
-		}
-		else if (onOptions)
-		{
-			hint(Glyph::DPadLR, "Change");
-			hint(Glyph::Square, "As in Settings");
 			hint(Glyph::Circle, "Back");
 		}
 		else if (onRewind)

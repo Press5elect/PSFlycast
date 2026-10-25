@@ -143,7 +143,7 @@ void loadOptions(const std::string& dir)
 		else if (!strcmp(key, "motion"))
 			currentOptions.motion = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "ui_scale"))
-			currentOptions.uiScale = std::clamp(value, 100, 130);
+			currentOptions.uiScale = std::clamp(value, 70, 130);
 		else if (!strcmp(key, "high_contrast"))
 			currentOptions.highContrast = value != 0;
 		else if (!strcmp(key, "colour_blind"))
@@ -305,12 +305,13 @@ void redirectLogs(const std::string& root)
 	}).detach();
 }
 
-// The console's defaults: the picture as the Dreamcast made it (its own
-// 640x480, transparency sorted per pixel as its graphics chip sorts it, no
-// anisotropic filtering, no widescreen), the HLE BIOS when no BIOS is
-// installed, the folders above, and PS5 audio. Everything that improves on
-// the original is the player's choice. Written only when there is no
-// emu.cfg yet: a console that has one keeps its settings.
+// The console's defaults, as Press5elect chose them: transparency sorted per
+// pixel (96 layers) at 4x the Dreamcast's resolution, widescreen game patches,
+// 16x anisotropic and linear texture filtering, the sound DSP, a 32 ms audio
+// buffer, the RGB cable, a save state when a game stops; the HLE BIOS only
+// when no BIOS is installed (Flycast falls back to it by itself), the folders
+// above, and PS5 audio. The rest is the v1.3.3 settings update in main().
+// Written only when there is no emu.cfg yet.
 void writeDefaultConfig(const std::string& root)
 {
 	const std::string cfg = root + "emu.cfg";
@@ -323,16 +324,16 @@ void writeDefaultConfig(const std::string& root)
 	fprintf(f,
 		"[config]\n"
 		"pvr.rend = 5\n"
-		"rend.Resolution = 480\n"
+		"rend.Resolution = 1920\n"
 		"rend.WideScreen = no\n"
-		"rend.WidescreenGameHacks = no\n"
+		"rend.WidescreenGameHacks = yes\n"
 		"rend.ThreadedRendering = yes\n"
 		"rend.vsync = yes\n"
-		"rend.AnisotropicFiltering = 1\n"
+		"rend.AnisotropicFiltering = 16\n"
 		"rend.ShowFPS = no\n"
 		"aica.DSPEnabled = yes\n"
 		"Dynarec.Enabled = yes\n"
-		"Dreamcast.AutoSaveState = no\n"
+		"Dreamcast.AutoSaveState = yes\n"
 		"Dreamcast.AutoLoadState = no\n"
 		"Dreamcast.ContentPath = %sgames\n"
 		"Dreamcast.BiosPath = %sbios\n"
@@ -742,6 +743,48 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 9;
 		ps5::saveOptions();
 		ps5::diag::mark("settings: the sound DSP turned on (reverb and echo as on the console)");
+	}
+	if (ps5::options().defaults < 10)
+	{
+		// The defaults Press5elect chose for PSFlyCast (v1.3.3): per-pixel
+		// sorting at 4x with FSR 1, the console's 120 Hz and variable refresh,
+		// the picture's light beside it, VMU beeps in the controller. A
+		// setting moves only while it still has the old default, so whatever
+		// was changed by hand stays as it is.
+		int moved = 0;
+		auto move = [&moved](auto& option, auto from, auto to) {
+			if (option.get() == from)
+			{
+				option.set(to);
+				moved++;
+			}
+		};
+		move(config::PerPixelLayers, 32, 96);
+		move(config::RenderResolution, 480, 1920);
+		move(config::TranslucentPolygonDepthMask, false, true);
+		move(config::WidescreenGameHacks, false, true);
+		move(config::AnisotropicFiltering, 1, 16);
+		move(config::TextureFiltering, 0, 2);
+		move(config::AccurateMipmaps, true, false);
+		move(config::Original16Bit, true, false);
+		move(config::FlickerFilter, true, false);
+		move(ps5::SidePicture, 0, 1);
+		move(ps5::VmuScreenSize, 100, 200);
+		move(ps5::Upscaling, (int)ps5::UpscalingOff, (int)ps5::UpscalingFsrSharp);
+		move(config::AudioBufferSize, 5644, 1411);
+		move(config::VmuSound, false, true);
+		move(ps5::VmuSoundOutput, 0, 1);
+		move(config::Cable, 3, 2);
+		move(config::AutoSaveState, false, true);
+		SaveSettings();
+		if (!ps5::options().vrr)
+		{
+			ps5::options().vrr = true;
+			moved++;
+		}
+		ps5::options().defaults = 10;
+		ps5::saveOptions();
+		ps5::diag::mark("settings: %d moved to PSFlyCast's v1.3.3 defaults (those changed by hand kept)", moved);
 	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();

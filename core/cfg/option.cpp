@@ -111,9 +111,9 @@ Option<int64_t> PixelBufferSize("rend.PixelBufferSize", 512_MB);
 Option<int> AnisotropicFiltering("rend.AnisotropicFiltering", 1);
 Option<int> TextureFiltering("rend.TextureFiltering", 0); // Default
 // Picture accuracy: the defaults are how the Dreamcast draws; off gives the older, smoother picture.
-Option<bool> AccurateMipmaps("rend.AccurateMipmaps", true);
-Option<bool> Original16Bit("rend.Original16BitColour", true);
-Option<bool> FlickerFilter("rend.FlickerFilter", true);
+Option<bool> AccurateMipmaps("rend.AccurateMipmaps", false);
+Option<bool> Original16Bit("rend.Original16BitColour", false);
+Option<bool> FlickerFilter("rend.FlickerFilter", false);
 Option<bool> ThreadedRendering("rend.ThreadedRendering", true);
 Option<bool> DupeFrames("rend.DupeFrames", false);
 Option<int> PerPixelLayers("rend.PerPixelLayers", 32);

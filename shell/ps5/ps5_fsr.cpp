@@ -47,15 +47,15 @@
 
 namespace ps5
 {
-config::Option<int> Upscaling("Upscaling", UpscalingOff, "ps5");
+config::Option<int> Upscaling("Upscaling", UpscalingFsrSharp, "ps5");
 config::Option<int> Sharpening("Sharpening", 1, "ps5");
 config::Option<int> FilmGrain("FilmGrain", 0, "ps5");
 config::Option<int> Brightness("Brightness", 100, "ps5");
 config::Option<int> Contrast("Contrast", 100, "ps5");
 config::Option<int> Saturation("Saturation", 100, "ps5");
 config::Option<int> Gamma("Gamma", 100, "ps5");
-config::Option<int> VmuScreenSize("VmuScreenSize", 100, "ps5");
-config::Option<int> SidePicture("SidePicture", 0, "ps5");
+config::Option<int> VmuScreenSize("VmuScreenSize", 200, "ps5");
+config::Option<int> SidePicture("SidePicture", 1, "ps5");
 config::Option<int> OledCare("OledCare", 0, "ps5");
 }
 

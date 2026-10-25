@@ -67,7 +67,7 @@ int sceAudioInClose(int32_t handle);
 namespace ps5
 {
 config::Option<bool> SyncToDisplay("SyncToDisplay", true, "ps5");
-config::Option<int> VmuSoundOutput("VmuSoundOutput", 0, "ps5");
+config::Option<int> VmuSoundOutput("VmuSoundOutput", 1, "ps5");
 config::Option<int> MicVolume("MicVolume", 50, "ps5");
 }
 
