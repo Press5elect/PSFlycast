@@ -42,11 +42,12 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.2** (build 81). It is built
+Latest release: **v1.3.3** (build 86). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.1 and v1.3.2 have not been run on a console: their changes are listed in
-[New in v1.3.2](#new-in-v132) and [New in v1.3.1](#new-in-v131).
+v1.3.1, v1.3.2 and v1.3.3 have not been run on a console: their changes are
+listed in [New in v1.3.3](#new-in-v133), [New in v1.3.2](#new-in-v132) and
+[New in v1.3.1](#new-in-v131).
 
 On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
 display at 119.88 Hz: the microphone was used in a game that listens, for 15
@@ -128,6 +129,63 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.3
+
+Added:
+
+- **Game options in the quick menu are the whole Settings screen, for this
+  game only:** This game, Video, Audio, Controls and System, as in Settings.
+  A dot marks a value the game has of its own, "As in Settings" one that
+  follows the Settings. Square puts an option back to the Settings' value,
+  Triangle twice all of them.
+- **Picture options from the Dreamcast's hardware** (Video): Accurate
+  mipmaps, Original 16-bit colour (the console's dither) and Flicker filter
+  (its vertical softening in TV modes).
+- **Driver and thread options** (Settings > System > PlayStation 5): the
+  graphics driver on its own thread, how the driver waits for the graphics
+  chip, a short display queue, and sound and controls first. All
+  experimental and off.
+- **Speed lines in `flycast-boot.log`:** render passes and barriers a frame,
+  a `slow:` line when a game stays under full speed, and a `session:`
+  summary when it ends.
+
+Changed:
+
+- **New defaults:** per-pixel transparency with 96 layers at 4x (1920p), FSR
+  1 (sharp), 16x anisotropic and linear texture filtering, widescreen game
+  patches, translucent depth mask, the picture's light beside the picture,
+  the memory card's screen at 200%, 120 Hz and variable refresh, the sound
+  DSP, a 64 ms audio buffer, VMU beeps in the controller, the RGB cable and
+  a save state when a game stops. A console that already has PSFlyCast only
+  moves the settings still at their old default.
+- **Descriptions** of the settings are Flycast's own where it has them.
+- **Interface size** goes down to 70%.
+- **The graphics driver** is Mesa 27.0-devel's RADV with Crux2's driver
+  patches: workarounds for the graphics chip's own hardware bugs, cheaper
+  draws, fewer cache flushes.
+- **Sound** from 44.1 to 48 kHz through a better filter; the VMU's beep is
+  made with the game's tone and duty, at 48 kHz in the controller's speaker.
+- **The microphone** follows the game's gain, its 8-bit mode and its
+  replies, as the Dreamcast's microphone does.
+- **Rumble** fades, pulses and stops as the vibration pack does; the
+  controller's large motor only, unless a game asks for a fast buzz.
+- **A faster clock, shorter waits** between the emulator and the renderer,
+  and textures freed when a game closes.
+- **Flycast** is its `dev` branch at e2f148457 (24 October 2026): achievement
+  pop-ups can be hidden, and fixes to the broadband adapter and the
+  scheduler.
+
+Fixed:
+
+- **The Dreamcast Twin Stick's lever buttons:** the triggers are L2 and R2,
+  the turbo buttons L1 and R1, D is Triangle (in v1.3.2 they did nothing).
+- **A stick pushed all the way right or down** reaches the end of its range;
+  a resting trigger reads 0.
+- **PAL games on a 60 or 120 Hz display** are no longer pushed 0.5% fast.
+- **Game time** in the tools ran at half speed at 120 Hz.
+- **The driver's shader cache** could switch itself off.
+- **Anisotropic filtering** changed in a game now applies without a restart.
 
 ## New in v1.3.2
 

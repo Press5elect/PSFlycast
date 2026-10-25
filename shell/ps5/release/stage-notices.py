@@ -214,10 +214,10 @@ def readme(result):
            "licence texts those licences require to travel with it, and the source",
            "revision each part was built from. components.json holds the same, with the",
            "sha256 of every executable file.", "",
-           "Corresponding source: the release page this title was downloaded from carries",
-           "the complete source of everything in it, one archive per part, with",
-           "SOURCES.txt saying what each is (made by shell/ps5/release/source-bundle.py).",
-           "Flycast and the libraries it carries are in PSFlyCast's own source archive.", "",
+           "Corresponding source: every part's source is public at the revision named",
+           "below. PSFlyCast, with Flycast and the libraries it carries, is",
+           "github.com/Press5elect/PSFlycast at the release's tag; the others are at",
+           "the address and revision given with each part.", "",
            "Not included: no games, BIOS files, console firmware or decryption keys.", "",
            "Parts", "-----", ""]
     for part in result["components"]:

@@ -31,7 +31,7 @@
    "source": {
     "kind": "git",
     "path": ".",
-    "where": "the repository this release is published from, at the release's tag; and the archive PSFlyCast-<tag>-source.tar.xz attached to the release"
+    "where": "the repository this release is published from (github.com/Press5elect/PSFlycast), at the release's tag"
    },
    "modifications": "This is the port itself: shell/ps5/ and the changes to Flycast listed under Flycast.",
    "files": [
@@ -63,7 +63,7 @@
     "kind": "fixed",
     "revision": "4dca1988dab56f603c2309e8882e264252fa7c8f",
     "url": "https://github.com/flyinghead/flycast",
-    "where": "merged into this title's repository; the archive PSFlyCast-<tag>-source.tar.xz holds it with the submodules the build uses"
+    "where": "merged into this title's repository, at the release's tag, with the libraries it carries"
    },
    "modifications": "Changed for the console, behind __PROSPERO__, FLYCAST_PS5 or USE_PS5, or with a fix from one of Flycast's open pull requests (#2213, #2384, #2414, #2415, #2416, #2513, #2519, #2520, #2521, #2528, #2531; each is named where it is applied or in shell/ps5/README.md): CMakeLists.txt, core/achievements/achievements.cpp, core/archive/rzip.cpp, core/cfg/option.cpp, core/emulator.cpp, core/hw/maple/maple_cfg.cpp, core/hw/naomi/naomi_cart.cpp, core/hw/pvr/Renderer_if.cpp, core/hw/pvr/Renderer_if.h, core/hw/sh4/sh4_core_regs.cpp, core/imgread/chd.cpp, core/imgread/isofs.cpp, core/input/gamepad_device.cpp, core/input/gamepad_device.h, core/input/mouse.cpp, core/linux/common.cpp, core/linux/posix_vmem.cpp, core/linux/unwind_info.cpp, core/network/dns.cpp, core/network/ggpo.cpp, core/network/picoppp.cpp, core/nullDC.cpp, core/oslib/http_client.cpp, core/oslib/i18n.cpp, core/oslib/oslib.cpp, core/oslib/storage.cpp, core/oslib/virtmem.h, core/rend/transform_matrix.cpp, core/rend/vulkan/compiler.cpp, core/rend/vulkan/compiler.h, core/rend/vulkan/drawer.cpp, core/rend/vulkan/drawer.h, core/rend/vulkan/oit/oit_buffer.h, core/rend/vulkan/oit/oit_pipeline.cpp, core/rend/vulkan/oit/oit_pipeline.h, core/rend/vulkan/oit/oit_renderer.cpp, core/rend/vulkan/pipeline.h, core/rend/vulkan/pipeline_warm.h, core/rend/vulkan/vulkan_context.cpp, core/rend/vulkan/vulkan_renderer.cpp, core/rend/vulkan/vulkan_renderer.h, core/stdclass.cpp, core/stdclass.h, core/ui/boxart/boxart.cpp, core/ui/game_scanner.cpp, core/ui/game_scanner.h, core/ui/gui.cpp, core/ui/gui_util.h, core/ui/mainui.cpp; and added: core/rend/soft (the Software renderer setting, listed below). 389 of its source files state GPL-2.0-or-later, the others carry no notice, and its LICENSE file is the GPL-2.0 text. Flycast's own resources are in the executable as upstream ships them: default settings memory for some arcade boards, printer fonts, the HLE BIOS's font, translations.",
    "files": [
@@ -927,7 +927,7 @@
     "path": "${MESA}",
     "url": "https://github.com/mihawk-99/PS5_Mesa",
     "base": "1ba9874f478657ccf6da72ce55f0260164cc0bd0",
-    "where": "PS5_Mesa at the base revision, plus Crux2's driver patches (github.com/Press5elect/Crux2, ps5/patches/mesa-27) and this repository's shell/ps5/mesa/*.patch, as shell/ps5/build-radv-psflycast.sh applies them; the whole tree as built is the archive PS5_Mesa-<revision>.tar.xz attached to the release"
+    "where": "PS5_Mesa at the base revision, plus Crux2's driver patches (github.com/Press5elect/Crux2 at 2afe8e59e0c339e26733993d23a2e8878449516f, ps5/patches/mesa-27) and this repository's shell/ps5/mesa/*.patch, applied by shell/ps5/build-radv-psflycast.sh; that gives the tree of the revision given (tree 3b1ee7a73da178e7c2e4a4eaaf87c8b30746768d)"
    },
    "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI); Crux2's driver patches by Press5elect and PS5CEMU-HAR, among them the merge of Mesa main (27.0-devel), GFX10.1 hardware workarounds, the shader cache index without MAP_FIXED, buffer lifetime, timed waits, GPU wait tuning and the output queue depth; and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
    "files": [
@@ -959,10 +959,9 @@
     "path": "${VULKAN}",
     "url": "https://github.com/mihawk-99/PS5_Vulkan",
     "localnote": "with tools/build-radv.sh's mesa_revision set to the RADV revision above",
-    "base": "5b5e4fc2d80fdb67a4f61ba9e6a8a424026bb8a5",
-    "where": "PS5_Vulkan at the base revision with one line changed; the tree as built is the archive PS5_Vulkan-<revision>.tar.xz attached to the release"
+    "where": "PS5_Vulkan at the revision given, unmodified: shell/ps5/build-radv-psflycast.sh passes it the Mesa revision to build"
    },
-   "modifications": "Unmodified but for the Mesa revision its build-radv.sh names.",
+   "modifications": "Unmodified.",
    "files": [
     "eboot.bin"
    ]
@@ -1100,7 +1099,7 @@
     "path": "${SMB}",
     "url": "https://github.com/sahlberg/libsmb2"
    },
-   "modifications": "Unmodified; compiled with this title's shell/ps5/smb/config.h and ps5_smb_compat.c. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "modifications": "Unmodified; compiled with this title's shell/ps5/smb/config.h and ps5_smb_compat.c. It is linked statically: this title's complete source, at the release's tag, and this library's at the revision given are what relinking it needs.",
    "files": [
     "eboot.bin"
    ]
@@ -1176,7 +1175,7 @@
     "path": "${FFMPEG}",
     "url": "https://github.com/FFmpeg/FFmpeg"
    },
-   "modifications": "Unmodified (release n9.0.2). Built by shell/ps5/tools/build-ffmpeg.sh as static libraries without --enable-gpl or --enable-nonfree: only the MP4 demuxer, the H.264, AAC and MP3 decoders and their parsers. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "modifications": "Unmodified (release n9.0.2). Built by shell/ps5/tools/build-ffmpeg.sh as static libraries without --enable-gpl or --enable-nonfree: only the MP4 demuxer, the H.264, AAC and MP3 decoders and their parsers. It is linked statically: this title's complete source, at the release's tag, and this library's at the revision given are what relinking it needs.",
    "files": [
     "eboot.bin"
    ]
@@ -1202,7 +1201,7 @@
    "source": {
     "kind": "in-tree"
    },
-   "modifications": "Unmodified: github.com/selmf/unarr at 9c8e898bb3dc2ee9d368b0e945d5bb453e15c187, only its RAR reader and the PPMd files it needs, in shell/ps5/third_party/unarr (unarr.h is made from unarr.h.in with the version filled in). shell/ps5/ps5_rar.cpp gives it Flycast's file stream. It is linked statically: the source archives attached to the release are what relinking it needs.",
+   "modifications": "Unmodified: github.com/selmf/unarr at 9c8e898bb3dc2ee9d368b0e945d5bb453e15c187, only its RAR reader and the PPMd files it needs, in shell/ps5/third_party/unarr (unarr.h is made from unarr.h.in with the version filled in). shell/ps5/ps5_rar.cpp gives it Flycast's file stream. It is linked statically: this title's complete source, at the release's tag, and this library's at the revision given are what relinking it needs.",
    "files": [
     "eboot.bin"
    ]

@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.2 (build 81). The README's Status says what has been
+This manual is for v1.3.3 (build 86). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -458,11 +458,15 @@ Every setting can be different for one game. What you change this way is
 kept for that game and leaves the Settings as they are.
 
 - **Before the game starts:** Triangle on the game, then **Options**.
-- **While it runs:** touch pad, then **Game options**.
+- **While it runs:** touch pad, then **Game options**. This opens the whole
+  Settings screen for this game only: This game (its patches), Video, Audio,
+  Controls and System, laid out as in Settings.
 
-A dot marks an option the game has a value of its own for. **Square** puts it
-back to the Settings' value. Most changes take effect when the game resumes;
-the few that wait for the next start say so.
+A dot marks an option the game has a value of its own for; "As in Settings"
+one that follows the Settings. **Square** puts it back to the Settings'
+value; in the quick menu's Game options, **Triangle** twice does it for all
+of them. Most changes take effect when the game resumes; the few that wait
+for the next start say so.
 
 A game on the Network tab, or an arcade game, has to be started once before
 it can have options of its own.
@@ -672,7 +676,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; the Dreamcast's own 640x480 by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
+| **Video** | Internal resolution (up to 10x; 4x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager |
@@ -689,12 +693,14 @@ works after PSFlyCast is started again says so in a bar at the bottom, with
 **A sharper picture.** A Dreamcast game is drawn at 640 x 480; these raise
 what you see, most useful first:
 
-**The defaults are the original's.** A new install shows a game as the
-Dreamcast did: its own 640x480, transparency sorted per pixel as its graphics
-chip sorts it, no anisotropic filtering, no widescreen, no upscaling filter and
-no frame generation. Everything that improves on that is yours to choose, for
-every game or for one. (A console that already has PSFlyCast keeps its
-settings.)
+**The defaults.** A new install draws a game at 4x (1920 lines) with
+transparency sorted per pixel (96 layers), FSR 1 (sharp) to the screen, 16x
+anisotropic and linear texture filtering, the widescreen game patches, and
+the picture's light beside a 4:3 picture, at 120 Hz with variable refresh
+where the display has them. Widescreen, the console's 16-bit colour and
+flicker filter, and frame generation are off. All of it is yours to change,
+for every game or for one. (A console that already has PSFlyCast only takes
+the new defaults for what it still had at the old ones.)
 
 - **Internal resolution.** 5x and up is more than a 4K screen shows, and the
   extra is used to smooth edges. 9x (4320 lines) is exactly twice 4K, which
@@ -856,7 +862,7 @@ Light, Medium, Strong) lays fine grain over the picture, and **Brightness**,
 for one game. They are new, and not yet confirmed on a console.
 
 **Interface size, high contrast and colour-blind colours** are in Settings >
-Interface. **Interface size** goes from 100% to 130%; larger sizes show fewer rows
+Interface. **Interface size** goes from 70% to 130%; larger sizes show fewer rows
 on a screen. **High contrast** puts black behind the screens and makes the grey
 text brighter. **Colour-blind safe colours** use blue and orange where green
 would mark what is good.
