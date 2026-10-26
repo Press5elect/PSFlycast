@@ -215,7 +215,9 @@ console yet). Dreamcast games that aim with a mouse and move with a keyboard
 can be played with the DualSense. In Settings > Controls (or a game's own
 options), **Right stick as mouse** makes the right stick the Dreamcast's mouse:
 R2 is the left button, L2 the right one, R3 the middle one; **Mouse speed**
-tunes it. The right stick's own settings shape the mouse, the turning and a second stick alike: **Right stick dead zone** (round the centre, so a stick
+tunes it. **Mouse movement** chooses what moves the mouse: the right stick, turning the
+controller like a pointer (**Motion**), or **Both**; **Motion aiming speed** and **Motion aiming
+smoothing** below tune the turning, and **Motion aiming direction** swaps its directions. The right stick's own settings shape the mouse, the turning and a second stick alike: **Right stick dead zone** (round the centre, so a stick
 that rests off it is still), **Right stick response** (Linear; Precise, fine near the centre for aiming; Aggressive; S-curve), **Right stick smoothing**, and
 **Right stick left and right** and **up and down**, each Normal, Inverted or Off. **Right stick as the triggers** makes the right stick, left and right, the Dreamcast's L and R triggers, pressed as far as the stick is pushed, for a camera that a game turns with the triggers; L2 and R2 still work, and it does nothing while the right stick is the mouse. **Right stick turns like the left stick**
 adds the right stick, left and right, to the left stick's, so the game turns with it as it does with the left stick and its own sensitivity; use it instead of the mouse in a game that takes a mouse badly. **Controller profile** chooses what the controller is in the
@@ -633,7 +635,12 @@ card. Vibration strength and the stick's dead zone are there too.
   the pad still opens the quick menu.
 - **Motion:** turn and tilt the controller, as if pointing it. A touch on
   the touch pad puts the gun back in the middle of the screen. If it moves
-  the wrong way, change **Motion aiming direction**.
+  the wrong way, change **Motion aiming direction**. **Motion aiming speed**
+  sets how far it moves (at 100% about 40 degrees cross the screen).
+  **Motion aiming smoothing** (Off, Low, Medium, High; Low by default)
+  steadies the gun while the controller is held still and keeps fast turns
+  quick. A very slow turn, under about a degree a second, is ignored, so the
+  gun does not creep while the controller is still.
 
 **Light gun crosshair** shows where each gun points. The buttons do what
 they did before. An arcade gun game needs nothing more. A Dreamcast game

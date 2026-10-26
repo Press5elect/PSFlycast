@@ -64,6 +64,10 @@ struct State
 	// response curve, smoothed, and with each direction normal, inverted or off. -1..1.
 	float px = 0, py = 0;
 	float l2 = 0, r2 = 0;	// 0..1
+	// How far the pad turned since the previous poll, in radians, as the gun and the mouse take it:
+	// right and down are positive, Motion aiming direction applied, slow drift left out and the
+	// shake smoothed as Motion aiming smoothing asks.
+	float turnX = 0, turnY = 0;
 };
 
 // Flycast's input codes for the pad (its mapping files hold them): a button's
@@ -103,6 +107,11 @@ extern config::Option<int> StickAsDpad;
 enum { AimStick, AimTouch, AimMotion };
 extern config::Option<int> LightGunAim;
 extern config::Option<int> MotionAimDirection;
+// How far turning the pad moves the gun or the mouse, in percent: 100 is a
+// screen's width for about 40 degrees. And how much the motion is smoothed:
+// 0 off, 1 low, 2 medium, 3 high. Settings, and a game can have its own.
+extern config::Option<int> MotionAimSpeed;
+extern config::Option<int> MotionAimSmoothing;
 
 // Turbo: the buttons (libScePad bits) that are pressed again and again while
 // held, and how fast: 0 slow (7 a second), 1 normal (10), 2 fast (15).
@@ -126,6 +135,9 @@ extern config::Option<int> PadMouseCurve;		// the right stick's response: CurveL
 extern config::Option<int> PadSmoothing;		// 0 to 90 percent of the last frame's push kept
 extern config::Option<int> PadAxisX;			// left and right: AxisNormal, AxisInverted, AxisOff
 extern config::Option<int> PadAxisY;			// up and down
+// What moves the mouse, when the profile has one: the right stick, turning the pad, or both.
+enum { MouseFromStick, MouseFromMotion, MouseFromBoth };
+extern config::Option<int> PadMouseSource;
 // The controller the Dreamcast sees: the standard one (one stick), or the one
 // with a second stick (Flycast's "Sega Controller XL", six axes), which only
 // software that reads a second stick makes use of.

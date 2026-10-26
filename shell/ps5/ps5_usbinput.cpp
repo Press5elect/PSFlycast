@@ -451,19 +451,27 @@ void padInput(const ps5::pad::State& pad)
 			// The stick is shaped already (dead zone, response, smoothing, directions): ps5::pad::shapeRight.
 			// An axis with a control of the game's layout on one of its directions (the Controls
 			// page) is that control's, and does not move the mouse as well.
+			const int source = std::clamp((int)PadMouseSource, 0, 2);
+			const bool fromStick = source != MouseFromMotion, fromMotion = source != MouseFromStick;
 			const u32 bound = ps5::pad::player1BoundSticks();
-			const float px = (bound & ps5::pad::RightStickX) != 0 ? 0.f : pad.px;
-			const float py = (bound & ps5::pad::RightStickY) != 0 ? 0.f : pad.py;
+			const float px = !fromStick || (bound & ps5::pad::RightStickX) != 0 ? 0.f : pad.px;
+			const float py = !fromStick || (bound & ps5::pad::RightStickY) != 0 ? 0.f : pad.py;
 			const float magnitude = std::min(1.f, std::hypot(px, py));
-			if (magnitude > 0.f)
+			// Counts a frame at full push. The game takes whole counts and some turn a long way
+			// for each, so the low end is slow: speed 1 is a count every ten frames, speed 10 one
+			// a frame, speed 20 five a frame.
+			const int steps = std::clamp((int)PadMouseSpeed, 1, 20);
+			const float full = steps <= 10 ? 0.1f * steps : 1.f + 0.4f * (steps - 10);
+			// Turning the pad, like a pointer: a turn of a radian a second (about 57 degrees)
+			// moves the mouse as the stick pushed fully does, times Motion aiming speed. The
+			// turn is steadied already (ps5_pad.cpp, motion()).
+			const float perRadian = full * 60.f * std::clamp((int)MotionAimSpeed, 20, 300) / 100.f;
+			const float turnX = fromMotion ? pad.turnX * perRadian : 0.f;
+			const float turnY = fromMotion ? pad.turnY * perRadian : 0.f;
+			if (magnitude > 0.f || turnX != 0.f || turnY != 0.f)
 			{
-				// Counts a frame at full push. The game takes whole counts and some turn a long way
-				// for each, so the low end is slow: speed 1 is a count every ten frames, speed 10 one
-				// a frame, speed 20 five a frame.
-				const int steps = std::clamp((int)PadMouseSpeed, 1, 20);
-				const float full = steps <= 10 ? 0.1f * steps : 1.f + 0.4f * (steps - 10);
-				carryX += px * full;
-				carryY += py * full;
+				carryX += px * full + turnX;
+				carryY += py * full + turnY;
 				const float dx = std::trunc(carryX), dy = std::trunc(carryY);
 				carryX -= dx;
 				carryY -= dy;
@@ -515,9 +523,9 @@ void padInput(const ps5::pad::State& pad)
 		const auto now = std::chrono::steady_clock::now();
 		if (now - lastReport >= std::chrono::seconds(4))
 		{
-			diag::mark("mouse: profile %d, speed %d, dead zone %d%%, curve %d, smoothing %d%%; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
-					B::chosen(), (int)PadMouseSpeed, (int)PadMouseDeadZone, (int)PadMouseCurve, (int)PadSmoothing, sentCounts, sentFrames,
-					biggestStep, pad.px, pad.py);
+			diag::mark("mouse: profile %d, source %d, speed %d, dead zone %d%%, curve %d, smoothing %d%%, motion speed %d%%, motion smoothing %d; sent %d counts in %d frames, the biggest step %d, the stick %.2f %.2f",
+					B::chosen(), (int)PadMouseSource, (int)PadMouseSpeed, (int)PadMouseDeadZone, (int)PadMouseCurve, (int)PadSmoothing,
+					(int)MotionAimSpeed, (int)MotionAimSmoothing, sentCounts, sentFrames, biggestStep, pad.px, pad.py);
 			lastReport = now;
 			sentCounts = sentFrames = biggestStep = 0;
 		}

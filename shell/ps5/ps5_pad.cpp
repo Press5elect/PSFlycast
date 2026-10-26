@@ -65,6 +65,8 @@ namespace ps5::pad
 config::Option<int> StickAsDpad("StickAsDpad", StickDpadAuto, "ps5");
 config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
 config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
+config::Option<int> MotionAimSpeed("MotionAimSpeed", 100, "ps5");
+config::Option<int> MotionAimSmoothing("MotionAimSmoothing", 1, "ps5");
 config::Option<int> TurboButtons("TurboButtons", 0, "ps5");
 config::Option<int> TurboRate("TurboRate", 1, "ps5");
 config::Option<int> PadProfile("PadProfile", 0, "ps5");
@@ -74,6 +76,7 @@ config::Option<int> PadMouseCurve("PadMouseCurve", 1, "ps5");
 config::Option<int> PadSmoothing("PadSmoothing", 0, "ps5");
 config::Option<int> PadAxisX("PadAxisX", AxisNormal, "ps5");
 config::Option<int> PadAxisY("PadAxisY", AxisNormal, "ps5");
+config::Option<int> PadMouseSource("PadMouseSource", MouseFromStick, "ps5");
 config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
 config::Option<int> PadRightTurns("PadRightTurns", 0, "ps5");
 config::Option<int> PadRightTriggers("PadRightTriggers", 0, "ps5");
@@ -114,6 +117,54 @@ static_assert(offsetof(PadData, touchCount) == 0x34, "touch count at 0x34");
 static_assert(offsetof(PadData, touch) == 0x3c, "touches at 0x3c");
 static_assert(offsetof(PadData, connected) == 0x4c, "connection flag at 0x4c");
 static_assert(offsetof(PadData, timestamp) == 0x50, "timestamp at 0x50");
+
+// The 1 euro filter (Casiez, Roussel and Vogel, 2012) on the place the pad
+// points at, both directions together: the slower it moves, the lower the
+// cutoff, so a pad held nearly still loses the hand's shake, and one turned
+// quickly follows with little lag. The speed that sets the cutoff is itself
+// smoothed, at 1 Hz, as the paper has it.
+struct MotionFilter
+{
+	float x = 0, y = 0;		// the last filtered place, in radians
+	float speed = 0;		// its smoothed speed, radians a second
+	bool started = false;
+
+	static float alpha(float cutoff, float dt)
+	{
+		const float tau = 1.f / (2.f * 3.14159265f * cutoff);
+		return 1.f / (1.f + tau / dt);
+	}
+	// px and py are the place as the sensor gives it, and become the filtered one.
+	void apply(float& px, float& py, float dt, float minCutoff, float beta)
+	{
+		if (!started)
+		{
+			x = px;
+			y = py;
+			speed = 0.f;
+			started = true;
+			return;
+		}
+		const float moved = std::hypot(px - x, py - y) / dt;
+		speed += alpha(1.f, dt) * (moved - speed);
+		const float a = alpha(minCutoff + beta * speed, dt);
+		x += a * (px - x);
+		y += a * (py - y);
+		px = x;
+		py = y;
+	}
+	// The place's origin moved by this much (what was handed on is taken off).
+	void shift(float dx, float dy)
+	{
+		x -= dx;
+		y -= dy;
+	}
+	void reset()
+	{
+		started = false;
+		speed = 0.f;
+	}
+};
 
 // Flycast input codes for this device: buttons are their libScePad bit index,
 // axes are 0 LX, 1 LY, 2 RX, 3 RY, 4 L2, 5 R2.
@@ -394,16 +445,69 @@ public:
 		feed(none, raw);
 	}
 
+	// The pad's turn since the previous poll, for the gun and the mouse
+	// (State::turnX and turnY). Turning to the left is a positive turn about
+	// the pad's upward axis, tilting its top toward the player one about its
+	// rightward axis. Under 0.02 radians a second (about a degree a second) the sensor
+	// is taken as still, so a pad put down or held still does not creep; from
+	// there to 0.06 the turn fades in, so a slow turn starts smoothly. Then
+	// the 1 euro filter, as Motion aiming smoothing asks.
+	void motion(const PadData& raw, State& s)
+	{
+		float dt = 0.f;
+		if (motionAt != 0 && raw.timestamp > motionAt)
+			dt = std::min((float)((double)(raw.timestamp - motionAt) / 1e6), 0.05f);
+		motionAt = raw.timestamp;
+		s.turnX = s.turnY = 0.f;
+		if (dt <= 0.f)
+			return;
+		const float sideways = (MotionAimDirection & 1) != 0 ? 1.f : -1.f;
+		const float upward = (MotionAimDirection & 2) != 0 ? 1.f : -1.f;
+		float vx = sideways * raw.angularVelocity[1];
+		float vy = upward * raw.angularVelocity[0];
+		if (!std::isfinite(vx) || !std::isfinite(vy))
+			vx = vy = 0.f;
+		constexpr float Still = 0.02f, Moving = 0.06f;
+		const float rate = std::hypot(vx, vy);
+		const float kept = rate <= Still ? 0.f : rate >= Moving ? 1.f : (rate - Still) / (Moving - Still);
+		turnedX += vx * kept * dt;
+		turnedY += vy * kept * dt;
+		// The cutoff when still (Hz) and how much it rises for each radian a second.
+		// Low still takes the shake out of a held pad; High is for a shaky hand.
+		static const float minCutoff[4] = { 0.f, 2.f, 1.f, 0.5f };
+		static const float beta[4] = { 0.f, 10.f, 6.f, 3.f };
+		const int level = std::clamp((int)MotionAimSmoothing, 0, 3);
+		float x = turnedX, y = turnedY;
+		if (level > 0)
+			filter.apply(x, y, dt, minCutoff[level], beta[level]);
+		else
+			filter.reset();
+		s.turnX = x;
+		s.turnY = y;
+		// What is handed on is gone: both places start from it next time.
+		turnedX -= x;
+		turnedY -= y;
+		filter.shift(x, y);
+	}
+
+	// Motion starts again from here: no turn left to hand on.
+	void recentreMotion()
+	{
+		turnedX = turnedY = 0.f;
+		filter.reset();
+	}
+
 	// A light-gun game's gun follows the touch pad or the pad's motion, when
 	// that is chosen (the left stick moves it otherwise, which is Flycast's
 	// own). The gun's place is in the game's 640 x 480, as the stick gives it.
 	//  - Touch pad: the pad is the screen; the gun stays where the finger left.
 	//  - Motion: turning the pad left and right and tilting it up and down
-	//    moves the gun, a screen's width for about 40 degrees. It starts in
-	//    the middle, and a finger on the touch pad puts it back there.
+	//    moves the gun, a screen's width for about 40 degrees at 100% speed.
+	//    It starts in the middle, and a finger on the touch pad puts it back
+	//    there.
 	// The gun can leave the picture a little, which is how many of these
-	// games reload.
-	void aim(const PadData& raw)
+	// games reload; past that it stops, so turning back brings it in at once.
+	void aim(const PadData& raw, const State& s)
 	{
 		const int port = maple_port();
 		const bool gunGame = ::settings.input.lightgunGame
@@ -418,7 +522,6 @@ public:
 			aiming = true;
 			aimX = 320;
 			aimY = 240;
-			aimedAt = raw.timestamp;
 		}
 		if (LightGunAim == AimTouch)
 		{
@@ -430,24 +533,20 @@ public:
 		}
 		else
 		{
-			const float dt = std::clamp((float)((double)(raw.timestamp - aimedAt) / 1e6), 0.f, 0.05f);
 			if (raw.touchCount > 0)
 			{
 				aimX = 320;
 				aimY = 240;
+				recentreMotion();
 			}
 			else
 			{
-				// Turning to the left is a positive turn about the pad's
-				// upward axis, tilting its top toward the player one about
-				// its rightward axis. 917 pixels a radian: 640 for 40 degrees.
-				const float sideways = (MotionAimDirection & 1) != 0 ? 1.f : -1.f;
-				const float upward = (MotionAimDirection & 2) != 0 ? 1.f : -1.f;
-				aimX += sideways * raw.angularVelocity[1] * dt * 917.f;
-				aimY += upward * raw.angularVelocity[0] * dt * 917.f;
+				// 917 pixels a radian at 100%: 640 for 40 degrees.
+				const float perRadian = 917.f * std::clamp((int)MotionAimSpeed, 20, 300) / 100.f;
+				aimX += s.turnX * perRadian;
+				aimY += s.turnY * perRadian;
 			}
 		}
-		aimedAt = raw.timestamp;
 		aimX = std::clamp(aimX, -24.f, 663.f);
 		aimY = std::clamp(aimY, -18.f, 497.f);
 		mo_x_abs[port] = (s32)std::lround(aimX);
@@ -576,7 +675,9 @@ private:
 
 	bool aiming = false;	// a light gun follows the touch pad or the motion sensor
 	float aimX = 320, aimY = 240;
-	uint64_t aimedAt = 0;
+	uint64_t motionAt = 0;		// the motion sensor's last reading, in microseconds
+	float turnedX = 0, turnedY = 0;	// the turn not handed on yet, in radians
+	MotionFilter filter;
 	int touchWidth = 1920, touchHeight = 1080;
 	int lightBarShown = -1;	// 0 the console's own, 1 to 4 a player's colour
 	u32 stickHeld = 0;		// the d-pad directions the left stick holds
@@ -1033,8 +1134,9 @@ void poll()
 		shapeRight(i, s);
 		s.l2 = raw.l2 / 255.f;
 		s.r2 = raw.r2 / 255.f;
+		pad->motion(raw, s);
 		pad->feed(s, raw);
-		pad->aim(raw);
+		pad->aim(raw, s);
 		pad->lightBar(ps5::options().lightBar);
 		pad->update_rumble();
 	}
