@@ -33,6 +33,9 @@ Option<int> Cable("Dreamcast.Cable", 3);			// TV Composite
 Option<int> Region("Dreamcast.Region", 1);			// USA
 Option<int> Broadcast("Dreamcast.Broadcast", 0);	// NTSC
 Option<int> Language("Dreamcast.Language", 1);		// English
+// The console's sound setting, written to the flash's system settings on
+// every boot: games read it to play in mono or stereo.
+Option<bool> SoundMono("Dreamcast.SoundMono", false);	// stereo
 OptionString UILanguage("UILanguage", "");
 Option<bool> AutoLoadState("Dreamcast.AutoLoadState");
 Option<bool> AutoSaveState("Dreamcast.AutoSaveState");

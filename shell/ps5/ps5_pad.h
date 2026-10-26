@@ -151,6 +151,25 @@ extern config::Option<int> PadRightTurns;
 // the right stick is the mouse. Dreamcast games only.
 extern config::Option<int> PadRightTriggers;
 
+// What the Dreamcast gets plugged in when a game starts: what the Settings
+// (and the game's own options) say, or also what the game's disc lists in its
+// header (IP.BIN's peripherals field): a light gun in port A for a gun game, a
+// keyboard and a mouse in the first ports no player has, and in the
+// controller's second slot a microphone, a vibration pack or a memory card.
+// Overrides, for as long as the game is loaded: the Settings stay as they are.
+// A setting, and a game can have its own.
+enum { PeripheralsAsSettings, PeripheralsFromGame };
+extern config::Option<int> Peripherals;
+// The disc's peripherals field, a mask of the bits below; false when no
+// Dreamcast disc is loaded or the field is not a hex number.
+bool discPeripherals(u32& mask);
+enum : u32
+{
+	DiscWinCE = 1u << 0, DiscVga = 1u << 4, DiscOtherExpansion = 1u << 8, DiscVibration = 1u << 9,
+	DiscMicrophone = 1u << 10, DiscMemoryCard = 1u << 11, DiscGun = 1u << 25, DiscKeyboard = 1u << 26,
+	DiscMouse = 1u << 27,
+};
+
 // The profiles. Four are built in and cannot change; four are the player's own, kept in the
 // settings for every game. An input with anything but Controller on it is not the Dreamcast
 // controller's as well: nothing is pressed twice, and a profile that gives nothing away leaves

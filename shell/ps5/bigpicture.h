@@ -24,6 +24,9 @@ void library(bool selectDisk);	// GuiState::Main, GuiState::SelectDisk
 // this has it shown again.
 void showSplash();
 void quickMenu();				// GuiState::Commands
+// Once a frame: back to the library when the game went back to the console's
+// menu (the built-in BIOS has none to show).
+void returnedToMenuCheck();
 void settings();				// GuiState::Settings
 // GuiState::Loading: the game, what the loader is doing (`label`, or for a
 // network game what its share is doing) and how far it is, 0..1. True when the

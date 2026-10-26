@@ -25,12 +25,15 @@
 #include "imgread/common.h"
 #include "imgread/isofs.h"
 #include "hw/sh4/sh4_mmr.h"
+#include "hw/sh4/modules/mmu.h"
 #include "oslib/resources.h"
 #include "oslib/oslib.h"
 #include "oslib/i18n.h"
 #include "cfg/option.h"
+#include "emulator.h"
 
 #include <map>
+#include <memory>
 
 #define debugf(...) DEBUG_LOG(REIOS, __VA_ARGS__)
 
@@ -60,6 +63,31 @@ static void reios_pre_init()
 		base_fad = disc->GetBaseFAD();
 		descrambl = disc->type != GdRom;
 	}
+}
+
+// What the BIOS leaves at 0x8c000068 for SYSINFO_ID and the system info calls:
+// the console ID, the factory region string, and the clock, time zone,
+// language, sound (mono) and auto-start bytes of the system settings.
+static void writeSysInfo()
+{
+	u8 data[24] = {0};
+	// system id, from the flash at 0x1a056
+	for (u32 j = 0; j < 8; j++)
+		data[j] = flashrom->Read8(0x1a056 + j);
+
+	// system properties: the factory region string at 0x1a000
+	for (u32 j = 0; j < 5; j++)
+		data[8 + j] = flashrom->Read8(0x1a000 + j);
+
+	// system settings
+	flash_syscfg_block syscfg{};
+	int rc = static_cast<DCFlashChip*>(flashrom)->ReadBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg);
+	if (rc == 0)
+		WARN_LOG(REIOS, "Can't read system settings from flash");
+	else
+		memcpy(&data[16], &syscfg.time_lo, 8);
+
+	memcpy(GetMemPtr(0x8c000068, sizeof(data)), data, sizeof(data));
 }
 
 static bool reios_locate_bootfile(const char* bootfile)
@@ -115,29 +143,59 @@ static bool reios_locate_bootfile(const char* bootfile)
 		bootFile->read(dest, size, offset);
 	}
 
-	u8 data[24] = {0};
-	// system id
-	for (u32 j = 0; j < 8; j++)
-		data[j] = addrspace::read8(0x0021a056 + j);
-
-	// system properties
-	for (u32 j = 0; j < 5; j++)
-		data[8 + j] = addrspace::read8(0x0021a000 + j);
-
-	// system settings
-	flash_syscfg_block syscfg{};
-	int rc = static_cast<DCFlashChip*>(flashrom)->ReadBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg);
-	if (rc == 0)
-		WARN_LOG(REIOS, "Can't read system settings from flash");
-	else
-		memcpy(&data[16], &syscfg.time_lo, 8);
-
-	memcpy(GetMemPtr(0x8c000068, sizeof(data)), data, sizeof(data));
+	writeSysInfo();
 
 	return true;
 }
 
 ip_meta_t ip_meta;
+
+const ip_meta_t& currentDiscMeta()
+{
+	return ip_meta;
+}
+
+bool readDiscMeta(const std::string& path, ip_meta_t& meta)
+{
+	memset(&meta, 0, sizeof(meta));
+	std::unique_ptr<Disc> other;
+	try {
+		other.reset(OpenDisc(path));
+	} catch (const std::exception& e) {
+		WARN_LOG(REIOS, "Can't open disc %s: %s", path.c_str(), e.what());
+		return false;
+	}
+	if (other == nullptr)
+		return false;
+	u8 sector[2048];
+	other->ReadSectors(other->GetBaseFAD(), 1, sector, sizeof(sector));
+	memcpy(&meta, sector, sizeof(meta));
+	return meta.isDreamcast();
+}
+
+static std::string trimmedField(const char *field, size_t size)
+{
+	std::string s(field, size);
+	s = s.c_str();	// up to a null character, if there is one
+	return trim_trailing_ws(s);
+}
+
+bool sameDiscSet(const ip_meta_t& a, const ip_meta_t& b)
+{
+	if (!a.isDreamcast() || !b.isDreamcast())
+		return false;
+	if (a.discCount() < 2 || a.discCount() != b.discCount())
+		return false;
+	// The discs of a set mostly share their product number. Some number each
+	// disc, and share their name instead.
+	const std::string productA = trimmedField(a.product_number, sizeof(a.product_number));
+	const std::string productB = trimmedField(b.product_number, sizeof(b.product_number));
+	if (!productA.empty() && productA == productB)
+		return true;
+	const std::string nameA = trimmedField(a.software_name, sizeof(a.software_name));
+	const std::string nameB = trimmedField(b.software_name, sizeof(b.software_name));
+	return !nameA.empty() && nameA == nameB;
+}
 
 void reios_disk_id()
 {
@@ -169,18 +227,10 @@ static void reios_sys_system() {
 			debugf("reios_sys_system: SYSINFO_INIT");
 			// 0x00-0x07: system_id
 			// 0x08-0x0c: system_props
-			// 0x0d-0x17: padding (zeroed out)
-			u8 data[24] = {0};
-
-			// read system_id from 0x0001a056
-			for (u32 i  = 0; i < 8; i++)
-				data[i] = flashrom->Read8(0x1a056 + i);
-
-			// read system_props from 0x0001a000
-			for (u32 i  = 0; i < 5; i++)
-				data[8 + i] = flashrom->Read8(0x1a000 + i);
-
-			memcpy(GetMemPtr(0x8c000068, sizeof(data)), data, sizeof(data));
+			// 0x0d-0x0f: padding (zeroed out)
+			// 0x10-0x17: clock, time zone, language, mono and auto-start,
+			// the same as at boot
+			writeSysInfo();
 
 			p_sh4rcb->cntx.r[0] = 0;
 		}
@@ -190,7 +240,23 @@ static void reios_sys_system() {
 		debugf("reios_sys_system: SYSINFO_ICON");
 		// r4 = icon number (0-9, but only 5-9 seems to really be icons)
 		// r5 = destination buffer (704 bytes in size)
-		p_sh4rcb->cntx.r[0] = p_sh4rcb->cntx.r[4] > 9 ? -1 : 704;
+		if (p_sh4rcb->cntx.r[4] > 9)
+		{
+			p_sh4rcb->cntx.r[0] = -1;
+		}
+		else
+		{
+			// There is no BIOS art here: the icon is a blank one (all zero),
+			// so that the caller doesn't read what was in its buffer before.
+			const u32 dest = p_sh4rcb->cntx.r[5];
+			u8 *p = mmu_enabled() ? nullptr : GetMemPtr(dest, 704);
+			if (p != nullptr)
+				memset(p, 0, 704);
+			else
+				for (u32 i = 0; i < 704; i += 4)
+					WriteMem32(dest + i, 0);
+			p_sh4rcb->cntx.r[0] = 704;
+		}
 		break;
 
 	case 3: //SYSINFO_ID
@@ -358,16 +424,21 @@ static void reios_sys_misc()
 		VO_BORDER_COL.full = p_sh4rcb->cntx.r[0];
 		break;
 
-	case 1:	// Exit to BIOS menu
+	case (u32)-1:	// Reset
+	case 1:			// Exit to BIOS menu
+	case 3:			// Exit to CD menu
 		{
-			WARN_LOG(REIOS, "SYS_MISC 1");
+			// There is no BIOS menu or CD player here: the three restart the
+			// game when there is a disc, and otherwise stop it cleanly so that
+			// the frontend goes back to its own menu.
+			WARN_LOG(REIOS, "SYS_MISC %d", (int)p_sh4rcb->cntx.r[4]);
 			if (gdr::isLoaded()) {
 				// just restart the game
 				p_sh4rcb->cntx.pc = 0xa0000000;
 				os_notify(i18n::T("Reboot to BIOS"), 5000);
 			}
 			else {
-				throw FlycastException(i18n::Ts("Reboot to BIOS"));
+				throw ReturnToBiosException();
 			}
 		}
 		break;
@@ -379,15 +450,26 @@ static void reios_sys_misc()
 				p_sh4rcb->cntx.r[0] = -1;
 			}
 			else {
-				p_sh4rcb->cntx.r[0] = 0;
-				// Reload part of IP.BIN bootstrap
-				libGDR_ReadSector(GetMemPtr(0x8c008100, 0), base_fad, 7, 2048);
+				// The disc may have been changed since the game started: its
+				// first data sector and scrambling are this disc's.
+				reios_pre_init();
+				u8 buf[2048];
+				libGDR_ReadSector(buf, base_fad, 1, sizeof(buf));
+				ip_meta_t meta;
+				memcpy(&meta, buf, sizeof(meta));
+				if (diskType == CdDA || !meta.isDreamcast())
+				{
+					// An audio CD or another kind of disc: not a Dreamcast one
+					p_sh4rcb->cntx.r[0] = 1;
+				}
+				else
+				{
+					p_sh4rcb->cntx.r[0] = 0;
+					// Reload part of IP.BIN bootstrap
+					libGDR_ReadSector(GetMemPtr(0x8c008100, 0), base_fad, 7, 2048);
+				}
 			}
 		}
-		break;
-
-	case 3: // Exit to CD menu
-		WARN_LOG(REIOS, "SYS_MISC 3");
 		break;
 
 	default:

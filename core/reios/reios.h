@@ -40,7 +40,24 @@ struct ip_meta_t
 	bool supportsVGA() { return vga == '1'; }
 	bool isGDROM() const { return memcmp("GD-ROM", disk_type, 6) == 0; }
 	bool isMILCD() const { return memcmp("MIL CD", disk_type, 6) == 0; }
+	// Whether this is a Dreamcast disc's IP.BIN
+	bool isDreamcast() const { return memcmp("SEGA SEGAKATANA ", hardware_id, 16) == 0; }
+	// The disc's number in its set and the number of discs, from "1/2  ":
+	// 0 when not given
+	int discNumber() const { return disk_num[0] >= '1' && disk_num[0] <= '9' && disk_num[1] == '/' ? disk_num[0] - '0' : 0; }
+	int discCount() const { return disk_num[1] == '/' && disk_num[2] >= '1' && disk_num[2] <= '9' ? disk_num[2] - '0' : 0; }
 };
 extern ip_meta_t ip_meta;
+
+// The IP.BIN of the disc in the drive. It is read again whenever a disc is
+// inserted (Emulator::insertGdrom) or the lid is opened (all zero then).
+const ip_meta_t& currentDiscMeta();
+// Reads the IP.BIN of a disc image without inserting it, for a frontend
+// looking for the other discs of the running game. False if the image can't
+// be opened or isn't a Dreamcast disc.
+bool readDiscMeta(const std::string& path, ip_meta_t& meta);
+// Whether two discs are discs of one game's set: Dreamcast discs with the same
+// number of discs (2 or more), and the same product number or name.
+bool sameDiscSet(const ip_meta_t& a, const ip_meta_t& b);
 
 #define REIOS_OPCODE 0x085B

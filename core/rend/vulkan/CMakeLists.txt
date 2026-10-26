@@ -22,8 +22,11 @@ target_sources(${PROJECT_NAME} PRIVATE
         drawer.h
         pipeline.cpp
         pipeline.h
+        pvr_facts.cpp
+        ../pvr_facts.h
         quad.cpp
         quad.h
+        rtt_quantize.h
         shaders.cpp
         shaders.h
         texture.cpp

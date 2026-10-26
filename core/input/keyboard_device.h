@@ -23,7 +23,9 @@
 #include "ui/gui.h"
 #include "hw/maple/maple_devs.h"
 #include "oslib/i18n.h"
+#include <algorithm>
 #include <memory>
+#include <vector>
 
 extern u8 kb_key[4][6];	// normal keys pressed
 extern u8 kb_shift[4];	// modifier keys pressed (bitmask)
@@ -142,34 +144,19 @@ protected:
 			gui_keyboard_key(keycode, pressed);
 			if (keycode < 0xE0 && portIsValid)
 			{
+				// Every key held is remembered, not only the first six, so that the
+				// report is right again once enough of them are released.
+				auto it = std::find(_held.begin(), _held.end(), keycode);
 				if (pressed)
 				{
-					if (_kb_used < std::size(kb_key[port]))
-					{
-						bool found = false;
-						for (u32 i = 0; !found && i < _kb_used; i++)
-						{
-							if (kb_key[port][i] == keycode)
-								found = true;
-						}
-						if (!found)
-							kb_key[port][_kb_used++] = keycode;
-					}
+					if (it == _held.end())
+						_held.push_back(keycode);
 				}
-				else
+				else if (it != _held.end())
 				{
-					for (u32 i = 0; i < _kb_used; i++)
-					{
-						if (kb_key[port][i] == keycode)
-						{
-							_kb_used--;
-							for (u32 j = i; j < std::size(kb_key[port]) - 1; j++)
-								kb_key[port][j] = kb_key[port][j + 1];
-							kb_key[port][std::size(kb_key[port]) - 1] = 0;
-							break;
-						}
-					}
+					_held.erase(it);
 				}
+				updateKeyReport(port);
 				kb_shift[port] |= modifier_keys;
 			}
 		}
@@ -496,7 +483,25 @@ private:
 			v &= ~bitmask;
 	}
 
+	// The Dreamcast keyboard reports at most six normal keys. With more than
+	// six held it cannot say which ones are down, so, like a USB keyboard, it
+	// fills every key slot with the "error rollover" code (01h) instead; the
+	// game then ignores that report rather than seeing a key released. The
+	// modifier keys are a separate bitmask and are still reported.
+	void updateKeyReport(int port)
+	{
+		constexpr u8 ErrorRollOver = 0x01;
+		constexpr size_t Slots = std::size(kb_key[0]);
+		for (size_t i = 0; i < Slots; i++)
+		{
+			if (_held.size() > Slots)
+				kb_key[port][i] = ErrorRollOver;
+			else
+				kb_key[port][i] = i < _held.size() ? _held[i] : 0;
+		}
+	}
+
 	int _modifier_keys = 0;
-	u32 _kb_used = 0;
+	std::vector<u8> _held;		// normal keys held, oldest first
 	bool bypass_kb = false;
 };

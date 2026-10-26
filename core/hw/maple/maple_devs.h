@@ -185,6 +185,10 @@ struct maple_device : public std::enable_shared_from_this<maple_device>
 	virtual bool get_lightgun_pos() { return false; }
 	virtual const void *getData(size_t& size) const { size = 0; return nullptr; }
 	virtual bool linkStatus() { return true; }
+	// Called just before the device is pulled out while a game runs
+	// (maple_unplug_expansion), to stop what it was doing for the host: a
+	// vibration pack's motor, a VMU's beep.
+	virtual void unplugged() {}
 };
 
 std::shared_ptr<maple_device> maple_Create(MapleDeviceType type);
@@ -295,6 +299,8 @@ struct maple_base: maple_device
 };
 
 void createMapleLinkVmu(int bus, int port);
+// A VMU plugged in fresh: its clock starts again from the host's time.
+void maple_vmuClockReset(int bus, int port);
 
 struct BaseMIE : public maple_base
 {

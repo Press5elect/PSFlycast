@@ -20,6 +20,7 @@
 */
 #include "vulkan.h"
 #include "vulkan_renderer.h"
+#include "rend/pvr_facts.h"
 #ifdef USE_PS5
 #include "ps5_texdump.h"
 #endif
@@ -225,6 +226,8 @@ bool BaseVulkanRenderer::softwareProcess(TA_context *ctx)
 		const bool saved;
 	} noBleedingFix;
 	ta_parse(ctx, true);
+	// The game's graphics facts for the boot log (rend/pvr_facts.h): register reads, and a polygon count now and then
+	pvrFactsCollect(ctx->rend);
 #ifdef USE_PS5
 	// Textures the game dumper decoded in this frame are sorted by how they were drawn.
 	ps5::texdump::frame(ctx->rend);
@@ -333,6 +336,8 @@ void BaseVulkanRenderer::Process(TA_context* ctx)
 		GetContext()->setSwapInterval(ctx->rend.swapInterval);
 
 	ta_parse(ctx, true);
+	// The game's graphics facts for the boot log (rend/pvr_facts.h): register reads, and a polygon count now and then
+	pvrFactsCollect(ctx->rend);
 
 	// TODO can't update fog or palette twice in multi render
 	CheckFogTexture();

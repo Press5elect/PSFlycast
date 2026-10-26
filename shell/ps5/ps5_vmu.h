@@ -14,14 +14,17 @@
 	given is still where the description says, and changes nothing when it is
 	not.
 
-	NOT WHILE A GAME IS LOADED. Flycast reads a card into memory when the game
-	starts and keeps its file open until the game is unloaded
-	(maple_sega_vmu::OnSetup, Emulator::unloadGame). A card changed here in
-	between is replaced by a new file, so the game goes on writing to the old
-	one, which no longer has a name: what it saves from then on is lost, and it
-	never sees the change. cards(), list() and inspect() are harmless then but
-	may show a card the game has half written; remove(), copy(), importSave()
-	and format() must wait until the game is unloaded.
+	NOT A CARD IN A SLOT. Flycast reads a card into memory when it goes into a
+	slot (the game starting, or a card swapped in from the quick menu,
+	maple_plug_expansion) and keeps its file open until it comes out (the game
+	unloaded, or the card pulled out, maple_unplug_expansion). A card changed
+	here in between is replaced by a new file, so the game goes on writing to
+	the old one, which no longer has a name: what it saves from then on is
+	lost, and it never sees the change. cards(), list() and inspect() are
+	harmless then but may show a card the game has half written; remove(),
+	copy(), importSave() and format() are only for cards that are in no slot:
+	every card while no game is loaded, and while one is, those that no slot of
+	it has (one pulled out by a swap is in none until it goes in again).
 */
 #pragma once
 
@@ -93,9 +96,9 @@ struct Save
 	std::string longDesc;		// what the Dreamcast's file manager shows (32 bytes)
 	std::string application;	// the program that made it, as it names itself (16 bytes)
 	Type type = Type::Data;
-	// The game asked that the Dreamcast's file manager refuse to copy it.
-	// Nothing here refuses: copy() and exportSave() repeat the flag in their
-	// Result, for the screen to say so.
+	// The game asked that the Dreamcast's file manager refuse to copy it. That
+	// was the console's own file manager's rule, not the game's: nothing here
+	// refuses or warns, and a copy keeps the flag as it is.
 	bool copyProtected = false;
 	int blocks = 0;				// its size
 	Date date;
@@ -138,9 +141,6 @@ struct Result
 	// Plain English, for the user: what went wrong ("Not enough free blocks:
 	// needs 12, the card has 5."), or what was done.
 	std::string message;
-	// The save has the copy-protect flag (copy() and exportSave(), done or
-	// not): the Dreamcast itself would have refused.
-	bool copyProtected = false;
 	// exportSave(): the .vmi it wrote, which is what importSave() takes.
 	std::string path;
 
@@ -166,9 +166,20 @@ std::vector<Save> list(const Card& card);
 // Deletes a save: its blocks are free again and its directory entry is empty.
 Result remove(const Card& card, const Save& save);
 
-// Copies a save to another card, byte for byte, with its date and its flags.
-// Refused when the destination has a file of that name or too few free blocks.
-Result copy(const Card& from, const Save& save, const Card& to);
+// Copies a save to another card, byte for byte, with its date and its flags
+// (the copy-protect flag too, which refuses nothing here). A file of that name
+// on the destination is replaced with replace, and refused (NameExists)
+// without; too few free blocks are refused.
+Result copy(const Card& from, const Save& save, const Card& to, bool replace = false);
+// Several saves of one card at once, as one change of the destination: all
+// of them or none.
+Result copy(const Card& from, const std::vector<Save>& saves, const Card& to, bool replace = false);
+
+// The saves of one game: those whose names share their first GameNameLength
+// characters (a game names its files with its product code, "T1234N_00",
+// "T1234N_01"). From saves, a card's list; the save given is among them.
+constexpr size_t GameNameLength = 9;
+std::vector<Save> sameGame(const std::vector<Save>& saves, const Save& save);
 
 // Writes a save to a folder (made when only its last part is missing) as <name>.vms, the
 // save's blocks as they are, and <name>.vmi, the small file that says what it

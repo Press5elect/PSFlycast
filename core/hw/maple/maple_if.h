@@ -11,3 +11,8 @@ void maple_ReconnectDevices();
 void maple_ReconnectDevice(int bus, int port);
 
 void maple_vblank();
+
+// How many Maple frames each bus has been sent since the emulator started (it
+// wraps). Used to tell that a game has seen a change on a bus, such as a memory
+// card pulled out (maple_unplug_expansion).
+extern u32 maple_busFrames[MAPLE_PORTS];

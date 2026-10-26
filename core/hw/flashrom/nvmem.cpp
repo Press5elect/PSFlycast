@@ -21,6 +21,7 @@
 #include "cfg/option.h"
 #include "hw/aica/aica_if.h"
 #include "reios/reios.h"
+#include "emulator.h"
 #include "oslib/oslib.h"
 #include "oslib/resources.h"
 
@@ -148,9 +149,33 @@ static void add_isp_to_nvmem(DCFlashChip *flash, const char *username)
 	}
 }
 
+// Whether sys_nvmem holds a Dreamcast flash that was loaded and checked, for
+// flashRegion() and consoleLanguage().
+static bool dcFlashLoaded;
+
+int flashRegion()
+{
+	if (!dcFlashLoaded || sys_nvmem == nullptr)
+		return -1;
+	const u8 c = sys_nvmem->data[0x1a002];
+	return c >= '0' && c <= '2' ? c - '0' : -1;
+}
+
+int consoleLanguage()
+{
+	if (!dcFlashLoaded || sys_nvmem == nullptr)
+		return -1;
+	flash_syscfg_block syscfg;
+	if (!static_cast<DCFlashChip*>(sys_nvmem)->ReadBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg))
+		return 0xff;
+	return syscfg.lang;
+}
+
 static void fixUpDCFlash()
 {
-	static_cast<DCFlashChip*>(sys_nvmem)->Validate();
+	DCFlashChip *flash = static_cast<DCFlashChip*>(sys_nvmem);
+	flash->Validate();
+	dcFlashLoaded = true;
 
 	// overwrite factory flash settings
 	if (config::Region <= 2)
@@ -158,10 +183,21 @@ static void fixUpDCFlash()
 		sys_nvmem->data[0x1a002] = '0' + config::Region;
 		sys_nvmem->data[0x1a0a2] = '0' + config::Region;
 	}
-	if (config::Language <= 5)
+	// A broadcast standard or language that follows the game is decided by
+	// the region. Most were decided when the disc was read; what needs the
+	// flash (no region on the disc, or the console's language for a European
+	// game) is decided now that it is loaded.
+	resolveFollowSettings();
+
+	// The factory region string is "00000" on a Japanese console, "00110" on
+	// an American one and "00211" on a European one: its fourth character is
+	// 0 in Japan and 1 elsewhere. It isn't the language, which the system
+	// settings below hold, and the BIOS and some games check the whole string.
+	const int region = flashRegion();
+	if (region >= 0)
 	{
-		sys_nvmem->data[0x1a003] = '0' + config::Language;
-		sys_nvmem->data[0x1a0a3] = '0' + config::Language;
+		sys_nvmem->data[0x1a003] = region == 0 ? '0' : '1';
+		sys_nvmem->data[0x1a0a3] = region == 0 ? '0' : '1';
 	}
 	if (config::Broadcast <= 3)
 	{
@@ -171,7 +207,7 @@ static void fixUpDCFlash()
 
 	// overwrite user settings
 	struct flash_syscfg_block syscfg;
-	int res = static_cast<DCFlashChip*>(sys_nvmem)->ReadBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg);
+	int res = flash->ReadBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg);
 
 	if (!res)
 	{
@@ -180,7 +216,9 @@ static void fixUpDCFlash()
 		syscfg.time_lo = 0;
 		syscfg.time_hi = 0;
 		syscfg.time_zone = 0;
-		syscfg.lang = 0;
+		// A new console speaks its region's language: Japanese in Japan,
+		// English elsewhere.
+		syscfg.lang = region == 0 ? 0 : 1;
 		syscfg.mono = 0;
 		syscfg.autostart = 1;
 	}
@@ -189,9 +227,11 @@ static void fixUpDCFlash()
 	syscfg.time_hi = now >> 16;
 	if (config::Language <= 5)
 		syscfg.lang = config::Language;
+	// The sound setting is the user's on every boot: 0 stereo, 1 mono.
+	syscfg.mono = config::SoundMono ? 1 : 0;
 
-	if (static_cast<DCFlashChip*>(sys_nvmem)->WriteBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg) != 1)
-		WARN_LOG(FLASHROM, "Failed to save time and language to flash RAM");
+	if (flash->WriteBlock(FLASH_PT_USER, FLASH_USER_SYSCFG, &syscfg) != 1)
+		WARN_LOG(FLASHROM, "Failed to save time, language and sound to flash RAM");
 
 	add_isp_to_nvmem(static_cast<DCFlashChip*>(sys_nvmem), config::ISPUsername.get().c_str());
 
@@ -364,6 +404,7 @@ u8 *getBiosData()
 
 void init()
 {
+	dcFlashLoaded = false;
 	switch (settings.platform.system)
 	{
 	case DC_PLATFORM_DREAMCAST:
@@ -389,6 +430,7 @@ void init()
 
 void term()
 {
+	dcFlashLoaded = false;
 	delete sys_rom;
 	sys_rom = nullptr;
 	delete sys_nvmem;

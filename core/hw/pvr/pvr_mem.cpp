@@ -10,6 +10,7 @@
 #include "hw/holly/sb.h"
 #include "hw/holly/holly_intc.h"
 #include "serialize.h"
+#include "rend/pvr_facts.h"
 
 RamRegion vram;
 
@@ -37,18 +38,35 @@ void YUV_init()
 	YUV_blockcount = (TA_YUV_TEX_CTRL.yuv_u_size + 1) * (TA_YUV_TEX_CTRL.yuv_v_size + 1);
 
 	if (TA_YUV_TEX_CTRL.yuv_tex == 1)
-		// (yuv_u_size + 1) * (yuv_v_size + 1) textures of 16 x 16 texels
-		WARN_LOG(PVR, "YUV: Not supported configuration yuv_tex=1");
+	{
+		// Multi-texture mode: (yuv_u_size + 1) * (yuv_v_size + 1) textures of 16 x 16 texels, one
+		// after the other (YUV_ConvertMacroBlock)
+		static bool logged;
+		if (!logged)
+		{
+			logged = true;
+			INFO_LOG(PVR, "YUV: converter in multi-texture mode (yuv_tex=1), %d 16x16 textures per sequence", YUV_blockcount);
+		}
+	}
 
 	YUV_x_size = (TA_YUV_TEX_CTRL.yuv_u_size + 1) * 16;
 	YUV_y_size = (TA_YUV_TEX_CTRL.yuv_v_size + 1) * 16;
 	YUV_index = 0;
 }
 
+// Texels per line of the texture being written: the whole picture's width, or 16 in multi-texture
+// mode (TA_YUV_TEX_CTRL.yuv_tex = 1), where each macroblock is a texture of its own. Taken from the
+// register for each macroblock so that savestates need no new field.
+static u32 YUV_lineTexels()
+{
+	return TA_YUV_TEX_CTRL.yuv_tex == 1 ? 16 : YUV_x_size;
+}
+
 static void YUV_Block8x8(const u8* inuv, const u8* iny, u8* out)
 {
+	const u32 lineTexels = YUV_lineTexels();
 	u8* line_out_0=out+0;
-	u8* line_out_1=out+YUV_x_size*2;
+	u8* line_out_1=out+lineTexels*2;
 
 	for (int y=0;y<8;y+=2)
 	{
@@ -76,8 +94,8 @@ static void YUV_Block8x8(const u8* inuv, const u8* iny, u8* out)
 		iny+=8;
 		inuv+=4;
 
-		line_out_0+=YUV_x_size*4-8*2;
-		line_out_1+=YUV_x_size*4-8*2;
+		line_out_0+=lineTexels*4-8*2;
+		line_out_1+=lineTexels*4-8*2;
 	}
 }
 
@@ -86,11 +104,12 @@ static void YUV_Block384(const u8 *in, u8 *out)
 	const u8 *inuv = in;
 	const u8 *iny = in + 128;
 	u8* p_out = out;
+	const u32 lineTexels = YUV_lineTexels();
 
 	YUV_Block8x8(inuv+ 0,iny+  0,p_out);                    //(0,0)
 	YUV_Block8x8(inuv+ 4,iny+64,p_out+8*2);                 //(8,0)
-	YUV_Block8x8(inuv+32,iny+128,p_out+YUV_x_size*8*2);     //(0,8)
-	YUV_Block8x8(inuv+36,iny+192,p_out+YUV_x_size*8*2+8*2); //(8,8)
+	YUV_Block8x8(inuv+32,iny+128,p_out+lineTexels*8*2);     //(0,8)
+	YUV_Block8x8(inuv+36,iny+192,p_out+lineTexels*8*2+8*2); //(8,8)
 }
 
 static void YUV_ConvertMacroBlock(const u8 *datap)
@@ -99,6 +118,16 @@ static void YUV_ConvertMacroBlock(const u8 *datap)
 	TA_YUV_TEX_CNT++;
 
 	YUV_Block384(datap, &vram[YUV_dest]);
+
+	if (TA_YUV_TEX_CTRL.yuv_tex == 1)
+	{
+		// Multi-texture mode: the macroblock was a whole 16x16 texture (16 lines of 32 bytes); the next
+		// one starts right after it
+		YUV_dest = (YUV_dest + 16 * 16 * 2) & VRAM_MASK;
+		if (YUV_blockcount == TA_YUV_TEX_CNT)
+			asic_RaiseInterrupt(holly_YUV_DMA);
+		return;
+	}
 
 	YUV_dest+=32;
 
@@ -164,6 +193,12 @@ static void YUV_data(const SQBuffer *data, u32 count)
 			count = 0;
 		}
 	}
+}
+
+// Whether the converter has been started since the last reset (rend/pvr_facts.h)
+bool YUV_active()
+{
+	return YUV_blockcount != 0;
 }
 
 void YUV_serialize(Serializer& ser)

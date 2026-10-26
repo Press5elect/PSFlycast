@@ -225,6 +225,7 @@ public:
 	}
 	void Term()
 	{
+		rttQuantizer.term();
 		framebuffer.reset();
 		colorAttachment.reset();
 		rttPipelineManager.reset();
@@ -250,4 +251,8 @@ private:
 	vk::UniqueFramebuffer framebuffer;
 
 	TextureCache *textureCache = nullptr;
+	// Packs the result to the game's 16-bit format (rend.Original16BitColour, rtt_quantize.h)
+	RttQuantizer rttQuantizer;
+	int pvrWidth = 0;
+	int pvrHeight = 0;
 };

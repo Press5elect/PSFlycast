@@ -5,6 +5,7 @@
 #include "hw/sh4/sh4_sched.h"
 #include "serialize.h"
 #include "oslib/i18n.h"
+#include "reios/reios.h"
 
 Disc* chd_parse(const char* file, std::vector<u8> *digest);
 Disc* gdi_parse(const char* file, std::vector<u8> *digest);
@@ -173,6 +174,8 @@ void openLid()
 	termDrive();
 	NullDriveDiscType = Open;
 	gd_setdisc();
+	// No disc: its IP.BIN is gone too
+	reios_disk_id();
 }
 
 static bool doDiscSwap(const std::string& path)
@@ -397,6 +400,10 @@ void insertDisk(const std::string& path)
 	if (!doDiscSwap(path))
 		throw FlycastException(i18n::Ts("This media cannot be loaded"));
 	settings.content.path = path;
+	// The new disc's IP.BIN, first data sector and scrambling: the BIOS
+	// disc check and the drive status are about this disc from now on,
+	// not the one the game started with.
+	reios_disk_id();
 	// Drive is busy after the lid was closed
 	sns_asc = 4;
 	sns_ascq = 1;

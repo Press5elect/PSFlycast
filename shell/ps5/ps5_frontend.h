@@ -86,6 +86,15 @@ extern config::Option<int> MicVolume;
 extern config::Option<int> FrameGeneration;
 extern config::Option<int> FrameGenMethod;
 extern config::Option<bool> FrameGenDebug;
+// Fast forward: how fast the game may run, in times its own speed (0 for as
+// fast as it can, as before; ps5_timing.cpp holds the frames back), and
+// whether its sound plays meanwhile, quieter and with what cannot keep up
+// left out (ps5_audio.cpp). Settings, the same for every game.
+extern config::Option<int> FastForwardSpeed;
+extern config::Option<bool> FastForwardSound;
+// Whether the emulated sound chip should still make sound while fast
+// forward is on (core/hw/aica/sgc_if.cpp asks): the setting above.
+bool fastForwardSound();
 
 extern std::vector<std::string> usbDirs;	// game folders found on USB drives
 

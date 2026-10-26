@@ -24,6 +24,7 @@
 #include "rend/TexCache.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
@@ -142,9 +143,22 @@ public:
 		// and kept for as long as the renderer lives, which on the PS5 is from one game to the next, so
 		// a level changed for the next game, or in a game's options, would otherwise reach only the
 		// samplers not made yet. The old ones stay for the frames still using them.
-		const u32 anisotropy = (u32)std::clamp((int)config::AnisotropicFiltering, 1, 31);
+		u32 anisotropy = (u32)std::clamp((int)config::AnisotropicFiltering, 1, 31);
+		// With rend.AccurateMipmaps (the original texture behaviour), the global anisotropic level is not
+		// used: a polygon gets the PowerVR2's super-sampling filter only when its TSP asks for it
+		// (SupSample, bit 12, which TSP_Mask leaves out otherwise), as 4x anisotropy, and none else.
+		// The level field then stays 0 so that changing the global option makes no new samplers.
+		const bool superSample = accurateMipmaps && tsp.SupSample;
+		if (accurateMipmaps)
+			anisotropy = 0;
+		// And the internal resolution: the hardware computes the mip level D in native (640x480)
+		// pixels, the GPU in pixels of the render, which at N times the native size are N times smaller
+		// in texture space, so the GPU picks levels log2(N) finer. The scale of the pass being drawn
+		// (setRenderScale) moves them back, in 1/16 steps (bits 24-31).
+		const u32 scaleSteps = accurateMipmaps ? renderScaleSteps : 0;
 		const u32 samplerHash = (tsp.full & TSP_Mask) | punchThrough	// MipMapD, FilterMode, ClampU, ClampV, FlipU, FlipV
-				| ((u32)accurateMipmaps << 1) | (anisotropy << 19);
+				| ((u32)accurateMipmaps << 1) | (anisotropy << 19)
+				| ((u32)superSample << 12) | (scaleSteps << 24);
 		const auto& it = samplers.find(samplerHash);
 		if (it != samplers.end())
 			return it->second.get();
@@ -159,8 +173,15 @@ public:
 		// BestPractices-Arm-vkCreateSampler-different-wrapping-modes
 		const vk::SamplerAddressMode wRepeat = vRepeat;
 
-		const bool anisotropicFiltering = config::AnisotropicFiltering > 1 && VulkanContext::Instance()->SupportsSamplerAnisotropy()
+		bool anisotropicFiltering = config::AnisotropicFiltering > 1 && VulkanContext::Instance()->SupportsSamplerAnisotropy()
 				&& filter == vk::Filter::eLinear && !punchThrough;
+		float maxAnisotropy = std::min((float)config::AnisotropicFiltering, VulkanContext::Instance()->GetMaxSamplerAnisotropy());
+		if (accurateMipmaps)
+		{
+			anisotropicFiltering = superSample && VulkanContext::Instance()->SupportsSamplerAnisotropy()
+					&& filter == vk::Filter::eLinear && !punchThrough;
+			maxAnisotropy = std::min(4.f, VulkanContext::Instance()->GetMaxSamplerAnisotropy());
+		}
 #ifndef __APPLE__
 		float mipLodBias = D_Adjust_LoD_Bias[tsp.MipMapD] - 1.f;
 		if (accurateMipmaps)
@@ -169,7 +190,7 @@ public:
 			// Multiplying D by k moves the level by log2(k). 0 is not a valid value; it is taken as 1.0
 			// (no adjustment), as the old table does (its entries 0 and 4 are the same).
 			const u32 dAdjust = tsp.MipMapD == 0 ? 4 : tsp.MipMapD;
-			mipLodBias = std::log2(dAdjust / 4.f);
+			mipLodBias = std::log2(dAdjust / 4.f) + scaleSteps / 16.f;
 		}
 #else
 		// not supported by metal
@@ -185,14 +206,23 @@ public:
 					std::make_pair(samplerHash, VulkanContext::Instance()->GetDevice().createSamplerUnique(
 						vk::SamplerCreateInfo(vk::SamplerCreateFlags(), filter, filter,
 							mipmapMode, uRepeat, vRepeat, wRepeat, mipLodBias,
-							anisotropicFiltering, std::min((float)config::AnisotropicFiltering, VulkanContext::Instance()->GetMaxSamplerAnisotropy()),
+							anisotropicFiltering, maxAnisotropy,
 							false, vk::CompareOp::eNever,
 							0.0f, vk::LodClampNone, vk::BorderColor::eFloatOpaqueBlack)))).first->second.get();
 	}
 	static const u32 TSP_Mask = 0x7ef00;
 
+	// The internal resolution of the pass about to be drawn: its render size over the native size of
+	// the same picture (1 at native resolution). Only used with rend.AccurateMipmaps.
+	void setRenderScale(float scale)
+	{
+		const float steps = scale > 1.f ? std::round(std::log2(scale) * 16.f) : 0.f;
+		renderScaleSteps = (u32)std::min(steps, 255.f);
+	}
+
 private:
 	std::map<u32, vk::UniqueSampler> samplers;
+	u32 renderScaleSteps = 0;	// log2 of the render scale in 1/16 steps
 };
 
 class FramebufferAttachment

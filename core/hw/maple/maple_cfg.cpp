@@ -23,6 +23,8 @@ extern std::vector<std::pair<u32, std::vector<u32>>> mapleDmaOut;
 extern bool SDCKBOccupied;
 extern int maple_schid;
 
+static void clearPendingPlugs();
+
 void (*MapleConfigMap::UpdateVibration)(u32 port, float power, float inclination, u32 duration_ms);
 
 static u8 GetBtFromSgn(s16 val)
@@ -489,6 +491,7 @@ static void vmuDigest()
 
 void mcfg_CreateDevices()
 {
+	clearPendingPlugs();
 #ifdef USE_PS5
 	// A controller for each port a second, third or fourth pad is on (ps5_pad.cpp).
 	ps5::pad::plugPorts();
@@ -520,9 +523,146 @@ void mcfg_CreateDevices()
 	vmuDigest();
 }
 
+/*
+	Memory card hot-swap (maple_unplug_expansion, maple_plug_expansion).
+
+	A plug asked for waits here until the game has had a chance to see the slot
+	empty: at least one Maple frame sent to that port since it emptied, and a
+	tenth of a second, about as quick as a hand can swap a card. A game that polls
+	every frame (most do) sees the slot empty for several frames.
+*/
+namespace {
+struct ExpansionSlotState
+{
+	u32 framesAtUnplug = 0;		// maple_busFrames[port] when the slot emptied
+	u64 unpluggedAt = 0;		// SH4 cycle it emptied at, 0 when not unplugged here
+	MapleDeviceType pending = MDT_None;	// what to plug in once due
+	std::string pendingFile;			// the card file it opens (empty: the slot's own)
+};
+}
+static ExpansionSlotState expansionSlots[MAPLE_PORTS][2];
+// The card file each slot's VMU opens instead of its usual one, chosen when a
+// card is swapped in while a game runs (the console has no file links to do it).
+static std::string vmuFiles[MAPLE_PORTS][2];
+
+std::string maple_vmuFileFor(int port, int slot)
+{
+	if (port < 0 || port >= MAPLE_PORTS || slot < 0 || slot >= 2)
+		return {};
+	return vmuFiles[port][slot];
+}
+
+static void clearPendingPlugs()
+{
+	for (auto& port : expansionSlots)
+		for (auto& slot : port)
+			slot = ExpansionSlotState{};
+	// Devices made again take their slot's usual card.
+	for (auto& port : vmuFiles)
+		for (auto& file : port)
+			file.clear();
+}
+
+static bool expansionSlotValid(int port, int slot)
+{
+	if (!settings.platform.isConsole())
+		return false;
+	if (port < 0 || port >= MAPLE_PORTS || slot < 0 || slot >= 2)
+		return false;
+	const auto& main = MapleDevices[port][5];
+	if (main == nullptr)
+		return false;
+	return slot < maple_getPortCount(main->get_device_type(), MaplePortType::user_accessible);
+}
+
+bool maple_unplug_expansion(int port, int slot)
+{
+	if (!expansionSlotValid(port, slot) || config::GGPOEnable)
+		return false;
+	ExpansionSlotState& state = expansionSlots[port][slot];
+	std::shared_ptr<maple_device>& dev = MapleDevices[port][slot];
+	if (dev == nullptr)
+	{
+		// Pulling out a card that was only about to go in cancels it.
+		bool wasPending = state.pending != MDT_None;
+		state.pending = MDT_None;
+		return wasPending;
+	}
+	INFO_LOG(MAPLE, "Unplugging expansion device %c%d", 'A' + port, slot + 1);
+	dev->unplugged();
+	dev.reset();
+	state.framesAtUnplug = maple_busFrames[port];
+	state.unpluggedAt = std::max<u64>(sh4_sched_now64(), 1);
+	state.pending = MDT_None;
+	return true;
+}
+
+static void plugNow(int port, int slot, MapleDeviceType type, const std::string& file)
+{
+	vmuFiles[port][slot] = type == MDT_SegaVMU ? file : std::string();
+	INFO_LOG(MAPLE, "Plugging expansion device type %d into %c%d", type, 'A' + port, slot + 1);
+	if (type == MDT_SegaVMU)
+		maple_vmuClockReset(port, slot);
+	mcfg_Create(type, port, slot);
+	expansionSlots[port][slot] = ExpansionSlotState{};
+}
+
+static bool plugDue(int port, const ExpansionSlotState& state)
+{
+	if (state.unpluggedAt == 0)
+		// Empty since the devices were made: nothing has been seen there, so
+		// there is nothing for the game to miss.
+		return true;
+	return maple_busFrames[port] != state.framesAtUnplug
+			&& sh4_sched_now64() >= state.unpluggedAt + SH4_MAIN_CLOCK / 10;
+}
+
+bool maple_plug_expansion(int port, int slot, MapleDeviceType type, const std::string& vmuFile)
+{
+	if (type != MDT_SegaVMU && type != MDT_PurupuruPack)
+		return false;
+	if (!expansionSlotValid(port, slot) || config::GGPOEnable)
+		return false;
+	if (MapleDevices[port][slot] != nullptr)
+		return false;
+	ExpansionSlotState& state = expansionSlots[port][slot];
+	if (plugDue(port, state))
+		plugNow(port, slot, type, vmuFile);
+	else
+	{
+		state.pending = type;
+		state.pendingFile = vmuFile;
+	}
+	return true;
+}
+
+MapleDeviceType maple_expansion_device(int port, int slot)
+{
+	if (port < 0 || port >= MAPLE_PORTS || slot < 0 || slot >= 2 || MapleDevices[port][slot] == nullptr)
+		return MDT_None;
+	return MapleDevices[port][slot]->get_device_type();
+}
+
+void maple_handlePendingPlugs()
+{
+	for (int port = 0; port < MAPLE_PORTS; port++)
+		for (int slot = 0; slot < 2; slot++)
+		{
+			ExpansionSlotState& state = expansionSlots[port][slot];
+			if (state.pending == MDT_None || !plugDue(port, state))
+				continue;
+			if (!expansionSlotValid(port, slot) || MapleDevices[port][slot] != nullptr)
+				// The controller went, or the slot was filled another way.
+				state = ExpansionSlotState{};
+			else
+				plugNow(port, slot, state.pending, state.pendingFile);
+		}
+}
+
 // Don't destroy the JVS MIE if full is false
 void mcfg_DestroyDevices(bool full)
 {
+	clearPendingPlugs();
 	for (int i = 0; i < MAPLE_PORTS; i++)
 		for (int j = 0; j <= 5; j++)
 		{
@@ -564,6 +704,7 @@ void mcfg_DeserializeDevices(Deserializer& deser)
 {
 	if (!deser.rollback())
 		mcfg_DestroyDevices(false);
+	clearPendingPlugs();
 	deser >> maple_ddt_pending_reset;
 	if (deser.version() >= Deserializer::V47)
 		deser >> SDCKBOccupied;

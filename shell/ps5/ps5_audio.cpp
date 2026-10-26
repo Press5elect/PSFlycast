@@ -69,6 +69,12 @@ namespace ps5
 config::Option<bool> SyncToDisplay("SyncToDisplay", true, "ps5");
 config::Option<int> VmuSoundOutput("VmuSoundOutput", 1, "ps5");
 config::Option<int> MicVolume("MicVolume", 50, "ps5");
+config::Option<bool> FastForwardSound("FastForwardSound", false, "ps5");
+
+bool fastForwardSound()
+{
+	return FastForwardSound;
+}
 }
 
 namespace
@@ -392,6 +398,22 @@ public:
 	u32 push(const void *data, u32 frames, bool wait) override
 	{
 		const s16 *in = static_cast<const s16 *>(data);
+		// Fast forward with its sound on ("Sound while fast-forwarding"): the
+		// game makes sound faster than it plays. Nothing waits for the ring,
+		// which would hold the game to its own speed: what does not fit is left
+		// out, and what plays is a run of short pieces, at about a third of the
+		// volume.
+		if (::settings.input.fastForwardMode)
+		{
+			if (!ps5::FastForwardSound)
+				return 1;
+			wait = false;
+			if (frames > FastChunk)
+				frames = FastChunk;
+			for (u32 i = 0; i < frames * 2; i++)
+				fastBuffer[i] = (s16)(in[i] * 35 / 100);
+			in = fastBuffer;
+		}
 		std::unique_lock<std::mutex> lock(mutex);
 		// Resample 44.1 -> 48 kHz with a windowed-sinc filter (see sincTable()),
 		// at a ratio that steers the ring back towards half full.
@@ -462,6 +484,10 @@ done:
 	}
 
 private:
+	// Fast forward's sound at its volume, a push at a time.
+	static constexpr u32 FastChunk = 4096;
+	s16 fastBuffer[FastChunk * 2];
+
 	u32 capacity() const { return (u32)(ring.size() / 2); }
 	u32 fill() const { return (writePos + capacity() - readPos) % capacity(); }
 

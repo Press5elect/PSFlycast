@@ -35,6 +35,7 @@
 #include "ps5_disc.h"
 #include "ps5_rewind.h"
 #include "ps5_timing.h"
+#include "bigpicture.h"
 #include "cfg/option.h"
 
 #include <algorithm>
@@ -199,6 +200,8 @@ void os_DoEvents()
 {
 	// The time a game is played is counted while the emulator runs.
 	ps5::library::tick();
+	// A game that went back to the console's menu goes back to the library.
+	bigpicture::returnedToMenuCheck();
 }
 
 void os_RunInstance(int argc, const char *argv[])

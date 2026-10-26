@@ -27,6 +27,7 @@
 #include "shaders.h"
 #include "texture.h"
 #include "quad.h"
+#include "rtt_quantize.h"
 
 #include <memory>
 #include <vector>
@@ -49,6 +50,9 @@ protected:
 	// screen frame being rendered, renderHeight lines tall. None for render to texture or with the
 	// framebuffer emulation (which writes the real 16-bit framebuffer itself).
 	FrameAccuracy MakeFrameAccuracy(u32 renderHeight) const;
+	// The internal resolution factor of the pass being drawn: its render height over the native
+	// height of the same picture (getPvrFramebufferSize), 1 at native resolution
+	float GetRenderScale() const;
 
 	void SetScissor(vk::CommandBuffer cmdBuffer, const vk::Rect2D& scissor)
 	{
@@ -346,6 +350,10 @@ public:
 	void Init(SamplerManager *samplerManager, ShaderManager *shaderManager, TextureCache *textureCache);
 
 	void EndRenderPass() override;
+	void Term() {
+		rttQuantizer.term();
+		Drawer::Term();
+	}
 
 protected:
 	vk::CommandBuffer BeginRenderPass() override;
@@ -354,6 +362,10 @@ private:
 	u32 textureAddr = 0;
 	Texture *texture = nullptr;
 	TextureCache *textureCache = nullptr;
+	// Packs the result to the game's 16-bit format (rend.Original16BitColour, rtt_quantize.h)
+	RttQuantizer rttQuantizer;
+	int pvrWidth = 0;
+	int pvrHeight = 0;
 };
 
 class ClassicRender : public RenderDelegate

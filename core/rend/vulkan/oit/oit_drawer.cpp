@@ -285,6 +285,8 @@ vk::Framebuffer OITTextureDrawer::getFramebuffer(int renderPass, int renderPassC
 
 bool OITDrawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
 {
+	// Mip levels as the console picks them at this pass's internal resolution (rend.AccurateMipmaps)
+	samplerManager->setRenderScale(GetRenderScale());
 	vk::CommandBuffer cmdBuffer = NewFrame();
 
 	static const float scopeColor[4] = { 0.75f, 0.75f, 0.75f, 1.0f };
@@ -589,6 +591,8 @@ vk::CommandBuffer OITTextureDrawer::NewFrame()
 	{
 		int wpo2, hpo2;
 		getPvrFramebufferSize(*rendContext, wpo2, hpo2);
+		pvrWidth = wpo2;
+		pvrHeight = hpo2;
 		texture = textureCache->getRTTexture(textureAddr, rendContext->fb_W_CTRL.fb_packmode, wpo2, hpo2);
 		if (textureCache->IsInFlight(texture, false))
 		{
@@ -597,7 +601,9 @@ vk::CommandBuffer OITTextureDrawer::NewFrame()
 		}
 		textureCache->SetInFlight(texture);
 
-		constexpr vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+		// Storage too when the result is packed to 16 bits after the pass (rtt_quantize.h)
+		const vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+				| RttQuantizer::extraUsage(*rendContext);
 		if (!texture->image || texture->format != vk::Format::eR8G8B8A8Unorm
 				|| texture->extent.width != width || texture->extent.height != height
 				|| (texture->usageFlags & imageUsage) != imageUsage)
@@ -685,6 +691,13 @@ void OITTextureDrawer::EndFrame()
 		vkcount::barrier();
 		currentCommandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
 						vk::PipelineStageFlagBits::eHost, {}, nullptr, bufferMemoryBarrier, nullptr);
+	}
+	else if (texture->mipmapLevels == 1)
+	{
+		// The texture as the console leaves it: packed to FB_W_CTRL.fb_packmode, dithered or truncated.
+		// The last pass's render pass has ended and left it in the shader-read layout.
+		rttQuantizer.apply(currentCommandBuffer, commandPool, *texture->image, *texture->imageView,
+				texture->extent.width, texture->extent.height, pvrWidth, pvrHeight, *rendContext);
 	}
 	currentCommandBuffer.end();
 

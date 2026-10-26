@@ -21,6 +21,7 @@
 #include "hw/maple/maple_cfg.h"
 #include "hw/maple/maple_if.h"
 #include "hw/naomi/naomi_cart.h"
+#include "reios/reios.h"
 #include "network/ggpo.h"
 #include "oslib/oslib.h"
 #include "ui/gui.h"
@@ -36,6 +37,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <tuple>
 
 extern "C"
 {
@@ -78,6 +80,7 @@ config::Option<int> PadAxisX("PadAxisX", AxisNormal, "ps5");
 config::Option<int> PadAxisY("PadAxisY", AxisNormal, "ps5");
 config::Option<int> PadMouseSource("PadMouseSource", MouseFromStick, "ps5");
 config::Option<int> PadType("PadType", PadTypeStandard, "ps5");
+config::Option<int> Peripherals("Peripherals", PeripheralsAsSettings, "ps5");
 config::Option<int> PadRightTurns("PadRightTurns", 0, "ps5");
 config::Option<int> PadRightTriggers("PadRightTriggers", 0, "ps5");
 
@@ -1013,6 +1016,106 @@ void twinStickLayout()
 			arcadeTwin ? "the arcade's levers" : "the Dreamcast's Twin Stick");
 }
 
+bool discPeripherals(u32& mask)
+{
+	mask = 0;
+	if (!::settings.platform.isConsole() || ::settings.content.path.empty())
+		return false;
+	// Seven hex digits from offset 0x38 of IP.BIN: ctrl, dev, vga and wince in ip_meta.
+	char field[8] = {};
+	memcpy(field, (const char *)&currentDiscMeta() + offsetof(ip_meta_t, ctrl), 7);
+	for (int i = 0; i < 7; i++)
+	{
+		const char c = field[i];
+		int digit;
+		if (c >= '0' && c <= '9')
+			digit = c - '0';
+		else if (c >= 'A' && c <= 'F')
+			digit = c - 'A' + 10;
+		else if (c >= 'a' && c <= 'f')
+			digit = c - 'a' + 10;
+		else
+			return false;
+		mask = (mask << 4) | (u32)digit;
+	}
+	return true;
+}
+
+namespace
+{
+
+// Peripherals "As the game says" (ps5_pad.h), before the USB keyboard and
+// mouse are given their ports. present: the ports the players' pads have.
+void plugFromDisc(u32 present)
+{
+	if (Peripherals != PeripheralsFromGame || !::settings.platform.isConsole())
+		return;
+	u32 mask;
+	if (!discPeripherals(mask))
+	{
+		if (!::settings.content.path.empty())
+			ps5::diag::mark("peripherals: as the game says, but its disc header has no peripherals field: as in the Settings");
+		return;
+	}
+	std::string listed;
+	static const std::pair<u32, const char *> names[] = {
+		{ DiscVga, "VGA" }, { DiscVibration, "vibration pack" }, { DiscMicrophone, "microphone" },
+		{ DiscMemoryCard, "memory card" }, { DiscGun, "light gun" }, { DiscKeyboard, "keyboard" }, { DiscMouse, "mouse" },
+	};
+	for (const auto& [bit, name] : names)
+		if (mask & bit)
+			listed += (listed.empty() ? "" : ", ") + std::string(name);
+	std::string attached;
+	auto said = [&](const std::string& what) { attached += (attached.empty() ? "" : "; ") + what; };
+
+	// A light gun in port A, in place of a plain controller (a Twin Stick the
+	// game's options chose stays).
+	if ((mask & DiscGun) && config::MapleMainDevices[0] == MDT_SegaController)
+	{
+		config::MapleMainDevices[0].override(MDT_LightGun);
+		said("a light gun in port A");
+	}
+	// A keyboard, then a mouse, in the first ports from B that no player has
+	// (as the USB keyboard and mouse are given theirs). A port the settings
+	// already give one keeps it.
+	for (const auto& [bit, type, name] : { std::tuple<u32, MapleDeviceType, const char *>{ DiscKeyboard, MDT_Keyboard, "a keyboard" },
+			std::tuple<u32, MapleDeviceType, const char *>{ DiscMouse, MDT_Mouse, "a mouse" } })
+	{
+		if ((mask & bit) == 0)
+			continue;
+		bool there = false;
+		for (int port = 0; port < MaxPads; port++)
+			there = there || config::MapleMainDevices[port] == type;
+		if (there)
+			continue;
+		int free = -1;
+		for (int port = 1; port < MaxPads && free < 0; port++)
+			if ((present & (1u << port)) == 0 && config::MapleMainDevices[port] == MDT_None)
+				free = port;
+		if (free < 0)
+		{
+			said(std::string("no free port for ") + name);
+			continue;
+		}
+		config::MapleMainDevices[free].override(type);
+		said(std::string(name) + " in port " + portLetters[free]);
+	}
+	// The controller's second slot: the microphone for a game that takes
+	// one, else the vibration pack for one that shakes, else a memory card.
+	if (config::MapleMainDevices[0] == MDT_SegaController)
+	{
+		const MapleDeviceType slot2 = (mask & DiscMicrophone) ? MDT_Microphone
+				: (mask & DiscVibration) ? MDT_PurupuruPack : MDT_SegaVMU;
+		config::MapleExpansionDevices[0][1].override(slot2);
+		said(std::string(slot2 == MDT_Microphone ? "a microphone" : slot2 == MDT_PurupuruPack ? "a vibration pack" : "a memory card")
+				+ " in slot 2 of port A");
+	}
+	ps5::diag::mark("peripherals: as the game says; its disc lists %07X (%s): %s", (unsigned)mask,
+			listed.empty() ? "none" : listed.c_str(), attached.empty() ? "nothing changed" : attached.c_str());
+}
+
+}
+
 void plugPorts()
 {
 	u32 present = portsPresent;
@@ -1041,6 +1144,8 @@ void plugPorts()
 					config::MapleMainDevices[port].override(MDT_SegaControllerXL);
 					ps5::diag::mark("pads: port %s has the controller with a second stick", portLetters[port]);
 				}
+	// What the game's disc asks for, when the Settings say so.
+	plugFromDisc(present | 1u);
 	// A USB keyboard and mouse take the ports after the pads'.
 	ps5::usb::plugPorts(present | 1u);
 }

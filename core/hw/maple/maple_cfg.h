@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 #include "types.h"
 #include <cstring>
 #include <memory>
@@ -123,6 +124,49 @@ void mcfg_CreateDevices();
 void mcfg_DestroyDevices(bool full = true);
 void mcfg_SerializeDevices(Serializer& ser);
 void mcfg_DeserializeDevices(Deserializer& deser);
+
+/*
+	Pulling a memory card (VMU) or vibration pack out of a controller and putting
+	one back while a game runs (Dreamcast only).
+
+	port is the controller port, 0 to 3 (A to D); slot the controller's expansion
+	slot, 0 or 1. The controller there must have that slot.
+
+	maple_unplug_expansion takes the device out: the slot reports no device from
+	the next Maple frame on, as when the card is pulled. A VMU's file is closed,
+	having been written as the game wrote each block. It returns false when the
+	slot is empty or not one a controller there has.
+
+	maple_plug_expansion puts a new device of the type given (MDT_SegaVMU or
+	MDT_PurupuruPack) into an empty slot. It is attached only once the game has
+	sent at least one Maple frame to that port since the slot emptied and a tenth
+	of a second has gone by, so the game always sees the slot empty first, even
+	when the two calls come together; until then it is pending. A VMU opens the
+	file hostfs::getVmuPath() names for that slot at that moment, so a frontend
+	swaps cards by changing that file (or the settings that choose it) while the
+	slot is empty. The new VMU's clock starts from the host's time. It returns
+	false when the slot is taken, the slot or type is not valid, or netplay is on.
+
+	Neither is kept in the configuration: mcfg_CreateDevices (a game starting, a
+	device setting changed) builds every port from the configuration again, which
+	puts back the cards it lists and drops a pending plug. Loading a save state
+	sets the slots to what they were when it was saved and also drops a pending
+	plug.
+
+	Threads: call these on the emulator thread (emu.run(), or a hook that runs
+	there), or while the emulator is stopped. They change MapleDevices, which the
+	Maple DMA on the emulator thread reads without a lock.
+*/
+bool maple_unplug_expansion(int port, int slot);
+bool maple_plug_expansion(int port, int slot, MapleDeviceType type, const std::string& vmuFile = {});
+// The card file a VMU plugged in by maple_plug_expansion opens in place of the
+// slot's usual one (empty: the usual one). Read by the VMU when it is set up.
+std::string maple_vmuFileFor(int port, int slot);
+// The type of the device in an expansion slot, or MDT_None when it is empty
+// (a pending plug counts as empty).
+MapleDeviceType maple_expansion_device(int port, int slot);
+// Attaches the pending plugs that are due; maple_vblank calls it.
+void maple_handlePendingPlugs();
 
 constexpr int maple_getPortCount(MapleDeviceType type, MaplePortType port)
 {

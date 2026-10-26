@@ -347,6 +347,30 @@ u8 vmu_default[] = {
 		0x77,0x19,0x06,0xef,
 };
 
+/*
+	The VMU clock. The emulated VMU runs on the host's clock; a game (or the BIOS)
+	setting the clock stores how far the time it set is from the host's, and that
+	difference is added whenever the clock is read, so the VMU keeps counting from
+	the time set. It is kept per expansion slot for the session rather than in the
+	VMU object, so that it survives loading a save state (which builds the devices
+	again) without adding to the save state format. A VMU plugged in fresh starts
+	from the host's time again.
+*/
+static s64 vmuClockOffsets[MAPLE_PORTS][2];
+
+static s64 vmuClockOffset(u32 bus, u32 port)
+{
+	if (bus < MAPLE_PORTS && port < 2)
+		return vmuClockOffsets[bus][port];
+	return 0;
+}
+
+void maple_vmuClockReset(int bus, int port)
+{
+	if (bus >= 0 && bus < MAPLE_PORTS && port >= 0 && port < 2)
+		vmuClockOffsets[bus][port] = 0;
+}
+
 struct maple_sega_vmu: maple_base
 {
 	FILE *file = nullptr;
@@ -434,7 +458,9 @@ struct maple_sega_vmu: maple_base
 		memset(lcd_data, 0, sizeof(lcd_data));
 
         // Load existing vmu file if found
-        std::string rpath = hostfs::getVmuPath(logical_port, false);
+        // A card swapped in while a game runs opens the file chosen for it.
+        const std::string swapped = bus_port < 2 ? maple_vmuFileFor(bus_id, bus_port) : std::string();
+        std::string rpath = swapped.empty() ? hostfs::getVmuPath(logical_port, false) : swapped;
         // this might be a storage url
         hostfs::File *rfile = hostfs::storage().openFile(rpath, "rb");
         if (rfile == nullptr) {
@@ -447,7 +473,7 @@ struct maple_sega_vmu: maple_base
             delete rfile;
         }
         // Open or create the vmu file to save to
-        std::string wpath = hostfs::getVmuPath(logical_port, true);
+        std::string wpath = swapped.empty() ? hostfs::getVmuPath(logical_port, true) : swapped;
         file = nowide::fopen(wpath.c_str(), "rb+");
         if (file == nullptr)
         {
@@ -472,6 +498,40 @@ struct maple_sega_vmu: maple_base
 			// This means the existing VMU file is completely empty and needs to be recreated
 			initializeVmu();
 		fullSaveNeeded = false;
+	}
+
+	// The 8 bytes of a clock write: year (low, high), month, day, hour, minute,
+	// second, day of the week. The day of the week follows from the date, so it is
+	// not kept.
+	void setClock(const u8 timebuf[8])
+	{
+		tm t{};
+		t.tm_year = timebuf[0] + timebuf[1] * 256 - 1900;
+		t.tm_mon = timebuf[2] - 1;
+		t.tm_mday = timebuf[3];
+		t.tm_hour = timebuf[4];
+		t.tm_min = timebuf[5];
+		t.tm_sec = timebuf[6];
+		t.tm_isdst = -1;
+		if (timebuf[2] < 1 || timebuf[2] > 12 || timebuf[3] < 1 || timebuf[3] > 31
+				|| timebuf[4] > 23 || timebuf[5] > 59 || timebuf[6] > 59)
+		{
+			INFO_LOG(MAPLE, "VMU %s: invalid clock setting ignored", logical_port);
+			return;
+		}
+		time_t set = mktime(&t);
+		if (set == (time_t)-1)
+		{
+			INFO_LOG(MAPLE, "VMU %s: clock setting out of range, ignored", logical_port);
+			return;
+		}
+		if (bus_id < MAPLE_PORTS && bus_port < 2)
+			vmuClockOffsets[bus_id][bus_port] = (s64)set - (s64)time(nullptr);
+	}
+
+	void unplugged() override
+	{
+		aica::sgc::vmuBeep(0, 0, bus_id);
 	}
 
 	~maple_sega_vmu() override
@@ -606,28 +666,30 @@ struct maple_sega_vmu: maple_base
 				{
 				case MFID_1_Storage:
 					{
-						w32(MFID_1_Storage);
 						u32 xo=r32();
 						u32 Block = (SWAP32(xo))&0xffff;
-						w32(xo);
-
-						if (Block>255)
+						// The flash has 256 blocks of 512 bytes. A block past the end is
+						// refused with the same file error as a write that would overflow,
+						// instead of quietly reading another block in its place.
+						if (Block * 512 + 512 > sizeof(flash_data))
 						{
-							DEBUG_LOG(MAPLE, "Block read : %d", Block);
-							DEBUG_LOG(MAPLE, "BLOCK READ ERROR");
-							Block&=255;
+							INFO_LOG(MAPLE, "VMU %s block read: invalid block %d", logical_port, Block);
+							return MDRE_FileError;
 						}
-						else
-							DEBUG_LOG(MAPLE, "VMU %s block read: Block %d addr %x len %d", logical_port, Block, Block*512, 512);
+						DEBUG_LOG(MAPLE, "VMU %s block read: Block %d addr %x len %d", logical_port, Block, Block*512, 512);
+						w32(MFID_1_Storage);
+						w32(xo);
 						wptr(flash_data+Block*512,512);
 					}
 					return MDRS_DataTransfer;//data transfer
 
 				case MFID_2_LCD:
+					// Reading the screen back gives the 48x32 bitmap the game last wrote
+					// to it (192 bytes, one bit per dot).
 					DEBUG_LOG(MAPLE, "VMU %s read LCD", logical_port);
 					w32(MFID_2_LCD);
-					w32(r32()); // mnn ?
-					wptr(flash_data,192);
+					w32(r32()); // PT, phase, block#
+					wptr(lcd_data, sizeof(lcd_data));
 
 					return MDRS_DataTransfer;//data transfer
 
@@ -641,30 +703,35 @@ struct maple_sega_vmu: maple_base
 					{
 						w32(MFID_3_Clock);
 
-						time_t now;
-						time(&now);
-						tm* timenow=localtime(&now);
+						// The host's clock moved by what the game last set this VMU's
+						// clock to (see vmuClockOffset).
+						time_t now = time(nullptr) + (time_t)vmuClockOffset(bus_id, bus_port);
+						tm timenow{};
+						if (tm *t = localtime(&now))
+							timenow = *t;
 
 						u8* timebuf=dma_buffer_out;
 
-						w8((timenow->tm_year+1900)%256);
-						w8((timenow->tm_year+1900)/256);
+						w8((timenow.tm_year+1900)%256);
+						w8((timenow.tm_year+1900)/256);
 
-						w8(timenow->tm_mon+1);
-						w8(timenow->tm_mday);
+						w8(timenow.tm_mon+1);
+						w8(timenow.tm_mday);
 
-						w8(timenow->tm_hour);
-						w8(timenow->tm_min);
-						w8(timenow->tm_sec);
-						w8(0);
+						w8(timenow.tm_hour);
+						w8(timenow.tm_min);
+						w8(timenow.tm_sec);
+						// Day of the week, Monday 0 to Sunday 6 (tm_wday counts from Sunday)
+						w8((timenow.tm_wday + 6) % 7);
 
-						DEBUG_LOG(MAPLE, "VMU: CLOCK Read-> datetime is %04d/%02d/%02d ~ %02d:%02d:%02d!",
+						DEBUG_LOG(MAPLE, "VMU: CLOCK Read-> datetime is %04d/%02d/%02d ~ %02d:%02d:%02d day %d",
 								timebuf[0] + timebuf[1] * 256,
 								timebuf[2],
 								timebuf[3],
 								timebuf[4],
 								timebuf[5],
-								timebuf[6]);
+								timebuf[6],
+								timebuf[7]);
 
 						return MDRS_DataTransfer;//transfer reply ...
 					}
@@ -751,8 +818,9 @@ struct maple_sega_vmu: maple_base
 						{
 							u8 timebuf[8];
 							rptr(timebuf,8);
-							DEBUG_LOG(MAPLE, "VMU: CLOCK Write-> datetime is %04d/%02d/%02d ~ %02d:%02d:%02d! Nothing set tho ...",
+							DEBUG_LOG(MAPLE, "VMU: CLOCK Write-> datetime is %04d/%02d/%02d ~ %02d:%02d:%02d",
 									timebuf[0]+timebuf[1]*256,timebuf[2],timebuf[3],timebuf[4],timebuf[5],timebuf[6]);
+							setClock(timebuf);
 							return  MDRS_DeviceReply;//ok !
 						}
 
@@ -765,6 +833,19 @@ struct maple_sega_vmu: maple_base
 
 		case MDCF_GetLastError:
 			return MDRS_DeviceReply;//just ko
+
+		case MDCF_GetCondition:
+			// The clock function's condition is the state of the VMU's own buttons
+			// (the d-pad, A, B, Mode and Sleep), one bit each, 0 when pressed. They
+			// can't be pressed while the VMU sits in a controller, so every bit is set.
+			// KallistiOS asks for it every frame.
+			if (r_count() >= 4 && r32() == MFID_3_Clock)
+			{
+				w32(MFID_3_Clock);
+				w32(0xFFFFFFFF);
+				return MDRS_DataTransfer;
+			}
+			return MDRE_UnknownFunction;
 
 		case MDCF_SetCondition:
 			{
@@ -1165,6 +1246,11 @@ struct maple_sega_purupuru : maple_base
 		return MDT_PurupuruPack;
 	}
 
+	void unplugged() override
+	{
+		reset();
+	}
+
 	void serialize(Serializer& ser) const override
 	{
 		maple_base::serialize(ser);
@@ -1540,7 +1626,10 @@ struct maple_lightgun : maple_base
 			w32(0xFE000000);	// Controller
 			w32(0);
 			//1	area code
-			w8(1);				// FF: Worldwide, 01: North America
+			// Every region (FFh), as the other peripherals report. A gun saying
+			// North America only (01h) is refused by PAL and Japanese games that
+			// check the area code against their own.
+			w8(0xFF);
 			//1	direction
 			w8(0);
 			// Product name (30)
@@ -1549,11 +1638,11 @@ struct maple_lightgun : maple_base
 			// License (60)
 			wstr(maple_sega_brand, 60);
 
-			// Low-consumption standby current (2)
-			w16(0x0069);	// 10.5 mA
+			// Low-consumption standby current (2), in tenths of a milliamp
+			w16(0x00DC);	// 22 mA
 
 			// Maximum current consumption (2)
-			w16(0x0120);	// 28.8 mA
+			w16(0x012C);	// 30 mA
 
 			return cmd == MDC_DeviceRequest ? MDRS_DeviceStatus : MDRS_DeviceStatusAll;
 

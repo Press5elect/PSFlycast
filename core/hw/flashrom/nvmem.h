@@ -41,4 +41,12 @@ bool loadFiles();
 void saveFiles();
 bool loadHle();
 
+// The region in the Dreamcast flash's factory settings (0 Japan, 1 USA,
+// 2 Europe), or -1 while no Dreamcast flash is loaded or it holds none.
+int flashRegion();
+// The language in the Dreamcast flash's system settings (0 Japanese to
+// 5 Italian), -1 while no Dreamcast flash is loaded, or 0xff when the flash
+// has no system settings yet.
+int consoleLanguage();
+
 }

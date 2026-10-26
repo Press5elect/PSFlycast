@@ -246,6 +246,9 @@ static void loadSpecialSettings()
 		}
 		else
 			WARN_LOG(BOOT, "No region specified in IP.BIN");
+		// Broadcast and language set to "Follow the game" follow the region
+		// just resolved. Games that need a given standard are forced below.
+		resolveFollowSettings();
 		if (config::Cable <= 1 && (!ip_meta.supportsVGA()
 				|| prod_id == "T-12504N"	// Caesar's Palace (NTSC)
 				|| prod_id == "12502D-50"))	// Caesar's Palace (PAL)
@@ -602,6 +605,8 @@ bool ps5ResolveArchive(const char *path, std::string& image, LoadProgress *progr
 void Emulator::loadGame(const char *path, LoadProgress *progress)
 {
 	init();
+	returnToBios = false;
+	returnToBiosPending = false;
 	try {
 		DEBUG_LOG(BOOT, "Loading game %s", path == nullptr ? "(nil)" : path);
 #ifdef USE_PS5
@@ -776,7 +781,23 @@ void Emulator::runInternal()
 			do {
 				resetRequested = false;
 
-				getSh4Executor()->Run();
+				try {
+					getSh4Executor()->Run();
+				} catch (const ReturnToBiosException&) {
+					// The game asked to go back to the console's menu, which the
+					// HLE BIOS doesn't have: the game stops here, cleanly, and the
+					// frontend sees returnedToBios(). The interface thread does
+					// the rest of stopping (finishReturnToBios).
+					NOTICE_LOG(COMMON, "The game went back to the console menu");
+					nvmem::saveFiles();
+					returnToBios = true;
+					returnToBiosPending = true;
+					const std::lock_guard<std::mutex> _(mutex);
+					state = Loaded;
+					getSh4Executor()->Stop();
+					resetRequested = false;
+					break;
+				}
 
 				if (resetRequested)
 				{
@@ -901,6 +922,50 @@ void Emulator::requestReset()
 	getSh4Executor()->Stop();
 }
 
+void resolveFollowSettings()
+{
+	if (!settings.platform.isConsole())
+		return;
+	// The region resolved from the disc, or the flash's when the disc names
+	// none (or the BIOS boots without one). Until the flash is loaded, that
+	// is decided when it is (nvmem's fixUpDCFlash calls this again).
+	const int region = config::Region <= 2 ? (int)config::Region : nvmem::flashRegion();
+	if (region < 0)
+		return;
+	if (config::Broadcast > 3)
+	{
+		// PAL in Europe, NTSC in Japan and the USA
+		const int broadcast = region == 2 ? 1 : 0;
+		INFO_LOG(BOOT, "Broadcast follows the game: %s", broadcast == 1 ? "PAL" : "NTSC");
+		config::Broadcast.override(broadcast);
+	}
+	if (config::Language > 5)
+	{
+		int language;
+		if (region == 0)
+			language = 0;		// Japanese
+		else if (region == 1)
+			language = 1;		// English
+		else
+		{
+			// A European console keeps the European language it was set to
+			// (English, German, French, Spanish or Italian), English if none.
+			const int console = nvmem::consoleLanguage();
+			if (console < 0)
+				// The flash isn't loaded yet: decided when it is.
+				return;
+			language = console >= 1 && console <= 5 ? console : 1;
+		}
+		INFO_LOG(BOOT, "Language follows the game: %d", language);
+		config::Language.override(language);
+	}
+}
+
+bool emuReturnedToBios()
+{
+	return emu.returnedToBios();
+}
+
 void loadGameSpecificSettings()
 {
 	if (settings.platform.isConsole())
@@ -921,6 +986,8 @@ void loadGameSpecificSettings()
 
 	// Reload per-game settings
 	config::Settings::instance().load(true);
+	// A per-game "Follow the game" that was just loaded again is decided again.
+	resolveFollowSettings();
 
 #ifdef USE_PS5
 	// Build 58 offered more than 400 MHz, which made games misbehave: a saved value above it is brought back.
@@ -1040,6 +1107,8 @@ void Emulator::start()
 		WARN_LOG(COMMON, "Unexpected emu state %d", state);
 		return;
 	}
+	returnToBios = false;
+	returnToBiosPending = false;
 	state = Running;
 	SetMemoryHandlers();
 	if (config::GGPOEnable && config::ThreadedRendering)
@@ -1128,15 +1197,33 @@ bool Emulator::render()
 			return false;
 		}
 		if (state != Running)
+		{
+			finishReturnToBios();
 			return false;
+		}
 		run();
 		return true;
 	}
 	if (!checkStatus())
+	{
+		finishReturnToBios();
 		return false;
+	}
 	if (state != Running)
 		return false;
 	return rend_single_frame(true); // FIXME stop flag?
+}
+
+// The rest of stopping after the game went back to the console's menu, on
+// the interface thread, as stop() does it.
+void Emulator::finishReturnToBios()
+{
+	if (!returnToBiosPending.exchange(false))
+		return;
+	if (!config::ThreadedRendering)
+		// The emulation thread stops its own sound when threaded
+		TermAudio();
+	EventManager::event(Event::Pause);
 }
 
 void Emulator::vblank()

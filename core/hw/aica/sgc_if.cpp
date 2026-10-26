@@ -47,7 +47,7 @@
 #endif
 
 #ifdef USE_PS5
-namespace ps5 { bool vmuBeepSample(int sample, int bus); }
+namespace ps5 { bool vmuBeepSample(int sample, int bus); bool fastForwardSound(); }
 #endif
 
 namespace aica::sgc
@@ -138,6 +138,14 @@ static T FPMul(T a, T b, int bits) {
 static void VolumePan(SampleType value, u32 vol, u32 pan, SampleType& outl, SampleType& outr)
 {
 	SampleType temp = FPMul(value, volume_lut[vol], 15);
+	// MONO set: the chip ignores pan, each source plays at its unpanned level
+	// on both sides (the SDK's hard-panned stereo pairs stay at full level).
+	if (CommonData->Mono)
+	{
+		outl += temp;
+		outr += temp;
+		return;
+	}
 	SampleType Sc = FPMul(temp, volume_lut[0xF - (pan & 0xF)], 15);
 	if (pan & 0x10)
 	{
@@ -577,6 +585,12 @@ struct ChannelEx
 			(this->*alfo_calc)();
 			(this->*plfo_calc)();
 		}
+		// Kept at zero while the reset bit is set.
+		void Hold()
+		{
+			if (state != 0 || counter != start_value)
+				Reset();
+		}
 		void SetStartValue(u32 nv) {
 			start_value = nv;
 		}
@@ -702,8 +716,14 @@ struct ChannelEx
 		
 		s32* logtable = ofsatt + tl_lut;
 
-		u32 dl = std::min(VolMix.DLAtt, max_att);
-		u32 dr = std::min(VolMix.DRAtt, max_att);
+		// MONO set: pan is ignored, both sides get the unpanned level (the
+		// smaller of the two attenuations, the panned one only ever adds).
+		u32 dlAtt = VolMix.DLAtt;
+		u32 drAtt = VolMix.DRAtt;
+		if (CommonData->Mono)
+			dlAtt = drAtt = std::min(dlAtt, drAtt);
+		u32 dl = std::min(dlAtt, max_att);
+		u32 dr = std::min(drAtt, max_att);
 		u32 ds = std::min(VolMix.DSPAtt, max_att);
 
 		oLeft = FPMul<s64>(sample, logtable[dl], 19);	// 16 bits
@@ -722,7 +742,12 @@ struct ChannelEx
 		{
 			(this->*StepFEG)();
 			(this->*StepStream)();
-			lfo.Step();
+			// LFORE holds the LFO at its start for as long as it is set,
+			// not only when written.
+			if (ccd->LFORE)
+				lfo.Hold();
+			else
+				lfo.Step();
 		}
 		return true;
 	}
@@ -1542,13 +1567,27 @@ void ReadCommonReg(u32 reg,bool byte)
 			
 			CommonData->LP = channel.loop.looped;
 			if (CommonData->AFSEL == 1)
-				WARN_LOG(AICA, "FEG monitor (AFSEL=1) not supported");
-			s32 aeg = channel.AEG.GetValue();
-			if (aeg > 0x3BF)
-				CommonData->EG = 0x1FFF;
+			{
+				// FEG monitor: the filter envelope is already a 13-bit
+				// value (the FLVn range), read as is. SGC follows the
+				// selected envelope.
+				CommonData->EG = channel.FEG.GetValue() & 0x1FFF;
+				CommonData->SGC = channel.FEG.state;
+			}
 			else
-				CommonData->EG = aeg; //AEG is only 10 bits, FEG is 13 bits
-			CommonData->SGC = channel.AEG.state;
+			{
+				// The 13-bit readout holds the volume envelope's top bits:
+				// the 10-bit AEG in bits 12-3, low 3 bits zero. Sega's sound
+				// driver compares these to pick the quietest voice to steal.
+				// Flycast's saturation (commit 4dd05ca23) is kept: from 0x3C0
+				// the voice is inaudible and reads as fully silent, 0x1FFF.
+				s32 aeg = channel.AEG.GetValue();
+				if (aeg > 0x3BF)
+					CommonData->EG = 0x1FFF;
+				else
+					CommonData->EG = (u32)aeg << 3;
+				CommonData->SGC = channel.AEG.state;
+			}
 
 			if (!byte || reg == 0x2811)
 				channel.loop.looped = 0;
@@ -1628,6 +1667,9 @@ void AICA_Sample()
 
 #ifdef LIBRETRO
 	if (settings.aica.muteAudio)
+#elif defined(USE_PS5)
+	// Fast forward is silent unless "Sound while fast-forwarding" is on.
+	if ((settings.input.fastForwardMode && !::ps5::fastForwardSound()) || settings.aica.muteAudio)
 #else
 	if (settings.input.fastForwardMode || settings.aica.muteAudio)
 #endif
@@ -1645,10 +1687,9 @@ void AICA_Sample()
 		mixr += b;
 	}
 
-	// Mono
-	if (CommonData->Mono)
-		mixl = mixr = FPs(mixl + mixr, 1);
-	
+	// Mono: pan was already ignored per source (channels, DSP outputs, CDDA),
+	// so no L/R averaging here.
+
 	//MVOL !
 	//we want to make sure mix* is *At least* 23 bits wide here, so 64 bit mul !
 	u32 mvol = CommonData->MVOL;

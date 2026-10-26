@@ -856,15 +856,26 @@ Result commit(const std::string& path, const std::vector<uint8_t>& before, const
 
 // Puts a file on a card in memory, as the Dreamcast would: entry is its
 // directory entry as it was elsewhere (its first block is set here) and
-// content its blocks. Nothing is changed unless all of it can be done.
-Result add(Volume& vol, const uint8_t *entry, const std::vector<uint8_t>& content)
+// content its blocks. With replace, a file of the same name is deleted
+// first; without, it is refused. When it fails the card in memory may have
+// been changed (the file replaced is gone from it): it is not to be written.
+Result add(Volume& vol, const uint8_t *entry, const std::vector<uint8_t>& content, bool replace = false)
 {
 	const int blocks = (int)(content.size() / BlockSize);
 	const std::string key = keyOf(entry);
-	for (const Volume::File& file : vol.files)
-		if (keyOf(vol.entry(file.entry)) == key)
-			return fail(Error::NameExists, "The card already has a save called " + shownName(entry)
-					+ ". Delete that one first if this one is to take its place.");
+	for (size_t i = 0; i < vol.files.size(); i++)
+		if (keyOf(vol.entry(vol.files[i].entry)) == key)
+		{
+			if (!replace)
+				return fail(Error::NameExists, "The card already has a save called " + shownName(entry) + ".");
+			// As the Dreamcast deletes: its blocks are free and its entry empty.
+			for (uint16_t block : vol.files[i].chain)
+				vol.setFat(block, FatFree);
+			vol.freeBlocks += (int)vol.files[i].chain.size();
+			memset(vol.entry(vol.files[i].entry), 0, EntrySize);
+			vol.files.erase(vol.files.begin() + (long)i);
+			break;
+		}
 	if (blocks > vol.freeBlocks)
 		return fail(Error::NoSpace, say("Not enough free blocks: needs %d, the card has %d.", blocks, vol.freeBlocks));
 	int slot = -1;
@@ -915,8 +926,6 @@ Result add(Volume& vol, const uint8_t *entry, const std::vector<uint8_t>& conten
 	return done("");
 }
 
-const char *const ProtectedNote = " The game marked this save copy-protected: the Dreamcast's own file manager would have "
-		"refused, and the game may not accept a copy.";
 
 // ---- Saves in files
 
@@ -1189,31 +1198,58 @@ Result remove(const Card& from, const Save& save)
 			save.blocks == 1 ? "block is" : "blocks are"));
 }
 
-Result copy(const Card& from, const Save& save, const Card& to)
+Result copy(const Card& from, const Save& save, const Card& to, bool replace)
+{
+	return copy(from, std::vector<Save>{ save }, to, replace);
+}
+
+Result copy(const Card& from, const std::vector<Save>& saves, const Card& to, bool replace)
 {
 	std::lock_guard<std::mutex> lock(changing);
 	std::vector<uint8_t> raw, rawTo;
 	Volume source, target;
 	Result result;
+	if (saves.empty())
+		return fail(Error::NotFound, "There is nothing to copy.");
 	if (!openCard(from.path, raw, source, result))
 		return result;
-	const Volume::File *file = findSave(source, save);
-	if (file == nullptr)
-		return changed(save);
-	const uint8_t *entry = source.entry(file->entry);
-	const bool copyProtected = entry[1] != 0;
 	if (!openCard(to.path, rawTo, target, result))
 	{
 		result.message = "The card to copy to cannot be used. " + result.message;
-		result.copyProtected = copyProtected;
 		return result;
 	}
-	result = add(target, entry, contentOf(source, *file));
-	if (result.ok)
-		result = commit(to.path, rawTo, target, shownName(entry) + " was copied to " + (to.label.empty() ? to.path : to.label)
-				+ (to.perGame ? " of " + to.game : "") + "." + (copyProtected ? ProtectedNote : ""));
-	result.copyProtected = copyProtected;
-	return result;
+	// All of them into the card in memory, and the card written once: all
+	// or none. The copy-protect flag is copied as it is and refuses nothing:
+	// it was for the Dreamcast's own file manager.
+	std::string first;
+	for (const Save& save : saves)
+	{
+		const Volume::File *file = findSave(source, save);
+		if (file == nullptr)
+			return changed(save);
+		const uint8_t *entry = source.entry(file->entry);
+		if (first.empty())
+			first = shownName(entry);
+		result = add(target, entry, contentOf(source, *file), replace);
+		if (!result.ok)
+		{
+			if (saves.size() > 1)
+				result.message = "Nothing was copied: " + shownName(entry) + " does not fit. " + result.message;
+			return result;
+		}
+	}
+	const std::string where = (to.label.empty() ? to.path : to.label) + (to.perGame ? " of " + to.game : "");
+	return commit(to.path, rawTo, target, saves.size() == 1 ? first + " was copied to " + where + "."
+			: say("%zu saves were copied to %s.", saves.size(), where.c_str()));
+}
+
+std::vector<Save> sameGame(const std::vector<Save>& saves, const Save& save)
+{
+	std::vector<Save> found;
+	for (const Save& other : saves)
+		if (memcmp(other.rawName.data(), save.rawName.data(), GameNameLength) == 0)
+			found.push_back(other);
+	return found;
 }
 
 Result exportSave(const Card& from, const Save& save, const std::string& folder)
@@ -1285,11 +1321,9 @@ Result exportSave(const Card& from, const Save& save, const std::string& folder)
 	}
 	else
 	{
-		result = done(shownName(entry) + " was exported as " + base + ".vms and " + base + ".vmi in " + folder + "."
-				+ (entry[1] != 0 ? ProtectedNote : ""));
+		result = done(shownName(entry) + " was exported as " + base + ".vms and " + base + ".vmi in " + folder + ".");
 		result.path = vmiPath;
 	}
-	result.copyProtected = entry[1] != 0;
 	return result;
 }
 

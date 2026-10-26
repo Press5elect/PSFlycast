@@ -21,6 +21,10 @@
 	line whenever the game stays under 95% of full speed for two seconds (once
 	a stretch, at most 30 a game), and a "session:" line when it ends: the
 	average speed, the time under 95% and the longest stretch of it.
+
+	And what the game asks of the graphics chip (rend/pvr_facts.h): two
+	"graphics:" lines at its first frame and again whenever one of those
+	modes changes, so that a picture problem can be matched to them.
 */
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
@@ -28,6 +32,10 @@
 #include "emulator.h"
 #include "oslib/oslib.h"
 #include "rend/vulkan/frame_counters.h"
+#if __has_include("rend/pvr_facts.h")
+#include "rend/pvr_facts.h"
+#define PS5_PVR_FACTS 1
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -93,6 +101,48 @@ Clock::time_point gameBegan;
 bool gameCounted;			// gameBegan is this game's
 bool listening;
 
+#ifdef PS5_PVR_FACTS
+u32 factsSerial;			// the facts last logged; 0 for none this game
+
+const char *packName(u32 mode)
+{
+	static const char *const names[] = { "0555", "565", "4444", "1555", "888", "0888", "8888", "?" };
+	return names[std::min(mode, 7u)];
+}
+
+// The two lines, when the facts changed since they were last logged.
+void factsLines()
+{
+	PvrFacts f;
+	if (!pvrGameFacts(f) || f.serial == factsSerial)
+		return;
+	factsSerial = f.serial;
+	static const char *const depths[] = { "0555 (15-bit)", "565 (16-bit)", "888 (24-bit)", "0888 (32-bit)" };
+	std::string written;
+	if (f.screenSeen)
+		written += std::string("; the screen written as ") + packName(f.screenPackMode) + (f.screenDither ? " dithered" : "");
+	if (f.rttSeen)
+		written += std::string("; textures rendered as ") + packName(f.rttPackMode) + (f.rttDither ? " dithered" : "");
+	ps5::diag::mark("graphics: %s: output %s, %s, %s%s%s, horizontal halving %s, vertical scale 0x%03X, flicker filter 0x%04X%s",
+			f.gameId.empty() ? "the game" : f.gameId.c_str(), depths[f.fbDepth & 3], f.vgaClock ? "VGA (31 kHz)" : "TV (15 kHz)",
+			f.pal ? "PAL" : f.ntsc ? "NTSC" : "neither PAL nor NTSC", f.interlace ? " interlaced" : "",
+			f.lineDouble ? ", lines doubled" : "", f.hscale ? "on" : "off", (unsigned)f.vscale, (unsigned)(f.yCoeff & 0xFFFF),
+			written.c_str());
+	std::string sorted;
+	for (u32 pass = 0; pass < f.passCount && pass < 32; pass++)
+		sorted += (f.autosortMask & (1u << pass)) ? 'A' : 'P';
+	ps5::diag::mark("graphics: %u render passes (%s: A sorts per pixel, P presorted%s)%s%s, culling below %.2f; "
+			"%u polygons, %u textured (point %u, bilinear %u, trilinear %u, super-sampled %u, D-adjusted %u)%s%s",
+			(unsigned)f.passCount, sorted.empty() ? "none" : sorted.c_str(), f.typeTwoRegions ? ", sorting set per pass" : "",
+			f.cheapShadow ? (", cheap shadows at " + std::to_string(f.shadowScale) + "/256").c_str() : ", modifier volumes",
+			f.fogTable ? ", fog table" : "", f.cullValue, (unsigned)f.polygons, (unsigned)f.texturedPolygons,
+			(unsigned)f.filterPolygons[0], (unsigned)f.filterPolygons[1], (unsigned)(f.filterPolygons[2] + f.filterPolygons[3]),
+			(unsigned)f.superSamplePolygons, (unsigned)f.dAdjustPolygons,
+			f.yuvUsed ? (f.yuvForm422 ? ", YUV 422 movies" : ", YUV 420 movies") : "",
+			f.yuvUsed && f.yuvMulti ? " (many textures)" : "");
+}
+#endif
+
 void frameLine(const char *prefix, const Span& span)
 {
 	if (span.drawn == 0 && span.shown == 0)
@@ -121,6 +171,9 @@ void ended()
 				"(the longest stretch %.0f s)", std::chrono::duration<double>(Clock::now() - gameBegan).count() / 60.0,
 				game.speed(), slowSeconds, longestSlow);
 	running = false;
+#ifdef PS5_PVR_FACTS
+	factsSerial = 0;
+#endif
 	game = Span();
 	ten = Span();
 	second = Span();
@@ -184,6 +237,11 @@ void present(bool fresh, bool made)
 		behindNow = false;
 	}
 	last = now;
+#ifdef PS5_PVR_FACTS
+	// The game's first frame, and then once a second whether the modes changed.
+	if (fresh && (factsSerial == 0 || window.shown == 0))
+		factsLines();
+#endif
 	window.shown++;
 	window.drawn += fresh ? 1 : 0;
 	window.made += made ? 1 : 0;

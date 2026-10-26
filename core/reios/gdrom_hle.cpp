@@ -24,6 +24,22 @@
 #define debugf(...) DEBUG_LOG(REIOS, __VA_ARGS__)
 static void readSectors(u32 addr, u32 sector, u32 count, bool virtualAddr);
 
+// The sector format set with GDROM_CHANGE_DATA_TYPE:
+//	0	set (0) or get (1), as passed
+//	1	what of each sector to read: 0x2000 the data area, 0x1000 the whole sector
+//	2	the track type: 1024 mode 1, 2048 mode 2 (CD-XA), 0 decided by the drive
+//	3	the sector size in bytes
+// Reads return 2048 bytes a sector unless whole sectors (2352 bytes, or 2340
+// without the sync pattern, as some CD-XA readers ask) are asked for.
+u32 SecMode[4] = { 0, 0x2000, 0, 2048 };
+
+static u32 sectorSize()
+{
+	if (SecMode[1] == 0x1000 || SecMode[3] == 2352 || SecMode[3] == 2340)
+		return SecMode[3] == 2340 ? 2340 : 2352;
+	return 2048;
+}
+
 struct gdrom_hle_state_t
 {
 	gdrom_hle_state_t() : params{}, result{} {}
@@ -88,7 +104,7 @@ static int schedId = -1;
 
 static int getGdromTicks()
 {
-	u32 len = gd_hle_state.multi_read_count * 2048;
+	u32 len = gd_hle_state.multi_read_count * sectorSize();
 	if (len > 10240)
 		return 1000000;			// Large transfers: GD-ROM transfer rate 1.8 MB/s
 	else
@@ -102,7 +118,7 @@ static int schedCallback(int tag, int cycles, int jitter, void *arg)
 	gd_hle_state.multi_read_count -= sect;
 	gd_hle_state.multi_read_sector += sect;
 	gd_hle_state.cur_sector = gd_hle_state.multi_read_sector;
-	gd_hle_state.multi_read_offset += sect * 2048;
+	gd_hle_state.multi_read_offset += sect * sectorSize();
 
 	if (gd_hle_state.multi_read_count == 0)
 	{
@@ -110,7 +126,7 @@ static int schedCallback(int tag, int cycles, int jitter, void *arg)
 		SecNumber.Status = GD_STANDBY;
 		gd_hle_state.status = GDC_COMPLETE;
 	}
-	gd_hle_state.result[2] = (gd_hle_state.multi_read_total - gd_hle_state.multi_read_count) * 2048;
+	gd_hle_state.result[2] = (gd_hle_state.multi_read_total - gd_hle_state.multi_read_count) * sectorSize();
 
 	return getGdromTicks();
 }
@@ -134,6 +150,11 @@ void reios_deserialize(Deserializer& deser)
 
 void gdrom_hle_reset() {
 	gd_hle_state = {};
+	// Every boot reads 2048-byte sectors until the game asks otherwise
+	SecMode[0] = 0;
+	SecMode[1] = 0x2000;
+	SecMode[2] = 0;
+	SecMode[3] = 2048;
 }
 
 void reios_term()
@@ -184,23 +205,24 @@ static void GDROM_HLE_ReadTOC()
 static void readSectors(u32 addr, u32 sector, u32 count, bool virtualAddr)
 {
 	gd_hle_state.cur_sector = sector + count - 1;
+	const u32 secsz = sectorSize();
 	if (!virtualAddr || !mmu_enabled())
 	{
-		u8 * pDst = GetMemPtr(addr, 0);
+		u8 * pDst = GetMemPtr(addr, count * secsz);
 
 		if (pDst != NULL)
 		{
-			libGDR_ReadSector(pDst, sector, count, 2048);
+			libGDR_ReadSector(pDst, sector, count, secsz);
 			return;
 		}
 	}
-	u32 temp[2048 / 4];
+	u32 temp[2352 / 4];
 
 	while (count > 0)
 	{
-		libGDR_ReadSector((u8 *)temp, sector, 1, sizeof(temp));
+		libGDR_ReadSector((u8 *)temp, sector, 1, secsz);
 
-		for (std::size_t i = 0; i < std::size(temp); i++)
+		for (std::size_t i = 0; i < secsz / 4; i++)
 		{
 			if (virtualAddr)
 				WriteMem32(addr, temp[i]);
@@ -250,7 +272,7 @@ static void GDROM_HLE_ReadPIO()
 	debugf("GDROM: PIO READ Sector=%d, Num=%d, Buffer=%08x, SeekAhead=%x", fad, nsect, buffer, gd_hle_state.params[3]);
 
 	read_pio_sectors(buffer, fad, nsect);
-	gd_hle_state.result[2] = nsect * 2048;
+	gd_hle_state.result[2] = nsect * sectorSize();
 	gd_hle_state.result[3] = 0;
 }
 
@@ -286,20 +308,25 @@ static void GDCC_HLE_GETSCD()
 	}
 	if (cdda.status == cdda_t::Playing)
 		gd_hle_state.cur_sector = cdda.CurrAddr.FAD;
-	u8 scd[100];
+	u8 scd[100] {};
 	gd_get_subcode(format, gd_hle_state.cur_sector, scd);
-	verify(scd[3] == size);
+	// The reply says its own length (byte 3). A caller asking for another
+	// size gets what fits in both, never more than the reply.
+	u32 len = std::min<u32>(scd[3], sizeof(scd));
+	if (size != len)
+		DEBUG_LOG(REIOS, "GDROM: GETSCD asked for %d bytes, the reply has %d", size, len);
+	len = std::min(len, size);
 
-	if (!mmu_enabled() && GetMemPtr(dest, size) != NULL)
-		memcpy(GetMemPtr(dest, size), scd, size);
+	if (!mmu_enabled() && GetMemPtr(dest, len) != NULL)
+		memcpy(GetMemPtr(dest, len), scd, len);
 	else
 	{
-		for (u32 i = 0; i < size; i++)
+		for (u32 i = 0; i < len; i++)
 			WriteMem8(dest++, scd[i]);
 	}
 
 	// record size of pio transfer to gdrom
-	gd_hle_state.result[2] = size;
+	gd_hle_state.result[2] = len;
 }
 
 template<bool dma>
@@ -308,14 +335,15 @@ static void multi_xfer()
 	u32 dest = gd_hle_state.params[0];
 	u32 size = gd_hle_state.params[1];
 
+	const u32 secsz = sectorSize();
 	size = std::min(size, gd_hle_state.multi_read_count);
 	while (size > 0)
 	{
-		u8 buf[2048];
-		libGDR_ReadSector(buf, gd_hle_state.multi_read_sector, 1, 2048);
+		u8 buf[2352];
+		libGDR_ReadSector(buf, gd_hle_state.multi_read_sector, 1, secsz);
 		while (size > 0)
 		{
-			int remaining = 2048 - gd_hle_state.multi_read_offset;
+			int remaining = secsz - gd_hle_state.multi_read_offset;
 			if (size >= 4 && remaining >= 4 && (dest & 3) == 0)
 			{
 				if constexpr (dma)
@@ -349,9 +377,8 @@ static void multi_xfer()
 				gd_hle_state.multi_read_count--;
 				size--;
 			}
-			if (gd_hle_state.multi_read_offset >= 2048)
+			if (gd_hle_state.multi_read_offset >= secsz)
 			{
-				verify(gd_hle_state.multi_read_offset == 2048);
 				gd_hle_state.multi_read_sector++;
 				gd_hle_state.multi_read_offset = 0;
 				break;
@@ -370,7 +397,7 @@ static void multi_xfer()
 	}
 	else
 	{
-		gd_hle_state.result[2] = 2048;
+		gd_hle_state.result[2] = secsz;
 		gd_hle_state.result[3] = gd_hle_state.multi_read_count > 0 ? GDC_WAIT_IRQ : GDC_WAIT_INTERNAL;
 		gd_hle_state.dma_trans_ended = true;
 		if (gd_hle_state.multi_read_count == 0)
@@ -379,16 +406,12 @@ static void multi_xfer()
 	}
 }
 
-u32 SecMode[4];
-
 static void GD_HLE_Command(gd_command cc)
 {
 	switch(cc)
 	{
 	case GDCC_GETTOC:
-		WARN_LOG(REIOS, "GDROM: *FIXME* CMD GETTOC");
-		break;
-
+		// The older TOC command takes the same area and buffer as GETTOC2
 	case GDCC_GETTOC2:
 		GDROM_HLE_ReadTOC();
 		break;
@@ -490,18 +513,25 @@ static void GD_HLE_Command(gd_command cc)
 		break;
 
 	case GDCC_DMA_READ_REQ:
+	case GDCC_PIOREADREQ:
 		{
+			// A stream read: the sectors are then taken a piece at a time with
+			// GDROM_REQ_DMA_TRANS or GDROM_REQ_PIO_TRANS.
 			u32 sector = gd_hle_state.params[0] & 0xffffff;
 			u32 num = gd_hle_state.params[1];
+			const bool dma = cc == GDCC_DMA_READ_REQ;
+			const u32 secsz = sectorSize();
 
-			DEBUG_LOG(REIOS, "GDROM: CMD READ Sector=%d, Num=%d", sector, num);
+			DEBUG_LOG(REIOS, "GDROM: CMD %s READ Sector=%d, Num=%d", dma ? "DMA" : "PIO", sector, num);
 			gd_hle_state.status = GDC_CONTINUE;
 			gd_hle_state.multi_read_sector = sector;
-			gd_hle_state.multi_read_count = num * 2048;
+			gd_hle_state.multi_read_count = num * secsz;
 			gd_hle_state.multi_read_total = gd_hle_state.multi_read_count;
 			gd_hle_state.multi_read_offset = 0;
-			gd_hle_state.result[2] = 2048;
-			gd_hle_state.result[3] = num > 0 ? GDC_WAIT_IRQ : GDC_WAIT_INTERNAL;
+			gd_hle_state.result[2] = secsz;
+			// DMA ends each piece with an interrupt; PIO pieces end with the
+			// PIO callback, without one.
+			gd_hle_state.result[3] = dma && num > 0 ? GDC_WAIT_IRQ : GDC_WAIT_INTERNAL;
 		}
 		break;
 
@@ -627,7 +657,7 @@ static void GD_HLE_Command(gd_command cc)
 
 			gd_hle_state.status = GDC_CONTINUE;
 			gd_hle_state.multi_read_sector = sector;
-			gd_hle_state.multi_read_count = num * 2048;
+			gd_hle_state.multi_read_count = num * sectorSize();
 			gd_hle_state.multi_read_total = gd_hle_state.multi_read_count;
 			gd_hle_state.multi_read_offset = 0;
 
@@ -821,7 +851,9 @@ void gdrom_hle_op()
 							status = GD_STAT_PLAY;
 						else
 							status = GD_STAT_PAUSE;
-						if (ip_meta.isGDROM())
+						// ip_meta is the IP.BIN of the disc in the drive: it is
+						// read again when a disc is inserted.
+						if (ip_meta.isDreamcast() && ip_meta.isGDROM())
 							discType = GdRom;
 						break;
 					}
@@ -845,6 +877,18 @@ void gdrom_hle_op()
 					&& (gd_hle_state.status == GDC_CONTINUE || gd_hle_state.status == GDC_BUSY || gd_hle_state.status == GDC_COMPLETE))
 			{
 				r[0] = GDC_OK;
+				if (gd_hle_state.status != GDC_COMPLETE)
+				{
+					// The command ends there, aborted (error 0x0B): one still
+					// waiting isn't run, and a DMA read in progress stops.
+					sh4_sched_request(schedId, -1);
+					gd_hle_state.status = GDC_COMPLETE;
+					gd_hle_state.command = GDCC_NONE;
+					gd_hle_state.result[0] = 0x0B;	// GDC_ERR_ABORTED
+					gd_hle_state.result[3] = GDC_WAIT_INTERNAL;
+					if (SecNumber.Status != GD_PLAY)
+						SecNumber.Status = GD_PAUSE;
+				}
 				gd_hle_state.multi_read_count = 0;
 				gd_hle_state.xfer_end_time = 0;
 			}
@@ -868,9 +912,21 @@ void gdrom_hle_op()
 			//
 			// Returns: GDC_OK, GDC_ERR
 			DEBUG_LOG(REIOS, "GDROM: HLE CHANGE_DATA_TYPE PTR_r4:%X",r[4]);
-			for(std::size_t i = 0; i < std::size(SecMode); i++) {
-				SecMode[i] = ReadMem32(r[4]+(i<<2));
-				DEBUG_LOG(REIOS, "%08X", SecMode[i]);
+			if (ReadMem32(r[4]) == 0)
+			{
+				// Set
+				for (std::size_t i = 0; i < std::size(SecMode); i++)
+					SecMode[i] = ReadMem32(r[4] + (i << 2));
+				DEBUG_LOG(REIOS, "GDROM: sector mode set: part %x track type %d size %d -> reads of %d bytes",
+						SecMode[1], SecMode[2], SecMode[3], sectorSize());
+			}
+			else
+			{
+				// Get: the current format, in the same fields
+				for (std::size_t i = 1; i < std::size(SecMode); i++)
+					WriteMem32(r[4] + (i << 2), SecMode[i]);
+				DEBUG_LOG(REIOS, "GDROM: sector mode get: part %x track type %d size %d",
+						SecMode[1], SecMode[2], SecMode[3]);
 			}
 			r[0] = GDC_OK;
 			break;
@@ -975,7 +1031,7 @@ void gdrom_hle_op()
 			// Initializes all the syscall vectors to their default values.
 			// Returns: zero
 			WARN_LOG(REIOS, "GDROM: MISC_INIT not implemented");
-			r[0] = GDC_OK;
+			r[0] = 0;
 			break;
 
 		case MISC_SETVECTOR:
@@ -986,7 +1042,9 @@ void gdrom_hle_op()
 			//	r5 = pointer to handler function, or NULL to clear
 			//
 			// Returns: zero if successful, -1 if setting/clearing the handler fails
+			// Nothing is chained to these vectors here: the call succeeds.
 			WARN_LOG(REIOS, "GDROM: MISC_SETVECTOR not implemented");
+			r[0] = 0;
 			break;
 
 		default:

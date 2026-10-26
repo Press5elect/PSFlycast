@@ -15,6 +15,7 @@
 #include "cfg/option.h"
 #include "hw/pvr/spg.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cerrno>
@@ -150,10 +151,49 @@ float ScreenPacedRate()
 
 uint64_t s_last_frame;	// when the last game frame was let through (main thread)
 unsigned s_held;		// frames held back by the floor
+uint64_t s_last_fast;	// the same, during fast forward
+int s_fast_said = -1;	// the speed the log last heard of
+
+// Fast forward held to "Fast forward speed": each frame no sooner than the
+// game's frame divided by the speed after the one before (unlimited: as fast
+// as the display takes them, as before).
+void FastForwardFrame()
+{
+	const int times = std::clamp((int)ps5::FastForwardSpeed, 0, 16);
+	if (times != s_fast_said)
+	{
+		s_fast_said = times;
+		ps5::diag::mark(times == 0 ? "fast forward: as fast as it goes" : "fast forward: at most %d times the game's speed", times);
+	}
+	const float field = spg_GetFieldRate();
+	if (times < 2 || field <= 1.f)
+	{
+		s_last_fast = 0;
+		return;
+	}
+	const uint64_t frame = (uint64_t)(1e9 / (field * times));
+	const uint64_t now = PS5Timing::NowNs();
+	// After a pause (a menu) the count starts again.
+	if (s_last_fast != 0 && now > s_last_fast && now - s_last_fast < frame)
+		PS5Timing::SleepUntil(s_last_fast + frame);
+	s_last_fast = PS5Timing::NowNs();
+}
 } // namespace
+
+namespace ps5
+{
+config::Option<int> FastForwardSpeed("FastForwardSpeed", 0, "ps5");
+}
 
 void PS5Timing::GameFramePresented()
 {
+	if (settings.input.fastForwardMode)
+	{
+		s_last_frame = 0;
+		FastForwardFrame();
+		return;
+	}
+	s_last_fast = 0;
 	const float rate = ScreenPacedRate();
 	if (rate <= 0.f)
 	{

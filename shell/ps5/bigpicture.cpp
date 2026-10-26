@@ -58,6 +58,8 @@
 #include "cfg/option.h"
 #include "input/gamepad_device.h"
 #include "hw/maple/maple_devs.h"
+#include "hw/maple/maple_cfg.h"
+#include "reios/reios.h"
 #include "imgread/common.h"
 #include "oslib/oslib.h"
 #include "ui/gui.h"
@@ -78,6 +80,8 @@
 #include <dirent.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <cerrno>
 #include <ctime>
 #include <chrono>
 #include <deque>
@@ -2695,6 +2699,9 @@ struct GameOption
 	static constexpr int Any = INT_MIN;
 	std::vector<Part> parts;
 	std::vector<std::vector<int>> combos;
+	// The choice shown when the parts' values are none of the combos (-1: none
+	// of them, shown as the number).
+	int unmatched = -1;
 };
 
 std::shared_ptr<GamepadDevice> pad1();
@@ -2791,7 +2798,7 @@ int comboOf(const GameOption& option, const std::vector<int>& values)
 		if (same)
 			return (int)c;
 	}
-	return -1;
+	return option.unmatched;
 }
 
 // One choice over several options (GameOption::parts).
@@ -2820,6 +2827,59 @@ GameOption combined(const char *label, const char *desc, std::vector<const char 
 	return o;
 }
 
+// The four options that make a game look as the Dreamcast drew it, as one
+// switch: on when all four have the console's values (accurate mipmaps,
+// 16-bit colour, the flicker filter, the game's own texture filtering).
+// Turning it off gives the four back the values they had when it was turned
+// on, or the usual ones (no accurate mipmaps, 32-bit colour, no flicker filter,
+// linear filtering) when it was not turned on here. A game's own choice is
+// kept as its four values, those of "On" or the usual ones.
+GameOption originalLook()
+{
+	GameOption o = combined("Original look",
+			"Show games as the Dreamcast drew them: its texture filtering and mipmaps, 16-bit colour with dither, and the flicker filter in TV modes.",
+			{ "Off", "On" },
+			{ part("config.rend.AccurateMipmaps", config::AccurateMipmaps),
+					part("config.rend.Original16BitColour", config::Original16Bit),
+					part("config.rend.FlickerFilter", config::FlickerFilter),
+					part("config.rend.TextureFiltering", config::TextureFiltering) },
+			{ { 0, 0, 0, 2 }, { 1, 1, 1, 0 } }, GameOption::Video);
+	o.isBool = true;
+	o.unmatched = 0;		// any other values: off
+	auto original = [] {
+		return config::AccurateMipmaps && config::Original16Bit && config::FlickerFilter && config::TextureFiltering == 0;
+	};
+	// The values before it was turned on.
+	static int before[4] = { 0, 0, 0, 2 };
+	o.get = [original] { return original() ? 1 : 0; };
+	o.set = [original](int v) {
+		if (v != 0)
+		{
+			if (!original())
+			{
+				before[0] = config::AccurateMipmaps ? 1 : 0;
+				before[1] = config::Original16Bit ? 1 : 0;
+				before[2] = config::FlickerFilter ? 1 : 0;
+				before[3] = config::TextureFiltering;
+			}
+			config::AccurateMipmaps.set(true);
+			config::Original16Bit.set(true);
+			config::FlickerFilter.set(true);
+			config::TextureFiltering.set(0);
+		}
+		else if (original())
+		{
+			// Values that were the original look themselves give the usual ones.
+			const bool same = before[0] && before[1] && before[2] && before[3] == 0;
+			config::AccurateMipmaps.set(!same && before[0] != 0);
+			config::Original16Bit.set(!same && before[1] != 0);
+			config::FlickerFilter.set(!same && before[2] != 0);
+			config::TextureFiltering.set(same ? 2 : before[3]);
+		}
+	};
+	return o;
+}
+
 const std::vector<GameOption>& gameOptions()
 {
 	using G = GameOption;
@@ -2833,6 +2893,7 @@ const std::vector<GameOption>& gameOptions()
 				"Draw objects and enemies from further away. Supported games only. Experimental: higher values may slow down or break the game.",
 				"ps5.drawdist", { "Off", "1.5x", "2x", "3x", "5x" }, { 100, 150, 200, 300, 500 }),
 
+		originalLook(),
 		combined("Transparency sorting",
 				"Per-triangle: fast but may produce graphical glitches. Per-strip: faster but may produce graphical glitches. Per-pixel: slower but accurate.",
 				{ "Per-triangle", "Per-strip", "Per-pixel" },
@@ -3008,6 +3069,10 @@ const std::vector<GameOption>& gameOptions()
 		pick("Audio buffer", "Sets the maximum audio latency. A larger buffer stops crackling when a game runs slow, but delays the sound a little.",
 				"config.aica.BufferSize", { "32 ms", "64 ms", "96 ms", "128 ms", "192 ms", "256 ms" },
 				{ 1411, 2822, 4233, 5644, 8467, 11289 }, config::AudioBufferSize, G::Audio),
+		// The console's own sound setting, which games read from its system
+		// settings when they start (core/hw/flashrom).
+		pick("Sound output", "Stereo or mono, as set in the Dreamcast's system settings. Games that follow it play in mono when set to Mono.",
+				"config.Dreamcast.SoundMono", { "Stereo", "Mono" }, { 0, 1 }, config::SoundMono, G::Audio, true),
 		onOff("VMU sounds", "Play VMU beeps when enabled.", "audio.VmuSound", config::VmuSound, G::Audio),
 		pick("VMU sound plays in",
 				"Where VMU beeps play: the TV, the speaker of the controller whose VMU beeps, or both. The controller speaker is experimental.",
@@ -3042,6 +3107,10 @@ const std::vector<GameOption>& gameOptions()
 				"input.device1.1", { "Memory card", "Rumble pack", "Microphone", "Nothing" },
 				{ (int)MDT_SegaVMU, (int)MDT_PurupuruPack, (int)MDT_Microphone, (int)MDT_None },
 				config::MapleExpansionDevices[0][0], G::Controls, true),
+		pick("Peripherals",
+				"As the game says plugs in what the game's disc lists: a light gun in port A, a keyboard or a mouse in a free port, and a microphone, a vibration pack or a memory card in the controller's second slot.",
+				"ps5.Peripherals", { "As in Settings", "As the game says" },
+				{ ps5::pad::PeripheralsAsSettings, ps5::pad::PeripheralsFromGame }, ps5::pad::Peripherals, G::Controls, true),
 		onOff("Own memory card for each game",
 				"When enabled, each game has its own VMU on port 1 of controller A.",
 				"config.PerGameVmu", config::PerGameVmu, G::System, true),
@@ -6355,6 +6424,9 @@ std::vector<Category> buildCategories()
 
 	Category audio{ ICON_FA_VOLUME_HIGH, "Audio" };
 	addOptions(audio, GameOption::Audio);
+	audio.rows.push_back(toggle("Sound while fast-forwarding",
+			"Play the game's sound during fast forward, quieter and in pieces. When disabled, fast forward is silent.",
+			ps5::FastForwardSound));
 	cats.push_back(audio);
 
 	Category controls{ ICON_FA_GAMEPAD, "Controls" };
@@ -6432,6 +6504,9 @@ std::vector<Category> buildCategories()
 		};
 		system.rows.push_back(r);
 	}
+	system.rows.push_back(choice("Fast forward speed",
+			"How fast fast forward runs the game, in times its normal speed. Unlimited runs it as fast as the display takes its frames.",
+			{ "2x", "3x", "4x", "6x", "8x", "Unlimited" }, { 2, 3, 4, 6, 8, 0 }, ps5::FastForwardSpeed));
 	{
 		Row r{ Row::Toggle, "Back up memory cards to the network share",
 				"When you quit a game, copy the memory cards that changed to PSFlyCast/Memory cards on the first share in network.cfg." };
@@ -7563,6 +7638,7 @@ struct QuickItem
 	std::function<void()> run;
 	std::function<void(int)> side;	// left/right
 	bool stays = false;				// running it keeps the menu open
+	const char *sideHint = "Change";	// what left and right do, for the hints
 };
 
 struct QuickState
@@ -9189,7 +9265,282 @@ void achievementsPage(ImDrawList *dl, float px, float pw, float top)
 	}
 }
 
+// ---- the running game's discs
+//
+// What "Insert disc" offers first: the discs of the running game's set. A set
+// is the library's (discs named "Disc 1", "Disc 2"), else the discs in the
+// same folder whose header (IP.BIN) says they are of the same set as the disc
+// that was in the drive ("1/2" and "2/2" of one product number). A game is
+// on several discs when it has such a set or its header says so; only then
+// has the quick menu "Open disc lid".
+struct RunningDisc
+{
+	std::string path;
+	int number = 0;			// 1 for the first disc, 0 when not known
+	std::string title;
+};
+
+struct RunningDiscs
+{
+	std::string forPath;	// the disc in the drive these were found for
+	bool several = false;	// the game is on more than one disc
+	std::vector<RunningDisc> discs;		// the set, in disc order (the one in the drive too)
+} runningDiscs;
+
+// Looked for again when another disc went in, and not while the lid is open
+// (the drive's header is then empty).
+const RunningDiscs& findRunningDiscs()
+{
+	RunningDiscs& r = runningDiscs;
+	const std::string path = !insertedPath.empty() ? insertedPath : ::settings.content.path;
+	if (path == r.forPath || gdr::isOpen())
+		return r;
+	r = RunningDiscs();
+	r.forPath = path;
+	if (!::settings.platform.isConsole() || path.empty())
+		return r;
+	for (const Game& g : games)
+		if (g.media.path == path && !g.set.empty())
+		{
+			const auto set = discSets.find(g.set);
+			if (set != discSets.end())
+				for (size_t i : set->second)
+					r.discs.push_back({ games[i].media.path, games[i].discOrder,
+							!games[i].fullTitle.empty() ? games[i].fullTitle : games[i].title });
+		}
+	const ip_meta_t meta = currentDiscMeta();
+	r.several = r.discs.size() > 1 || meta.discCount() > 1;
+	if (r.discs.empty() && meta.discCount() > 1)
+	{
+		// The disc's header says it is one of several and the file names make no
+		// set: the discs beside it, from a local folder (a share's would each be
+		// a wait), whose header is of its set.
+		const std::string folder = path.substr(0, path.find_last_of('/') + 1);
+		for (const Game& g : games)
+		{
+			if (!g.disc || g.media.arcade || g.source == Network || g.source == Disc
+					|| g.media.path.compare(0, folder.size(), folder) != 0
+					|| g.media.path.find('/', folder.size()) != std::string::npos)
+				continue;
+			ip_meta_t other;
+			if (g.media.path == path)
+				r.discs.push_back({ path, meta.discNumber(), g.title });
+			else if (readDiscMeta(g.media.path, other) && sameDiscSet(meta, other))
+				r.discs.push_back({ g.media.path, other.discNumber(), g.title });
+		}
+		std::sort(r.discs.begin(), r.discs.end(), [](const RunningDisc& a, const RunningDisc& b) { return a.number < b.number; });
+		if (r.discs.size() < 2)
+			r.discs.clear();
+	}
+	ps5::diag::mark("discs: the running game is %s (header %d of %d); %zu discs of its set found",
+			r.several ? "on several discs" : "on one disc", meta.discNumber(), meta.discCount(), r.discs.size());
+	return r;
+}
+
+// One of the set into the open drive, as the library's disc list does it.
+void insertRunningDisc(const std::string& path)
+{
+	for (Game& g : games)
+		if (g.media.path == path)
+		{
+			launch(g, true);
+			return;
+		}
+	insertedPath = path;
+	try {
+		emu.insertGdrom(path);
+		gui_setState(GuiState::Closed);
+	} catch (const FlycastException& e) {
+		gui_error(e.what());
+	}
+}
+
+// ---- a memory card swapped while the game runs
+//
+// "Swap memory card" pulls the card out of the first controller's first slot
+// and puts another card file in, as a hand would (maple_unplug_expansion and
+// maple_plug_expansion, core/hw/maple/maple_cfg.h). The quick menu is open,
+// so the emulator is stopped: the Maple devices may be changed from here.
+//
+// The slot's own card is the file hostfs::getVmuPath() names for it (the
+// game's own card or vmu_save_A1.bin); another card is handed to
+// maple_plug_expansion as its file, since the console has no file links.
+// Nothing of this is saved: the next start of the game (or a change of the
+// controller's devices, or loading a state) has its own card back.
+struct CardSwap
+{
+	std::mutex mutex;
+	std::string inSlot;			// the card in the slot now; empty: the one the settings give
+	std::string forGame;		// the game it is for
+	bool waiting = false;		// VMUPath and the link wait for the card to go in
+	std::string vmuPath;		// VMUPath to give back
+	std::string link;
+	bool listening = false;
+	// The quick menu's choice: each card's path and name, and the one shown.
+	std::vector<std::pair<std::string, std::string>> choices;
+	int choice = 0;
+	bool stale = true;			// read again as the menu opens
+} cardSwap;
+
+// On the emulator's thread (or when it has stopped): the folder given back.
+void cardSwapDone(bool loaded)
+{
+	std::lock_guard<std::mutex> lock(cardSwap.mutex);
+	if (cardSwap.waiting)
+	{
+		config::VMUPath.override(cardSwap.vmuPath);
+		if (!cardSwap.link.empty())
+			unlink(cardSwap.link.c_str());
+		cardSwap.waiting = false;
+		ps5::diag::mark("cards: the card swapped into port A, slot 1 is in");
+	}
+	if (loaded)
+		cardSwap.inSlot.clear();	// a state has the card it was saved with
+}
+
+void listenCardSwap()
+{
+	if (cardSwap.listening)
+		return;
+	cardSwap.listening = true;
+	EventManager::listen(Event::VBlank, [](Event, void *) {
+		if (cardSwap.waiting && maple_expansion_device(0, 0) == MDT_SegaVMU)
+			cardSwapDone(false);
+	});
+	EventManager::listen(Event::LoadState, [](Event, void *) { cardSwapDone(true); });
+	EventManager::listen(Event::Terminate, [](Event, void *) {
+		cardSwapDone(true);
+		std::lock_guard<std::mutex> lock(cardSwap.mutex);
+		cardSwap.forGame.clear();
+	});
+}
+
+// The card the settings put in the slot.
+std::string settingsCard()
+{
+	std::lock_guard<std::mutex> lock(cardSwap.mutex);
+	if (cardSwap.waiting)
+		return "";
+	return hostfs::getVmuPath("A1", true);
+}
+
+// The cards that can go in: every card that can be read, but those another
+// slot has (a shared card for a port and slot with a memory card in it).
+void readSwapChoices()
+{
+	CardSwap& c = cardSwap;
+	const std::string own = settingsCard();
+	std::string now;
+	{
+		std::lock_guard<std::mutex> lock(c.mutex);
+		if (c.forGame != ::settings.content.path)
+		{
+			c.forGame = ::settings.content.path;
+			c.inSlot.clear();
+		}
+		now = c.inSlot.empty() ? own : c.inSlot;
+	}
+	c.choices.clear();
+	c.choice = 0;
+	c.stale = false;
+	const std::map<std::string, std::string> titles = cardTitles();
+	for (const ps5::vmu::Card& card : ps5::vmu::cards(get_writable_data_path("")))
+	{
+		if (!card.readable && card.path != own)
+			continue;
+		if (!card.perGame && card.port >= 0 && card.slot >= 0 && card.path != own && card.port < 4
+				&& config::MapleMainDevices[card.port] != MDT_None
+				&& config::MapleExpansionDevices[card.port][card.slot] == MDT_SegaVMU)
+			continue;
+		const auto title = card.perGame ? titles.find(card.game) : titles.end();
+		std::string name = title != titles.end() ? title->second : card.perGame ? card.game : card.label;
+		if (card.path == own && card.perGame)
+			name = "This game's own card";
+		if (card.path == now)
+			c.choice = (int)c.choices.size();
+		c.choices.emplace_back(card.path, name);
+	}
+	if (c.choices.empty() || c.choices[c.choice].first != now)
+	{
+		// The slot's card has no file yet (the game has not written it): it is listed all the same.
+		c.choices.insert(c.choices.begin(), { now, now == own ? "This game's own card" : get_file_basename(now) });
+		c.choice = 0;
+	}
+}
+
+std::string cardInSlot()
+{
+	std::lock_guard<std::mutex> lock(cardSwap.mutex);
+	return cardSwap.inSlot;
+}
+
+// Pulls the card out and puts the chosen one in. False, with the reason, when it cannot.
+bool swapCard(const std::string& path, std::string& why)
+{
+	CardSwap& c = cardSwap;
+	if (!game_started || emu.running())
+	{
+		why = "The game must be paused";
+		return false;
+	}
+	if (maple_expansion_device(0, 0) != MDT_SegaVMU)
+	{
+		why = "There is no memory card in slot 1 of port A";
+		return false;
+	}
+	listenCardSwap();
+	const std::string own = settingsCard();
+	if (own.empty())
+	{
+		why = "The last card is still going in: resume the game for a moment first";
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(c.mutex);
+	if (!maple_unplug_expansion(0, 0))
+	{
+		why = "The card could not be pulled out";
+		return false;
+	}
+	reset_vmus();		// the card's screen goes with it
+	// The new card opens the chosen file itself (the console has no file
+	// links); the slot's own card is its usual file.
+	if (!maple_plug_expansion(0, 0, MDT_SegaVMU, path == own ? std::string() : path))
+	{
+		why = "The card was pulled out, and no other could go in";
+		ps5::diag::mark("cards: port A, slot 1 pulled out; no card could go in");
+		return false;
+	}
+	c.inSlot = path == own ? "" : path;
+	ps5::diag::mark("cards: port A, slot 1 swapped to %s", path.c_str());
+	return true;
+}
+
 } // namespace
+
+// The game asked to go back to the console's menu, which the built-in BIOS
+// does not have, and the emulator stopped for it (emuReturnedToBios): as
+// "Quit game", without an error. Once a frame, from os_DoEvents; acted on the
+// frame after it is first seen, once the emulator has finished stopping.
+void returnedToMenuCheck()
+{
+	static int seen = 0;
+	if (!game_started || !emuReturnedToBios() || emu.running())
+	{
+		seen = 0;
+		return;
+	}
+	if (++seen < 2)
+		return;
+	seen = 0;
+	ps5::diag::mark("game: it went back to the console menu: back to the library");
+	::settings.input.fastForwardMode = false;
+	ps5::net::gameEnding(true);
+	gui_stop_game();
+	ps5::net::gameEnding(false);
+	if (ps5::smb::CardBackup)
+		startCardBackup(false);
+	os_notify("The game went back to the console menu", 3000);
+}
 
 void quickMenu()
 {
@@ -9232,6 +9583,7 @@ void quickMenu()
 		qm.trophiesAnim = 0;
 		qm.tool = 0;
 		qm.toolAnim = 0;
+		cardSwap.stale = true;
 		// Asked once as the menu opens: every asking has the game's picture
 		// downloaded again while it is missing.
 		qm.trophiesActive = config::EnableAchievements && achievements::isActive();
@@ -9265,7 +9617,8 @@ void quickMenu()
 		dc_loadstate(config::SavestateSlot);
 	} });
 	{
-		QuickItem slot{ ICON_FA_LAYER_GROUP, "State slot", "", true, nullptr };
+		QuickItem slot{ ICON_FA_LAYER_GROUP, "State slot", "Slot " + std::to_string((int)config::SavestateSlot + 1), true, nullptr };
+		slot.sideHint = "Slot";
 		slot.side = [](int d) {
 			config::SavestateSlot = (config::SavestateSlot + 10 + d) % 10;
 			SaveSettings();
@@ -9284,15 +9637,19 @@ void quickMenu()
 	}
 	{
 		// Flycast's fast forward: the game is no longer held to its own pace,
-		// and has no sound. On this console it is still held to the display's:
-		// the driver shows every frame for a refresh (twice a 60 fps game's
-		// speed with 120 Hz output, and none gained at 60 Hz). Its rules are the
-		// button's (core/input/gamepad_device.cpp): not in netplay, not on
-		// linked arcade boards. A game that starts has it off.
+		// and has no sound unless "Sound while fast-forwarding" is on. It is
+		// held to "Fast forward speed" (ps5_timing.cpp), and on this console
+		// to the display's pace too: the driver shows every frame for a
+		// refresh (twice a 60 fps game's speed with 120 Hz output, and none
+		// gained at 60 Hz). Its rules are the button's
+		// (core/input/gamepad_device.cpp): not in netplay, not on linked
+		// arcade boards. A game that starts has it off.
 		const bool allowed = !::settings.network.online && !::settings.naomi.multiboard;
 		const bool on = ::settings.input.fastForwardMode;
+		const int times = ps5::FastForwardSpeed;
+		const std::string speed = times >= 2 ? " (" + std::to_string(times) + "x)" : "";
 		QuickItem fast{ ICON_FA_FORWARD, "Fast forward", !allowed ? (::settings.network.online ? "Not while online"
-				: "Not on linked boards") : on ? "On" : "Off", allowed, [on] {
+				: "Not on linked boards") : (on ? "On" : "Off") + speed, allowed, [on] {
 			::settings.input.fastForwardMode = !on;
 			if (!on)
 			{
@@ -9305,15 +9662,71 @@ void quickMenu()
 		items.push_back(fast);
 	}
 	if (::settings.platform.isConsole())
-		items.push_back({ ICON_FA_COMPACT_DISC, gdr::isOpen() ? "Insert disc" : "Open disc lid", "", true, [] {
-			if (gdr::isOpen())
-				gui_setState(GuiState::SelectDisk);
-			else
+	{
+		// The disc lid, for a game on several discs. With the lid open, the
+		// discs of its set first, then any disc from the library.
+		const RunningDiscs& discs = findRunningDiscs();
+		if (gdr::isOpen())
+		{
+			// The other discs first, then the one that was taken out.
+			const std::string out = discs.forPath;
+			std::vector<RunningDisc> order;
+			for (const RunningDisc& disc : discs.discs)
+				if (disc.path != out)
+					order.push_back(disc);
+			for (const RunningDisc& disc : discs.discs)
+				if (disc.path == out)
+					order.push_back(disc);
+			for (const RunningDisc& disc : order)
 			{
+				const std::string path = disc.path;
+				items.push_back({ ICON_FA_COMPACT_DISC,
+						disc.number > 0 ? "Insert disc " + std::to_string(disc.number) : "Insert " + disc.title,
+						disc.path == out ? "Taken out" : "", true, [path] { insertRunningDisc(path); } });
+			}
+			items.push_back({ ICON_FA_FOLDER_OPEN, discs.discs.empty() ? "Insert disc" : "Insert another disc", "", true,
+					[] { gui_setState(GuiState::SelectDisk); } });
+		}
+		else if (discs.several)
+			items.push_back({ ICON_FA_COMPACT_DISC, "Open disc lid", "", true, [] {
 				emu.openGdrom();
 				gui_setState(GuiState::Closed);
+			} });
+	}
+	if (::settings.platform.isConsole() && !::settings.network.online && maple_expansion_device(0, 0) == MDT_SegaVMU)
+	{
+		// Another card into the first controller's first slot. Left and right
+		// choose it, Cross swaps.
+		if (cardSwap.stale)
+			readSwapChoices();
+		CardSwap& c = cardSwap;
+		c.choice = std::clamp(c.choice, 0, std::max(0, (int)c.choices.size() - 1));
+		const std::string inSlot = cardInSlot().empty() ? settingsCard() : cardInSlot();
+		const bool other = !c.choices.empty() && c.choices[c.choice].first != inSlot;
+		QuickItem swap{ ICON_FA_SD_CARD, "Swap memory card",
+				c.choices.empty() ? "" : c.choices[c.choice].second + (other ? "" : " (in)"), other, [] {
+			const std::string path = cardSwap.choices[cardSwap.choice].first;
+			std::string why;
+			if (swapCard(path, why))
+			{
+				os_notify("Memory card swapped", 3000, cardSwap.choices[cardSwap.choice].second.c_str());
+				GamepadDevice::load_system_mappings();
+				gui_setState(GuiState::Closed);
 			}
-		} });
+			else
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("The card was not swapped", 4000, why.c_str());
+			}
+		} };
+		swap.side = [](int d) {
+			const int count = (int)cardSwap.choices.size();
+			if (count > 0)
+				cardSwap.choice = (cardSwap.choice + count + d) % count;
+		};
+		swap.sideHint = "Card";
+		items.push_back(swap);
+	}
 	{
 		int on = 0;
 		for (size_t i = 0; i < cheatManager.cheatCount(); i++)
@@ -9498,9 +9911,9 @@ void quickMenu()
 		const ImU32 c = !it.enabled ? col::faint : on ? col::text : col::dim;
 		text(dl, regular(), 28, px + 64, y + 20, c, it.icon);
 		text(dl, bold(), 28, px + 120, y + 19, c, it.label.c_str());
-		std::string right = it.detail;
-		if (it.side)
-			right = "Slot " + std::to_string((int)config::SavestateSlot + 1);
+		// Cut short where it would reach the label.
+		const float labelEnd = px + 120 + textSize(bold(), 28, it.label.c_str()).x + 40 + (it.side && on ? 30 : 0);
+		const std::string right = it.detail.empty() ? "" : fit(regular(), 24, it.detail, px + pw - 64 - labelEnd);
 		if (!right.empty())
 		{
 			const ImVec2 rs = textSize(regular(), 24, right.c_str());
@@ -9516,7 +9929,7 @@ void quickMenu()
 	}
 
 	// The state in the slot: a card beside the panel while a state row is focused.
-	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.side))
+	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.label == "State slot"))
 	{
 		const float cw = 432, chh = 320;
 		const float cx = px - 32 - cw;
@@ -9604,7 +10017,7 @@ void quickMenu()
 		{
 			hint(Glyph::Cross, "Select");
 			if (cur.side)
-				hint(Glyph::DPadLR, "Slot");
+				hint(Glyph::DPadLR, cur.sideHint);
 			hint(Glyph::Circle, "Resume");
 		}
 	}

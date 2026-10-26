@@ -42,6 +42,30 @@ time_t dc_getStateCreationDate(int index);
 void dc_getStateScreenshot(int index, std::vector<u8>& pngData);
 bool dc_savestateAllowed();
 
+// Decides a broadcast standard (Broadcast 4) or console language (Language 6)
+// set to "Follow the game" from the region: the one resolved from the disc's
+// IP.BIN, or the flash's when the disc names none. NTSC follows Japan and the
+// USA, PAL Europe; the language is Japanese for Japan, English for the USA,
+// and for Europe the console's own if it is a European one, else English.
+// It overrides the options, so the stored "Follow the game" stays as it is.
+// Called when the disc is read and again when the flash is loaded.
+void resolveFollowSettings();
+
+// Thrown by the HLE BIOS when the game asks to go back to the console's menu
+// (or to the CD player, or to reset) and there is no disc to start again.
+// The emulator catches it and stops cleanly: it isn't an error.
+class ReturnToBiosException : public FlycastException
+{
+public:
+	ReturnToBiosException() : FlycastException("Return to the console menu") {}
+};
+
+// Whether the game asked to go back to the console's menu and the emulator
+// stopped for it (the HLE BIOS has no menu to show). The frontend checks it
+// when the game stops running, to go back to its own menu instead of showing
+// an error. Cleared when a game is loaded or started again.
+bool emuReturnedToBios();
+
 enum class Event {
 	Start,
 	Pause,
@@ -194,10 +218,18 @@ public:
 
 	void dc_reset(bool hard); // for tests only
 
+	/**
+	 * Whether the game asked to go back to the console's menu and the emulator stopped for it.
+	 */
+	bool returnedToBios() const {
+		return returnToBios;
+	}
+
 private:
 	bool checkStatus(bool wait = false);
 	void runInternal();
 	void diskChange();
+	void finishReturnToBios();
 
 	enum State {
 		Uninitialized = 0,
@@ -215,6 +247,10 @@ private:
 	u32 stepRangeFrom = 0;
 	u32 stepRangeTo = 0;
 	bool stopRequested = false;
+	// The game went back to the console's menu (returnedToBios), and the
+	// interface thread has still to finish stopping (finishReturnToBios).
+	std::atomic<bool> returnToBios { false };
+	std::atomic<bool> returnToBiosPending { false };
 	std::mutex mutex;
 	Sh4Executor *interpreter = nullptr;
 	Sh4Executor *recompiler = nullptr;

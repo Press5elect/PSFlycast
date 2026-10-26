@@ -114,6 +114,17 @@ FrameAccuracy BaseDrawer::MakeFrameAccuracy(u32 renderHeight) const
 	return acc;
 }
 
+float BaseDrawer::GetRenderScale() const
+{
+	if (rendContext == nullptr)
+		return 1.f;
+	int pvrWidth, pvrHeight;
+	getPvrFramebufferSize(*rendContext, pvrWidth, pvrHeight);
+	if (pvrHeight <= 0 || rendContext->framebufferHeight == 0)
+		return 1.f;
+	return (float)rendContext->framebufferHeight / pvrHeight;
+}
+
 void BaseDrawer::scaleAndWriteFramebuffer(vk::CommandBuffer commandBuffer, FramebufferAttachment *finalFB)
 {
 	static const float scopeColor[4] = { 0.25f, 0.25f, 0.25f, 0.25f };
@@ -449,6 +460,8 @@ bool Drawer::Draw(const Texture *fogTexture, const Texture *paletteTexture)
 	}
 
 	currentScissor = vk::Rect2D();
+	// Mip levels as the console picks them at this pass's internal resolution (rend.AccurateMipmaps)
+	samplerManager->setRenderScale(GetRenderScale());
 
 	vk::CommandBuffer cmdBuffer = BeginRenderPass();
 
@@ -565,6 +578,8 @@ vk::CommandBuffer TextureDrawer::BeginRenderPass()
 	{
 		int wpo2, hpo2;
 		getPvrFramebufferSize(*rendContext, wpo2, hpo2);
+		pvrWidth = wpo2;
+		pvrHeight = hpo2;
 		texture = textureCache->getRTTexture(textureAddr, rendContext->fb_W_CTRL.fb_packmode, wpo2, hpo2);
 		if (textureCache->IsInFlight(texture, false))
 		{
@@ -573,7 +588,9 @@ vk::CommandBuffer TextureDrawer::BeginRenderPass()
 		}
 		textureCache->SetInFlight(texture);
 
-		constexpr vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
+		// Storage too when the result is packed to 16 bits after the pass (rtt_quantize.h)
+		const vk::ImageUsageFlags imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+				| RttQuantizer::extraUsage(*rendContext);
 		if (!texture->image || texture->format != vk::Format::eR8G8B8A8Unorm
 				|| texture->extent.width != width || texture->extent.height != height
 				|| (texture->usageFlags & imageUsage) != imageUsage)
@@ -632,6 +649,11 @@ void TextureDrawer::EndRenderPass()
 
 	u32 fbw = rendContext->framebufferWidth;
 	u32 fbh = rendContext->framebufferHeight;
+
+	// The texture as the console leaves it: packed to FB_W_CTRL.fb_packmode, dithered or truncated
+	if (!config::RenderToTextureBuffer && texture->mipmapLevels == 1)
+		rttQuantizer.apply(currentCommandBuffer, commandPool, *texture->image, *texture->imageView,
+				texture->extent.width, texture->extent.height, pvrWidth, pvrHeight, *rendContext);
 
 	if (config::RenderToTextureBuffer)
 	{

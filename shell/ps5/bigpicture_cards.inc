@@ -12,9 +12,11 @@
 	  the cards        Cross goes into the card's saves (or formats a card that
 	                   holds nothing yet), Square lists the save files in
 	                   <root>/vmu to add one, Circle closes the dialog;
-	  the saves        Cross opens the three things that can be done with one;
-	  what to do       copy it to another card, write it to <root>/vmu, delete it;
+	  the saves        Cross opens the things that can be done with one;
+	  what to do       copy it (or all the saves of its game) to another card,
+	                   write it to <root>/vmu, delete it;
 	  where to copy    the left pane again, to choose the other card;
+	  overwrite?       asked when that card has saves of the same names;
 	  delete?          asked before a save is deleted;
 	  the save files   Cross adds the one chosen to the card.
 
@@ -55,7 +57,7 @@ struct CardsUi
 {
 	bool open = false;
 	// Where the pad is.
-	enum Level { Cards, Saves, Actions, Destination, Confirm, Import, Erase };
+	enum Level { Cards, Saves, Actions, Destination, Confirm, Import, Erase, Overwrite };
 	int level = Cards;
 
 	std::vector<vmu::Card> cards;
@@ -70,6 +72,8 @@ struct CardsUi
 	int target = 0;
 	int file = 0;
 	int erase = 0;						// Erase: 0 format, 1 take the card away
+	bool copyAll = false;				// the copy is of every save of the focused one's game
+	int overwrites = 0;					// Overwrite: how many of the target's saves would be replaced
 	float cardScroll = 0, saveScroll = 0, fileScroll = 0;
 
 	std::string note;					// what came of the last thing tried
@@ -77,12 +81,9 @@ struct CardsUi
 	std::map<std::string, CardIcon> icons;	// the textures made here, to be deleted here
 } cardsUi;
 
-enum { CardCopy, CardExport, CardDelete, CardActions };
+enum { CardCopy, CardCopyAll, CardExport, CardDelete, CardActions };
 constexpr int CardFilesListed = 256;
 constexpr float CardRowH = 76;
-
-// Said when a copy-protected save was copied or exported all the same.
-const char *const cardProtected = "It is marked copy-protected: a Dreamcast would have refused, and its game may not accept the copy";
 
 // The part of a card's file name that stands for a game's ID, as Flycast makes
 // it (hostfs::getVmuPath in core/oslib/oslib.cpp): the characters a file name
@@ -378,8 +379,6 @@ void saveRow(ImDrawList *dl, const vmu::Save& save, const std::string& icon, con
 	}
 	float right = x + w - 28;
 	const float cy = y + CardRowH / 2;
-	if (!bad && save.copyProtected)
-		right = cardMark(dl, right, cy, ICON_FA_LOCK "  Copy-protected", on);
 	if (!bad && save.type == vmu::Type::Game)
 		right = cardMark(dl, right, cy, ICON_FA_GAMEPAD "  VMU game", on);
 	const float textX = tx + tile + 20, textW = right - 8 - textX;
@@ -396,6 +395,54 @@ void paneWords(ImDrawList *dl, float x, float y, float w, const char *sign, bool
 	const float tx = x + 28 + ss.x + 24, tw = w - (tx - x) - 36;
 	text(dl, bold(), 28, tx, y + 28, col::text, fit(bold(), 28, heading, tw).c_str());
 	text(dl, regular(), 22, tx, y + 74, col::dim, more.c_str(), tw);
+}
+
+// The saves a copy takes: the focused one, or every save of its game.
+std::vector<vmu::Save> savesToCopy()
+{
+	CardsUi& ui = cardsUi;
+	if (ui.save < 0 || ui.save >= (int)ui.saves.size())
+		return {};
+	if (!ui.copyAll)
+		return { ui.saves[ui.save] };
+	return vmu::sameGame(ui.saves, ui.saves[ui.save]);
+}
+
+// What can be done with the focused save: "Copy all saves of this game" only
+// when the game has more than this one here.
+std::vector<int> cardActions()
+{
+	CardsUi& ui = cardsUi;
+	std::vector<int> actions = { CardCopy };
+	if (ui.save >= 0 && ui.save < (int)ui.saves.size() && vmu::sameGame(ui.saves, ui.saves[ui.save]).size() > 1)
+		actions.push_back(CardCopyAll);
+	actions.push_back(CardExport);
+	actions.push_back(CardDelete);
+	return actions;
+}
+
+// Copies the save, or the game's saves, to the target card; replace: over
+// those of the same names.
+void copyToTarget(bool replace)
+{
+	CardsUi& ui = cardsUi;
+	const vmu::Card& from = ui.cards[ui.card];
+	const vmu::Card& to = ui.cards[ui.target];
+	const std::vector<vmu::Save> saves = savesToCopy();
+	const std::string where = ui.names[ui.target] + (to.perGame ? "'s card" : "");
+	const vmu::Result result = vmu::copy(from, saves, to, replace);
+	if (result.ok)
+	{
+		cardsNote(saves.size() == 1 ? saves[0].name + " was copied to " + where
+				: std::to_string(saves.size()) + " saves were copied to " + where, false);
+		ui.level = CardsUi::Saves;
+	}
+	else
+	{
+		cardsNote(result.message, true);		// another card can be chosen
+		ui.level = CardsUi::Destination;
+	}
+	readCards();
 }
 
 }
@@ -602,12 +649,16 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 
 	case CardsUi::Actions:
 	{
-		ui.action = std::clamp(ui.action + step, 0, (int)CardActions - 1);
+		const std::vector<int> actions = cardActions();
+		const int at = std::clamp(ui.action + step, 0, (int)actions.size() - 1);
+		ui.action = at;
+		const int action = actions[at];
 		const vmu::Card *card = cardAt(ui.card);
 		if (given.back || card == nullptr || !card->readable || ui.save >= (int)ui.saves.size())
 			ui.level = CardsUi::Saves;
-		else if (given.accept && ui.action == CardCopy)
+		else if (given.accept && (action == CardCopy || action == CardCopyAll))
 		{
+			ui.copyAll = action == CardCopyAll;
 			// The first card it could go to, when there is one.
 			int first = -1;
 			for (int i = 0; i < cardCount && first < 0; i++)
@@ -622,7 +673,7 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 				ui.note.clear();
 			}
 		}
-		else if (given.accept && ui.action == CardExport)
+		else if (given.accept && action == CardExport)
 		{
 			const vmu::Save save = ui.saves[ui.save];
 			const vmu::Result result = vmu::exportSave(*card, save, ps5::rootDir + "vmu/");
@@ -632,8 +683,7 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 				std::string file = result.path.substr(result.path.find_last_of('/') + 1);
 				if (file.size() > 4)
 					file.resize(file.size() - 4);
-				cardsNote(save.name + " was exported to " + shownFolder + file + ".vmi and .vms"
-						+ (result.copyProtected ? std::string(". ") + cardProtected : ""), false);
+				cardsNote(save.name + " was exported to " + shownFolder + file + ".vmi and .vms", false);
 			}
 			else
 				cardsNote(result.message, true);
@@ -669,18 +719,30 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 					: "That card cannot be read, so nothing is copied to it", true);
 		else if (given.accept)
 		{
-			const vmu::Save save = ui.saves[ui.save];
-			const std::string where = ui.names[ui.target] + (to->perGame ? "'s card" : "");
-			const vmu::Result result = vmu::copy(*from, save, *to);
-			if (result.ok)
+			// Saves of the same names there: asked before they are replaced.
+			ui.overwrites = 0;
+			const std::vector<vmu::Save> there = vmu::list(*to);
+			for (const vmu::Save& save : savesToCopy())
+				for (const vmu::Save& other : there)
+					ui.overwrites += other.rawName == save.rawName ? 1 : 0;
+			if (ui.overwrites > 0)
 			{
-				cardsNote(save.name + " was copied to " + where + (result.copyProtected ? std::string(". ") + cardProtected : ""), false);
-				ui.level = CardsUi::Saves;
+				ui.level = CardsUi::Overwrite;
+				ui.note.clear();
 			}
 			else
-				cardsNote(result.message, true);		// another card can be chosen
-			readCards();
+				copyToTarget(false);
 		}
+		break;
+	}
+
+	case CardsUi::Overwrite:
+	{
+		const vmu::Card *from = cardAt(ui.card), *to = cardAt(ui.target);
+		if (given.back || from == nullptr || to == nullptr || ui.save >= (int)ui.saves.size())
+			ui.level = CardsUi::Destination;
+		else if (given.accept)
+			copyToTarget(true);
 		break;
 	}
 
@@ -770,7 +832,7 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 	const float leftW = 540, gap = 28;
 	const float rx = x0 + leftW + gap, rw = inner - leftW - gap;
 	const vmu::Card *card = cardAt(ui.card);
-	const bool choosing = ui.level == CardsUi::Destination;
+	const bool choosing = ui.level == CardsUi::Destination || ui.level == CardsUi::Overwrite;
 
 	// ---- the cards
 	rect(dl, x0, top, leftW, paneH, col::rgba(0, 0, 0, 48), 16);
@@ -917,11 +979,18 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 		if (ui.level == CardsUi::Cards && card != nullptr && !card->perGame && card->port == 0 && card->slot == 0 && config::PerGameVmu)
 			line = "Games do not use this card: each has its own in port A, slot 1 (emu.cfg's PerGameVmu, which is on)";
 		else if (ui.level == CardsUi::Actions && save != nullptr)
-			line = ui.action == CardCopy ? "The save stays on this card too"
-					: ui.action == CardExport ? "Writes it to " + shownFolder + " as a .vms and a .vmi file, in place of files of the same name"
+		{
+			const std::vector<int> actions = cardActions();
+			const int action = actions[std::clamp(ui.action, 0, (int)actions.size() - 1)];
+			line = action == CardCopy ? "The save stays on this card too"
+					: action == CardCopyAll ? "Copies the " + std::to_string(vmu::sameGame(ui.saves, *save).size())
+							+ " saves whose names start with " + save->name.substr(0, vmu::GameNameLength) + ", together"
+					: action == CardExport ? "Writes it to " + shownFolder + " as a .vms and a .vmi file, in place of files of the same name"
 					: "Its " + blocksText(save->blocks) + (save->blocks == 1 ? " is free again" : " are free again");
+		}
 		else if (choosing && save != nullptr)
-			line = "Choose the card " + save->name + " is copied to";
+			line = ui.copyAll ? "Choose the card the saves of " + save->name.substr(0, vmu::GameNameLength) + " are copied to"
+					: "Choose the card " + save->name + " is copied to";
 		else if (importing && ui.file < (int)ui.files.size() && !ui.files[ui.file].ok)
 			line = ui.files[ui.file].why;
 		else if (importing && ui.filesLeftOut > 0)
@@ -960,6 +1029,7 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 		buttons = { { Glyph::Cross, "Choose", true }, { Glyph::Circle, "Back", false } };
 		break;
 	case CardsUi::Destination:
+	case CardsUi::Overwrite:
 		buttons = { { Glyph::Cross, "Copy here", true }, { Glyph::Circle, "Back", false } };
 		break;
 	default:
@@ -975,9 +1045,11 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 	// ---- what can be done with the focused save, under its row (over it at the list's end)
 	if ((ui.level == CardsUi::Actions || ui.level == CardsUi::Confirm) && save != nullptr)
 	{
-		const char *const signs[CardActions] = { ICON_FA_COPY, ICON_FA_FILE_EXPORT, ICON_FA_TRASH_CAN };
-		const char *const names[CardActions] = { "Copy to another card", "Export to a file", "Delete" };
-		const float rowH = 52, mw = 400, mh = CardActions * rowH + 20;
+		const char *const signs[CardActions] = { ICON_FA_COPY, ICON_FA_CLONE, ICON_FA_FILE_EXPORT, ICON_FA_TRASH_CAN };
+		const char *const names[CardActions] = { "Copy to another card", "Copy all saves of this game", "Export to a file", "Delete" };
+		const std::vector<int> actions = cardActions();
+		const int count = (int)actions.size();
+		const float rowH = 52, mw = 470, mh = count * rowH + 20;
 		const float mx = rx + rw - 36 - mw;
 		float my = actionsY + CardRowH - 6;
 		if (my + mh > top + paneH - 8)
@@ -985,16 +1057,17 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 		glow(dl, mx, my, mw, mh, 16, col::rgba(0, 0, 0, 150), 24);
 		rect(dl, mx, my, mw, mh, col::panelHi, 16);
 		outline(dl, mx, my, mw, mh, col::line, 16, 1.5f);
-		for (int i = 0; i < CardActions; i++)
+		for (int i = 0; i < count; i++)
 		{
 			const float y = my + 10 + i * rowH;
 			const bool on = i == ui.action;
+			const int a = actions[i];
 			if (on)
 				rect(dl, mx + 10, y + 2, mw - 20, rowH - 4, col::accent, 12);
 			// Its sign in a column of its own, so that the words line up.
-			const ImVec2 ss = textSize(regular(), 24, signs[i]);
-			text(dl, regular(), 24, mx + 46 - ss.x / 2, y + 12, on ? col::text : col::dim, signs[i]);
-			text(dl, bold(), 24, mx + 80, y + 12, on ? col::text : col::dim, names[i]);
+			const ImVec2 ss = textSize(regular(), 24, signs[a]);
+			text(dl, regular(), 24, mx + 46 - ss.x / 2, y + 12, on ? col::text : col::dim, signs[a]);
+			text(dl, bold(), 24, mx + 80, y + 12, on ? col::text : col::dim, names[a]);
 		}
 	}
 
@@ -1021,6 +1094,25 @@ void cardsDialog(ImDrawList *dl, const Input& given)
 		float cx = ca.x + pad;
 		const float cy = ca.y + ch - pad - 60 + 8;
 		cx += dialogButton(dl, cx, cy, Glyph::Cross, ui.erase == 0 ? "Format" : "Delete", true) + 20;
+		dialogButton(dl, cx, cy, Glyph::Circle, "Keep it", false);
+	}
+
+	// ---- asked before saves of the same names are replaced
+	if (ui.level == CardsUi::Overwrite && save != nullptr && ui.target < (int)ui.names.size())
+	{
+		const float cw = 860, ch = 352;
+		const ImVec2 ca = dialogPanel(dl, cw, ch);
+		text(dl, bold(), 38, ca.x + pad, ca.y + pad - 6, col::text, "Overwrite?");
+		const std::string what = ui.overwrites == 1 && !ui.copyAll
+				? ui.names[ui.target] + " already has a save called " + save->name
+				: ui.names[ui.target] + " already has " + std::to_string(ui.overwrites)
+						+ (ui.overwrites == 1 ? " save" : " saves") + " of the same names";
+		text(dl, regular(), 23, ca.x + pad, ca.y + pad + 50, col::dim, what.c_str(), cw - 2 * pad);
+		text(dl, regular(), 22, ca.x + pad, ca.y + pad + 130, col::faint,
+				"The card as it was before this visit stays beside it, as a .bak file");
+		float cx = ca.x + pad;
+		const float cy = ca.y + ch - pad - 60 + 8;
+		cx += dialogButton(dl, cx, cy, Glyph::Cross, "Overwrite", true) + 20;
 		dialogButton(dl, cx, cy, Glyph::Circle, "Keep it", false);
 	}
 

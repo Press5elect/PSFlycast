@@ -44,6 +44,7 @@ bool maple_ddt_pending_reset;
 // pending DMA xfers
 std::vector<std::pair<u32, std::vector<u32>>> mapleDmaOut;
 bool SDCKBOccupied;
+u32 maple_busFrames[MAPLE_PORTS];
 
 void maple_vblank()
 {
@@ -74,7 +75,10 @@ void maple_vblank()
 		SDCKBOccupied = false;
 	}
 	if (settings.platform.isConsole())
+	{
 		maple_handle_reconnect();
+		maple_handlePendingPlugs();
+	}
 }
 
 static void maple_SB_MSHTCL_Write(u32 addr, u32 data)
@@ -204,6 +208,7 @@ static void maple_DoDma()
 				return;
 			}
 			const u32 frame_header = swap_msb ? SWAP32(p_data[0]) : p_data[0];
+			maple_busFrames[bus]++;
 
 			//Command code
 			const u32 command = frame_header & 0xFF;
