@@ -61,7 +61,7 @@
    ],
    "source": {
     "kind": "fixed",
-    "revision": "e2f14845710e729361a0bdae2ca249111f9e5a54",
+    "revision": "23d212f4f0dbce2e159b1235601d5a5d081dd697",
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository, at the release's tag, with the libraries it carries"
    },

@@ -42,11 +42,14 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.3** (build 87). It is built
+Latest release: **v1.3.4** (build 92). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.1, v1.3.2 and v1.3.3 have not been run on a console: their changes are
-listed in [New in v1.3.3](#new-in-v133), [New in v1.3.2](#new-in-v132) and
+A test build of v1.3.4 (build 91, the same changes but for the widescreen
+game patches' default) ran games on a console, with Mesa 27's driver. Its
+changes, listed in [New in v1.3.4](#new-in-v134), have not been checked one
+by one.
+v1.3.1 and v1.3.2 are listed in [New in v1.3.2](#new-in-v132) and
 [New in v1.3.1](#new-in-v131).
 
 On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
@@ -129,6 +132,67 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.4
+
+Added:
+
+- **Stick directions added to a control** (quick menu > Controls): push a
+  stick while setting a control and that direction is added to it, keeping
+  its button, for one game. Each direction of the right stick can be any
+  Dreamcast control, for a camera on buttons. A right-stick axis with a
+  control on it no longer also moves the triggers, the second stick or the
+  mouse.
+- **Motion aiming speed and smoothing**, and **Mouse movement: Right stick,
+  Motion or Both**: turning the controller moves the Dreamcast mouse.
+- **Original look** (Video): the console's own texture filtering and
+  mipmaps, 16-bit colour with dither and the flicker filter, in one switch.
+  Off by default.
+- **Sound output: Stereo or Mono** (Audio), in the console's own settings,
+  which games follow.
+- **Swap memory card** in the quick menu, while a game runs, as a card is
+  pulled out of a controller.
+- **Insert disc** lists the other discs of the game's set first.
+- **Peripherals: As the game says** (Controls, off by default): the light
+  gun, keyboard, microphone or vibration pack the disc says the game uses.
+- **Memory cards:** copy all of a game's saves at once; a save of the same
+  name asks to be overwritten.
+- **Fast forward speed** (2x to 8x, or Unlimited) and **sound while fast
+  forwarding**.
+- **The game's graphics modes in `flycast-boot.log`.**
+
+Changed:
+
+- **Widescreen game patches are off by default** again, also on a console
+  that already has PSFlyCast: with them a patched game's picture is
+  stretched to 16:9 while Widescreen says 4:3.
+- **Broadcast and Language "Follow the game"** work: a PAL disc starts in
+  PAL, with its own 50/60 Hz screen, and the console's language follows the
+  disc's region.
+- **Render-to-texture effects** (reflections, mirrors) in the game's 16-bit
+  colour with dither, the mipmap level right at a higher resolution, and
+  the per-texture sharpening at angles, with Original look.
+- **Sound:** the volume of a fading voice reads back as the hardware gives
+  it (busy music no longer loses notes), mono ignores pan, the vibrato reset
+  holds.
+- **Copy-protected saves** are copied like any other.
+- **Open disc lid** is offered only for a game on several discs.
+- **Flycast** is its `dev` branch at 23d212f4f (27 October 2026): the flash
+  and saves are written safely, the sound chip's DMA at its real rate.
+
+Fixed:
+
+- **The built-in BIOS:** reading a CD's subcode could stop the emulator;
+  streamed reads, whole-sector reads, the old table of contents, abort and
+  the reset and exit calls now work as on the console. A game going back to
+  the console's menu returns to the library.
+- **A disc swapped in** is read again, so a wrong disc is noticed.
+- **VMU:** its buttons, setting its clock, reading its screen back.
+- **The light gun** works with PAL and Japanese games.
+- **The keyboard** reports more than six keys held as the real one does.
+- **The YUV video mode** some games' videos use.
+- **The console's region** reads right for US and European consoles with a
+  language other than English.
 
 ## New in v1.3.3
 
