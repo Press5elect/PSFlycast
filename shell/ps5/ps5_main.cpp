@@ -309,7 +309,7 @@ void redirectLogs(const std::string& root)
 }
 
 // The console's defaults, as Press5elect chose them: transparency sorted per
-// pixel (96 layers) at 4x the Dreamcast's resolution, widescreen game patches,
+// pixel (96 layers) at 4x the Dreamcast's resolution,
 // 16x anisotropic and linear texture filtering, the sound DSP, a 64 ms audio
 // buffer, the RGB cable, a save state when a game stops; the HLE BIOS only
 // when no BIOS is installed (Flycast falls back to it by itself), the folders
@@ -329,7 +329,7 @@ void writeDefaultConfig(const std::string& root)
 		"pvr.rend = 5\n"
 		"rend.Resolution = 1920\n"
 		"rend.WideScreen = no\n"
-		"rend.WidescreenGameHacks = yes\n"
+		"rend.WidescreenGameHacks = no\n"
 		"rend.ThreadedRendering = yes\n"
 		"rend.vsync = yes\n"
 		"rend.AnisotropicFiltering = 16\n"
@@ -765,7 +765,6 @@ int main(int argc, char *argv[])
 		move(config::PerPixelLayers, 32, 96);
 		move(config::RenderResolution, 480, 1920);
 		move(config::TranslucentPolygonDepthMask, false, true);
-		move(config::WidescreenGameHacks, false, true);
 		move(config::AnisotropicFiltering, 1, 16);
 		move(config::TextureFiltering, 0, 2);
 		move(config::AccurateMipmaps, true, false);
@@ -788,6 +787,21 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 10;
 		ps5::saveOptions();
 		ps5::diag::mark("settings: %d moved to PSFlyCast's v1.3.3 defaults (those changed by hand kept)", moved);
+	}
+	if (ps5::options().defaults < 11)
+	{
+		// Widescreen game patches came on with v1.3.3's defaults, and with
+		// them every patched game's picture is stretched to 16:9 while the
+		// Widescreen setting still says 4:3. Off again, once; the player's
+		// to turn on, for every game or for one.
+		if (config::WidescreenGameHacks)
+		{
+			config::WidescreenGameHacks.set(false);
+			SaveSettings();
+			ps5::diag::mark("settings: widescreen game patches off (v1.3.4 default)");
+		}
+		ps5::options().defaults = 11;
+		ps5::saveOptions();
 	}
 	ps5::update::init();
 	ps5::pipelineWarmInit();

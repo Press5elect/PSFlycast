@@ -702,10 +702,13 @@ what you see, most useful first:
 
 **The defaults.** A new install draws a game at 4x (1920 lines) with
 transparency sorted per pixel (96 layers), FSR 1 (sharp) to the screen, 16x
-anisotropic and linear texture filtering, the widescreen game patches, and
-the picture's light beside a 4:3 picture, at 120 Hz with variable refresh
-where the display has them. Widescreen, the console's 16-bit colour and
-flicker filter, and frame generation are off. All of it is yours to change,
+anisotropic and linear texture filtering, and the picture's light beside a
+4:3 picture, at 120 Hz with variable refresh where the display has them.
+Widescreen, the widescreen game patches, the console's 16-bit colour and
+flicker filter, and frame generation are off. **Original look** (Video)
+turns on the console's own texture filtering and mipmaps, 16-bit colour and
+flicker filter in one go. A widescreen game patch draws the game 16:9 and
+stretches the picture to fit, whatever Widescreen says. All of it is yours to change,
 for every game or for one. (A console that already has PSFlyCast only takes
 the new defaults for what it still had at the old ones.)
 
