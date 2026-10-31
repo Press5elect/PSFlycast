@@ -927,7 +927,7 @@
     "path": "${MESA}",
     "url": "https://github.com/mihawk-99/PS5_Mesa",
     "base": "1ba9874f478657ccf6da72ce55f0260164cc0bd0",
-    "where": "PS5_Mesa at the base revision, plus Crux2's driver patches (github.com/Press5elect/Crux2 at 08c3507a3ac3f3f904cb36f02cef1f36335a67bc, ps5/patches/mesa-27) which include this repository's shell/ps5/mesa/*.patch as 0015 and 0016, applied by shell/ps5/build-radv-psflycast.sh; that gives the tree of the revision given (tree 3b1ee7a73da178e7c2e4a4eaaf87c8b30746768d)"
+    "where": "PS5_Mesa at the base revision, plus Crux2's driver patches (github.com/Press5elect/Crux2 at 08c3507a3ac3f3f904cb36f02cef1f36335a67bc, ps5/patches/mesa-27) which include this repository's shell/ps5/mesa/*.patch as 0015 and 0016, applied by shell/ps5/build-radv-psflycast.sh; that gives the tree of the revision given (tree 35ad539b393bc21891ca4f49e82f6409f769c4ec)"
    },
    "modifications": "The fork's commits over Mesa (the PS5 winsys and VideoOut WSI); Crux2's driver patches by Press5elect and PS5CEMU-HAR, among them the merge of Mesa main (27.0-devel, 2026-10-31), GFX10.1 hardware workarounds, variable refresh found while the title runs (no import of sceVideoOutVrrUnpegFromFixedRate), the shader cache index without MAP_FIXED, buffer lifetime, timed waits, GPU wait tuning and the output queue depth; and two more for this title: 119.88 Hz on a VRR display, where a title may ask for 59.94 Hz; and a title may ask the output to leave its fixed rate, for variable refresh (shell/ps5/mesa/).",
    "files": [

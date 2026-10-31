@@ -42,14 +42,14 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.4** (build 92). It is built
+Latest release: **v1.3.5** (build 93). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-A test build of v1.3.4 (build 91, the same changes but for the widescreen
-game patches' default) ran games on a console, with Mesa 27's driver. Its
-changes, listed in [New in v1.3.4](#new-in-v134), have not been checked one
-by one.
-v1.3.1 and v1.3.2 are listed in [New in v1.3.2](#new-in-v132) and
+v1.3.5 has not been run on a console: [New in v1.3.5](#new-in-v135) lists its
+changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
+the widescreen game patches' default) ran games on a console, with Mesa 27's
+driver; its changes, in [New in v1.3.4](#new-in-v134), have not been checked
+one by one. v1.3.1 and v1.3.2 are listed in [New in v1.3.2](#new-in-v132) and
 [New in v1.3.1](#new-in-v131).
 
 On the test builds that led to v1.3.0 (builds 65 to 78), on a 3840x2160
@@ -132,6 +132,33 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.5
+
+Added:
+
+- **Threads on cores of their own** (Settings > System, on), as Crux2 has
+  them: the emulator on a processor of its own with its core's second thread
+  left empty, the renderer and the interface on another core, and everything
+  else on the cores left over. With the graphics driver on its own thread,
+  **Graphics driver on a core of its own** (on) gives that thread a third.
+- **The version, the build number and "by Press5elect"** under the clock.
+
+Changed:
+
+- **The graphics driver** is built from Crux2's newest driver patches: Mesa
+  main of 31 October 2026, with fixes to the shader compiler and to how
+  pipelines are kept in the shader cache.
+
+Fixed:
+
+- **PSFlyCast could not start on a firmware without variable refresh:** it
+  asked the console for a function (`sceVideoOutVrrUnpegFromFixedRate`) that
+  not every firmware has, and a title asking for one the console lacks does
+  not start. It is now looked for while PSFlyCast runs; without it, variable
+  refresh is simply refused.
+- **A spurious wake-up** between the emulator's and the renderer's threads
+  no longer passes for a frame handed over.
 
 ## New in v1.3.4
 
@@ -1376,61 +1403,62 @@ On a console: see Status, at the top.
 
 ## Building
 
-On Linux with clang 18, lld 18, CMake, Ninja and Python 3. From v1.1.0 the
-title is built on the stack of
-[PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate): its
-`ps5/tools/bootstrap.sh` checks out and builds what a title links, and its
-`ps5/tools/setup-sdk.sh` pins the payload SDK. The repositories sit side by
-side in one folder:
+On Linux with clang 18, lld 18, CMake, Ninja and Python 3 (Ubuntu 24.04: also
+llvm-18-dev, libclang-18-dev, libclang-cpp18-dev, libclang-rt-18-dev,
+libclc-18-dev, llvm-spirv-18, libllvmspirvlib-18-dev, libpolly-18-dev,
+glslang-tools, spirv-tools, flex, libelf-dev, libdrm-dev, yasm, zstd, and from
+pip meson, mako, numpy, Pillow and pyyaml). The title is built on the stack of
+[PS5_VulkanTemplate](https://github.com/mihawk-99/PS5_VulkanTemplate), with
+the graphics driver made from Crux2's driver patches. The repositories sit side
+by side in one folder:
 
 ```sh
-git clone --recursive <this repository's URL> PSFlyCast
+git clone --recursive https://github.com/Press5elect/PSFlycast PSFlyCast
+git clone https://github.com/Press5elect/Crux2 crux2          # its driver patches
 git clone https://github.com/mihawk-99/PS5_VulkanTemplate
 git clone https://github.com/mihawk-99/PS5_Vulkan
 git clone https://github.com/mihawk-99/PS5_Mesa
 git clone https://github.com/mihawk-99/PS5_PayloadSDK
 git clone https://github.com/sahlberg/libsmb2
-git clone https://github.com/libretro/libretro-database     # optional: the cheat files
+git clone https://github.com/libretro/libretro-database      # optional: the cheat files
+mkdir deps-src
+git clone --depth 1 --branch n9.0.2 https://github.com/FFmpeg/FFmpeg deps-src/ffmpeg-n9.0.2
+git clone --depth 1 --branch v3.6.7 https://github.com/Mbed-TLS/mbedtls deps-src/mbedtls-3.6.7
 
-# PS5_Vulkan and libsmb2 at the revisions this version is built with.
-git -C PS5_Vulkan checkout 5b5e4fc2d80fdb67a4f61ba9e6a8a424026bb8a5
+# The revisions this version is built with.
+git -C crux2 checkout 08c3507a3ac3f3f904cb36f02cef1f36335a67bc
+git -C PS5_Vulkan checkout f410e67a0241b3e8edcdbcd2a9b285dfc4a412ed
 git -C libsmb2 checkout 7e4ff97cf00edb288b6b763888e4326842afdc76
 
-# RADV, with the display-mode patches of this repository (119.88 Hz on a VRR
-# display, PS5_VIDEOOUT_59HZ; variable refresh, PS5_VIDEOOUT_VRR). They are
-# made on PS5_Mesa 7b59ef2, the revision that PS5_Vulkan pins.
-git -C PS5_Mesa checkout -b psflycast 7b59ef27c1b09b9671bc4153c41940c3155c3af2
-git -C PS5_Mesa am ../PSFlyCast/shell/ps5/mesa/*.patch
-sed -i "s/^mesa_revision=.*/mesa_revision=$(git -C PS5_Mesa rev-parse HEAD)/" PS5_Vulkan/tools/build-radv.sh
+# PS5_Vulkan's own payload SDK (b83202b, which the driver is compiled with),
+# its host tool and libc.prx.
+PS5_Vulkan/tools/setup-native-dependencies.sh
+make -C PS5_Vulkan        # it may stop at its own sample afterwards; the tool and libc.prx are made first
 
-# The rest of the stack, each part only where it is missing: PS5_Vulkan's
-# own payload SDK (b83202b, which RADV is compiled with), its host tool and
-# libc.prx (make), the RADV release archive at the revision set above
-# (tools/build-radv.sh release: a long build, which needs LLVM/Clang 18,
-# libclc, llvm-spirv, meson and mako), and the payload SDK the template
-# pins: PS5_PayloadSDK at 611893f, installed in
-# PS5_VulkanTemplate/.deps/native/ps5-payload-sdk, where build.sh looks for
-# it.
-PS5_VulkanTemplate/ps5/tools/bootstrap.sh
+# The graphics driver: PS5_Mesa at 1ba9874 with Crux2's ps5/patches/mesa-27
+# (among them Mesa main, 27.0-devel, and this repository's two display patches,
+# shell/ps5/mesa, as 0015 and 0016), built by PS5_Vulkan's build-radv.sh into
+# PS5_Vulkan/.deps/native/radv-psflycast. A long build.
+PSFlyCast/shell/ps5/build-radv-psflycast.sh
 
-# The title itself is compiled with the fork one commit on, b5efad5 (a fix to
-# how wide characters are classed), installed the way the fork's own script
-# does it, in a folder of its own that PS5_PAYLOAD_SDK names to build.sh.
+# The title is compiled with the payload SDK fork at b5efad5, installed the way
+# the fork's own script does it, in a folder that PS5_PAYLOAD_SDK names.
 sdk=b5efad528e0ac1b8289f39d72a0e890ff68ff0a6
 mkdir -p sdk-psflycast sdk-tree
 git -C PS5_PayloadSDK archive $sdk | tar -x -C sdk-tree
 bash sdk-tree/platform/tools/setup-sdk.sh "$PWD/sdk-psflycast/ps5-payload-sdk" $sdk "$PWD/sdk-psflycast"
 
+# FFmpeg for the game videos.
+PSFlyCast/shell/ps5/tools/build-ffmpeg.sh
+
 cd PSFlyCast
-PS5_PAYLOAD_SDK=$PWD/../sdk-psflycast/ps5-payload-sdk shell/ps5/build.sh               # -> build-ps5/dist/PPSA99247
+PS5_PAYLOAD_SDK=$PWD/../sdk-psflycast/ps5-payload-sdk PS5_VULKAN_DIR=$PWD/../PS5_Vulkan \
+    shell/ps5/build.sh                                       # -> build-ps5/dist/PPSA99247
 ```
 
-`bootstrap.sh` also checks the host for what the template's own titles need
-(glslangValidator, curl, zstd, numpy and Pillow among them), builds
-PS5_Vulkan's control payload, and looks for the console's address
-(`PS5_HOST` in PS5_Vulkan's `.env`), which only the console tools use:
-without one it ends by saying that this is left to do, after everything
-else is built.
+PS5_VulkanTemplate's `ps5/tools/bootstrap.sh` does most of the steps above
+for its own titles, but it builds PS5_Vulkan's stock driver, which PSFlyCast
+does not link, and pins an older payload SDK (611893f) than the title needs.
 
 `build.sh` stops before compiling when a part is missing (the SDK's
 compiler, the RADV release archive, the host tool, or `libc.prx`, whose
@@ -1439,6 +1467,12 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
+v1.3.5 is made with PS5_Vulkan `f410e67` as published, PS5_Mesa `1ba9874`
+plus Crux2's driver patches at `08c3507` (Mesa 27.0-devel of 2026-10-31), the
+payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; the driver is compiled
+with the SDK at `b83202b`. `build-radv-psflycast.sh` runs PS5_Vulkan's
+`build-radv.sh` with Mesa 27's `amd-options` in place of its older
+`amd-use-llvm`. v1.3.3 and v1.3.4 had Crux2's patches at `2afe8e5`.
 v1.2.0 is made with PS5_Vulkan `f410e67` (with one line changed in
 `tools/build-radv.sh`: the Mesa revision), PS5_Mesa `1ba9874` plus the two
 patches in `shell/ps5/mesa`, the payload SDK fork at `b5efad5` and libsmb2

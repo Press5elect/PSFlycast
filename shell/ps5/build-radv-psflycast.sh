@@ -124,8 +124,21 @@ restore() {
 		rmdir "$hold"
 	fi
 }
-trap restore EXIT
-(cd "$vulkan" && PS5_MESA_FORK="$mesa" PS5_MESA_REVISION="$revision" JOBS="${JOBS:-}" bash tools/build-radv.sh release)
+# Mesa 27 (patch 0012) replaced meson's amd-use-llvm with the amd-options array, which PS5_Vulkan's
+# build-radv.sh at f410e67 still passes (meson refuses the old name). PS5_Vulkan stays as published:
+# a copy of its script beside it, with the option named the new way, builds when the tree asks.
+builder="$vulkan/tools/build-radv.sh"
+copy=""
+if git -C "$mesa" show "$branch:meson.options" 2>/dev/null | grep -q "'amd-options'" &&
+	grep -q -- '-Damd-use-llvm=false' "$builder"; then
+	copy="$vulkan/tools/.build-radv-psflycast.sh"
+	sed 's/-Damd-use-llvm=false/-Damd-options=/' "$builder" > "$copy"
+	builder="$copy"
+	echo "==> PS5_Vulkan's build-radv.sh with amd-options in place of amd-use-llvm (Mesa 27)"
+fi
+restore_all() { [[ -n $copy ]] && rm -f -- "$copy"; restore; }
+trap restore_all EXIT
+(cd "$vulkan" && PS5_MESA_FORK="$mesa" PS5_MESA_REVISION="$revision" JOBS="${JOBS:-}" bash "$builder" release)
 rm -rf "$native/radv-psflycast"
 mv "$native/radv-release" "$native/radv-psflycast"
 {
