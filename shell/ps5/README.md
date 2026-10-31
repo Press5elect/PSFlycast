@@ -146,6 +146,7 @@ Added:
 
 Changed:
 
+- **Flycast** is its `dev` branch at 2c83abc (28 October 2026): the sound chip's DMA at its real rate.
 - **The graphics driver** is built from Crux2's newest driver patches: Mesa
   main of 31 October 2026, with fixes to the shader compiler and to how
   pipelines are kept in the shader cache.
