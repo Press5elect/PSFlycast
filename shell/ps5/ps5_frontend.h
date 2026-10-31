@@ -7,6 +7,7 @@
 #pragma once
 #include "cfg/option.h"
 #include "ps5_priority.h"	// PS5Priority::SetCurrentThread, for the front end's threads
+#include "ps5_thread_layout.h"	// ps5::ThreadLayout, ps5::DriverOwnCore (Settings > System)
 
 #include <cstddef>
 #include <cstdint>

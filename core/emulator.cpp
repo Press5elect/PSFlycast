@@ -49,6 +49,7 @@
 #include "oslib/i18n.h"
 #ifdef __PROSPERO__
 #include "ps5_priority.h"
+#include "ps5_thread_layout.h"
 #endif
 
 #include <algorithm>
@@ -1127,6 +1128,8 @@ void Emulator::start()
 #ifdef __PROSPERO__
 				// The title's own priority again: it was started by the interface's thread.
 				PS5Priority::SetCurrentThread(PS5Priority::Role::Emulation);
+				// And its own processor, with the thread layout on (ps5_thread_layout.h).
+				PS5ThreadLayout::emulationThreadStarting();
 #endif
 				InitAudio();
 

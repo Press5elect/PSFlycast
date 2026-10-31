@@ -202,8 +202,9 @@ bool cResetEvent::Wait(u32 msec)
 #endif
 	std::unique_lock<std::mutex> lock(mutx);
 
-	if (!state)
-		cond.wait_for(lock, std::chrono::milliseconds(msec));
+	// The state decides, not the wake-up: a condition variable can wake without a Set (a spurious
+	// wake-up), which must not pass for a signal.
+	cond.wait_for(lock, std::chrono::milliseconds(msec), [this] { return (bool)state; });
 
 	bool rc = state;
     state = false;
@@ -218,9 +219,8 @@ void cResetEvent::Wait()
 #endif
     std::unique_lock<std::mutex> lock(mutx);
 
-    if (!state) {
-        cond.wait(lock);
-    }
+    // Until a Set: a spurious wake-up is not one.
+    cond.wait(lock, [this] { return (bool)state; });
 
     state = false;
 }

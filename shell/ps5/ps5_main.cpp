@@ -35,6 +35,7 @@
 #include "ps5_disc.h"
 #include "ps5_rewind.h"
 #include "ps5_timing.h"
+#include "ps5_thread_layout.h"
 #include "bigpicture.h"
 #include "cfg/option.h"
 
@@ -814,6 +815,9 @@ int main(int argc, char *argv[])
 	ps5::drawdist::init();
 	ps5::rewind::init();
 	ps5::rewind::setEnabled(ps5::options().rewind);
+	// Where the threads run (ps5_thread_layout.h): the main thread to its core now, the others
+	// as they start.
+	PS5ThreadLayout::init();
 	ps5::diag::mark("main loop");
 	try {
 		mainui_loop();

@@ -18,12 +18,16 @@
 	wrap. Each thread also starts with its creator's floating-point state
 	(the title runs in the IEEE state, ps5_crt.cpp; libkernel starts a thread
 	with flush-to-zero on) and runs its C++ thread_local destructors when its
-	start routine returns, as the SDK fork's own wrap does.
+	start routine returns, as the SDK fork's own wrap does. With the thread
+	layout on (ps5_thread_layout.h, from Crux2), it starts on the processors
+	left over for the threads that do not limit a game.
 */
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <pthread.h>
+
+#include "ps5_thread_layout.h"
 
 extern "C"
 {
@@ -49,6 +53,9 @@ void *trampoline(void *opaque)
 	const Start run = *static_cast<Start *>(opaque);
 	free(opaque);
 	__asm__ volatile("ldmxcsr %0" : : "m"(run.mxcsr));
+	// With the thread layout on, every thread starts on the processors left for the threads that
+	// do not limit a game (ps5_thread_layout.h); the emulator's and the driver's thread move on.
+	PS5ThreadLayout::threadStarting();
 	void *const result = run.start(run.argument);
 	ps5p_run_thread_destructors();
 	return result;

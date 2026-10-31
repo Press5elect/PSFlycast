@@ -9,39 +9,42 @@
 #   CRUX2_MESA_PATCHES=/path/to/crux2/ps5/patches/mesa-27 shell/ps5/build-radv-psflycast.sh
 #   PSFLYCAST_RADV_REMAKE=1 shell/ps5/build-radv-psflycast.sh   (make the branch again first)
 #
-# The driver is PS5 Mesa (github.com/mihawk-99/PS5_Mesa) at the pin 1ba9874f478 with:
-#   1. every patch of Crux2's ps5/patches/mesa-27 (github.com/Press5elect/Crux2,
-#      Crux2 by Press5elect), in order, the way Crux2's ps5/tools/build-radv-crux2.sh
-#      applies them (a git format-patch with `git am -3`, a plain diff with
-#      `git apply --index` and a commit); 0012 among them merges Mesa main
-#      (27.0-devel);
-#   2. PSFlyCast's own two driver commits, from this repository's shell/ps5/mesa/:
-#        0001 wsi/videoout: 119.88 Hz on a VRR display; a title may ask for 59.94 Hz
-#        0002 wsi/videoout: a title may ask the output to leave its fixed rate
-#      They are kept there as they apply on top of Crux2's patches: the first
-#      keeps Crux2's 120 Hz settle loop (0003), and a vblank period at the 48 Hz
-#      floor of a VRR window ends it and keeps 119.88 Hz.
+# The driver is PS5 Mesa (github.com/mihawk-99/PS5_Mesa) at the pin 1ba9874f478 with every
+# patch of Crux2's ps5/patches/mesa-27 (github.com/Press5elect/Crux2, Crux2 by Press5elect), in
+# order, applied the way Crux2's ps5/tools/build-radv-crux2.sh applies them (a git format-patch
+# with `git am -3`, a plain diff with `git apply --index` and a commit). Among them:
+#   0012  Mesa main (27.0-devel) merged into the PS5 RADV;
+#   0015  PSFlyCast's 119.88 Hz on a VRR display, and PS5_VIDEOOUT_59HZ;
+#   0016  PSFlyCast's variable refresh on request (PS5_VIDEOOUT_VRR);
+#   0017  variable refresh found while the title runs: the driver calls the title's weak
+#         ps5_title_videoout_vrr_unpeg (shell/ps5/ps5_videoout.cpp) instead of importing
+#         sceVideoOutVrrUnpegFromFixedRate, which not every firmware exports.
+# 0015 and 0016 are this repository's shell/ps5/mesa/*.patch, as they are; Crux2 carries them.
+# PSFlyCast's own copies are applied only when the Crux2 set does not already hold them.
 #
-# Everything it applies is public, so the driver's source is the pin, Crux2 at
-# the revision the release names, and this repository at its tag. The result
-# is branch psflycast-radv-27 of ../PS5_Mesa. Nothing is pushed.
+# The Crux2 revision the release names is CRUX2_REVISION below: the patches are taken from a
+# Crux2 checkout at that revision (../crux2 or CRUX2_MESA_PATCHES).
 #
-# The build is PS5_Vulkan's tools/build-radv.sh release, at the branch's head.
-# Its result is moved to PS5_Vulkan's .deps/native/radv-psflycast, which
-# shell/ps5/build.sh and ps5-link.sh link when it is there. PS5_Vulkan's own
-# release archive (.deps/native/radv-release) is put back as it was.
+# Everything it applies is public, so the driver's source is the pin, Crux2 at that revision,
+# and this repository at its tag. The result is branch psflycast-radv-27 of ../PS5_Mesa.
+# Nothing is pushed.
 #
-# With the branch already there it is built as it is; PSFLYCAST_RADV_REMAKE=1
-# (or no branch yet) makes it again from the pin.
+# The build is PS5_Vulkan's tools/build-radv.sh release, at the branch's head. Its result is
+# moved to PS5_Vulkan's .deps/native/radv-psflycast, which shell/ps5/build.sh and ps5-link.sh
+# link when it is there. PS5_Vulkan's own release archive (.deps/native/radv-release) is put
+# back as it was.
 #
-# Environment: PS5_VULKAN_DIR, PS5_MESA_FORK, CRUX2_MESA_PATCHES name other
-# places; JOBS is passed on to the build (when build-radv.sh reads it).
+# With the branch already there it is built as it is; PSFLYCAST_RADV_REMAKE=1 (or no branch
+# yet) makes it again from the pin.
+#
+# Environment: PS5_VULKAN_DIR, PS5_MESA_FORK, CRUX2_MESA_PATCHES name other places; JOBS is
+# passed on to the build (when build-radv.sh reads it).
 set -euo pipefail
 src=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 vulkan=$(cd -- "${PS5_VULKAN_DIR:-$src/../PS5_Vulkan}" && pwd)
 mesa=$(cd -- "${PS5_MESA_FORK:-$src/../PS5_Mesa}" && pwd)
+CRUX2_REVISION=08c3507a3ac3f3f904cb36f02cef1f36335a67bc
 patches=${CRUX2_MESA_PATCHES:-$src/../crux2/ps5/patches/mesa-27}
-[[ -d $patches ]] || patches=/home/claude/press5elect/crux2/ps5/patches/mesa-27
 own="$src/shell/ps5/mesa"
 pin=1ba9874f478657ccf6da72ce55f0260164cc0bd0
 branch=psflycast-radv-27
@@ -49,8 +52,12 @@ who=(-c user.name=PSFlyCast -c user.email=noreply@anthropic.com)
 
 [[ -d $patches ]] && compgen -G "$patches/*.patch" > /dev/null ||
 	{ echo "build-radv-psflycast: no Crux2 patches in $patches (set CRUX2_MESA_PATCHES)" >&2; exit 1; }
-compgen -G "$own/*.patch" > /dev/null ||
-	{ echo "build-radv-psflycast: no patches in $own" >&2; exit 1; }
+crux2=$(cd -- "$patches/../../.." && pwd)
+if have=$(git -C "$crux2" rev-parse HEAD 2>/dev/null) && [[ $have != "$CRUX2_REVISION" ]]; then
+	echo "build-radv-psflycast: Crux2 at $crux2 is at ${have:0:11}; this release names ${CRUX2_REVISION:0:11}" >&2
+	echo "  (git -C $crux2 checkout $CRUX2_REVISION, or set CRUX2_MESA_PATCHES to a checkout there)" >&2
+	exit 1
+fi
 
 # The branch is made in the fork's working tree: that must hold no change of its own.
 if [[ -n $(git -C "$mesa" status --porcelain --untracked-files=no) ]]; then
@@ -58,8 +65,11 @@ if [[ -n $(git -C "$mesa" status --porcelain --untracked-files=no) ]]; then
 	exit 1
 fi
 
+# A patch's subject line, to tell whether the Crux2 set already holds one of PSFlyCast's.
+subject() { sed -n 's/^Subject: \(\[PATCH[^]]*\] \)\{0,1\}//p' "$1" | head -1 | cut -c1-48; }
+
 make_branch() {
-	echo "==> PS5 Mesa ${pin:0:11} with $(ls "$patches"/*.patch | wc -l) Crux2 patches and $(ls "$own"/*.patch | wc -l) of PSFlyCast's"
+	echo "==> PS5 Mesa ${pin:0:11} with $(ls "$patches"/*.patch | wc -l) Crux2 patches"
 	git -C "$mesa" cat-file -e "$pin^{commit}" 2>/dev/null || git -C "$mesa" fetch --quiet origin
 	git -C "$mesa" checkout --quiet -B "$branch" "$pin"
 	for patch in "$patches"/*.patch; do
@@ -74,6 +84,12 @@ make_branch() {
 		echo "    $name"
 	done
 	for patch in "$own"/*.patch; do
+		[[ -f $patch ]] || continue
+		s=$(subject "$patch")
+		if git -C "$mesa" log --format=%s "$pin..$branch" | grep -qF "$s"; then
+			echo "    $(basename "$patch" .patch): in the Crux2 set already"
+			continue
+		fi
 		git -C "$mesa" "${who[@]}" am --quiet -3 "$patch"
 		echo "    $(basename "$patch" .patch)"
 	done
@@ -83,12 +99,13 @@ if [[ ${PSFLYCAST_RADV_REMAKE:-0} == 1 ]] || ! git -C "$mesa" rev-parse --verify
 	make_branch
 fi
 
-# The branch must be the pin plus the patches: PSFlyCast's two on top.
+# The branch must be the pin plus the patches, PSFlyCast's display changes and the
+# run-time variable refresh among them.
 git -C "$mesa" merge-base --is-ancestor "$pin" "$branch" ||
 	{ echo "build-radv-psflycast: $branch is not built on ${pin:0:11}" >&2; exit 1; }
-for subject in "119.88 Hz on a VRR display" "leave its fixed rate"; do
-	git -C "$mesa" log --format=%s "$pin..$branch" | grep -q "$subject" ||
-		{ echo "build-radv-psflycast: $branch lacks PSFlyCast's \"$subject\"" >&2; exit 1; }
+for wanted in "119.88 Hz on a VRR display" "leave its fixed rate" "variable refresh found while the title runs"; do
+	git -C "$mesa" log --format=%s "$pin..$branch" | grep -q "$wanted" ||
+		{ echo "build-radv-psflycast: $branch lacks \"$wanted\"" >&2; exit 1; }
 done
 revision=$(git -C "$mesa" rev-parse "$branch")
 echo "==> building $branch at ${revision:0:11}"
@@ -113,10 +130,8 @@ rm -rf "$native/radv-psflycast"
 mv "$native/radv-release" "$native/radv-psflycast"
 {
 	echo
-	echo "PSFlyCast: PS5 Mesa $pin, branch $branch at $revision, with Crux2's patches"
-	echo "from $patches:"
+	echo "PSFlyCast: PS5 Mesa $pin, branch $branch at $revision (tree $(git -C "$mesa" rev-parse "$branch^{tree}")),"
+	echo "with Crux2's patches at $CRUX2_REVISION:"
 	for patch in "$patches"/*.patch; do echo "  $(basename "$patch")"; done
-	echo "and PSFlyCast's, from shell/ps5/mesa:"
-	for patch in "$own"/*.patch; do echo "  $(basename "$patch")"; done
 } >> "$native/radv-psflycast/PROVENANCE.txt"
 echo "==> $native/radv-psflycast (Mesa $branch ${revision:0:11}); shell/ps5/build.sh links it"

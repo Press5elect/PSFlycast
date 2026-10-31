@@ -1194,8 +1194,16 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 	struct tm local;
 	if (localtime_r(&t, &local) != nullptr)
 		strftime(clock, sizeof(clock), "%H:%M", &local);
-	const ImVec2 cs = textSize(bold(), 30, clock);
-	text(dl, bold(), 30, W - 48 - cs.x, 48 - cs.y / 2, col::text, clock);
+	const ImVec2 cs = textSize(bold(), 28, clock);
+	text(dl, bold(), 28, W - 48 - cs.x, 36 - cs.y / 2, col::text, clock);
+	// Under the clock: the version, the build number and the author, as Crux2 has them, so that a
+	// photo of the screen says which build it is.
+	{
+		static const std::string stamp = "v" PS5_VERSION "  \xC2\xB7  build " + std::to_string(PS5_BUILD_NUMBER)
+				+ "  \xC2\xB7  by Press5elect";
+		const ImVec2 ss = textSize(regular(), 17, stamp.c_str());
+		text(dl, regular(), 17, W - 48 - ss.x, 77 - ss.y / 2, col::dim, stamp.c_str());
+	}
 	const int pads = ps5::pad::connectedCount();
 	std::string padText = std::string(ICON_FA_GAMEPAD) + (pads > 1 ? "  " + std::to_string(pads) : "");
 	const ImVec2 ps = textSize(regular(), 28, padText.c_str());
@@ -6584,6 +6592,22 @@ std::vector<Category> buildCategories()
 				"Run sound and the interface ahead of the emulator, and background jobs such as covers and disc reads after it. Experimental. Takes effect the next time PSFlyCast starts." };
 		r.get = [] { return ps5::ThreadPriorities ? 1 : 0; };
 		r.set = [](int v) { ps5::ThreadPriorities.set(v != 0); SaveSettings(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Threads on cores of their own",
+				"Run the emulator, the renderer and the graphics driver each on a processor core of its own, and everything else on the cores left over. Takes effect the next time PSFlyCast starts." };
+		r.get = [] { return ps5::ThreadLayout ? 1 : 0; };
+		r.set = [](int v) { ps5::ThreadLayout.set(v != 0); SaveSettings(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Graphics driver on a core of its own",
+				"With threads on cores of their own and the graphics driver on its own thread: the driver's thread gets a core to itself instead of sharing the renderer's. Takes effect the next time PSFlyCast starts." };
+		r.get = [] { return ps5::DriverOwnCore ? 1 : 0; };
+		r.set = [](int v) { ps5::DriverOwnCore.set(v != 0); SaveSettings(); };
 		r.restart = true;
 		system.rows.push_back(r);
 	}
