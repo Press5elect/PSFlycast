@@ -24,6 +24,7 @@ bool ps5ArchiveHoldsDisc(const std::string& path);
 #include "gamesdb.h"
 #include "../game_scanner.h"
 #include "oslib/oslib.h"
+#include "oslib/directory.h"
 #include "cfg/option.h"
 #include "arcade_scraper.h"
 #ifdef USE_PS5
@@ -250,14 +251,8 @@ void Boxart::saveDatabase()
 	}
 	std::string serialized = array.dump(4, ' ', false, json::error_handler_t::replace);
 
-	FILE *file = nowide::fopen(db_name.c_str(), "wt");
-	if (file == nullptr) {
-		WARN_LOG(COMMON, "Can't save boxart database to %s: error %d", db_name.c_str(), errno);
-		return;
-	}
-	fwrite(serialized.c_str(), 1, serialized.size(), file);
-	fclose(file);
-	databaseDirty = false;
+	if (safeFullSave(db_name, serialized.c_str(), serialized.size()))
+		databaseDirty = false;
 }
 
 void Boxart::loadDatabase()

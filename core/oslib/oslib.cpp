@@ -27,6 +27,7 @@
 #include "cfg/option.h"
 #include "nowide/fstream.hpp"
 #include "storage.h"
+#include "directory.h"
 #ifndef _WIN32
 #include <unistd.h>
 #endif
