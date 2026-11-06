@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.7 (build 96). The README's Status says what has been
+This manual is for v1.3.8 (build 97). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -696,7 +696,7 @@ Circle goes back.
 | **Video** | Internal resolution (up to 10x; 4x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
-| **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager, and under PlayStation 5 the graphics driver's thread and waits, the short display queue, sound and controls first, and threads on cores of their own (with the driver's thread on a core of its own) |
+| **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager, and under PlayStation 5 the graphics driver's thread and waits, the short display queue, sound and controls first, and threads on cores of their own (with the driver's thread on a core of its own), and the logs (whether, where, how often saved) |
 | **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
 | **Achievements** | RetroAchievements on or off, and your account on the site |
 | **Interface** | Skin, accent colour, background, motion, game videos, the start-up animation and its sound, menu sounds |
@@ -1121,7 +1121,27 @@ Everything is in `/data/homebrew/PPSA99247/`:
 | `network.cfg` | The network shares |
 | `sounds/` | The start-up sound |
 | `cache/` | Games unpacked from archives (Settings > Library > Free up space clears it) |
-| `flycast-boot.log` | What happened at start-up, and a crash report if there was one |
+| `flycast-boot.log` | What happened at start-up, and a crash report if there was one (the two runs before it are `flycast-boot.1.log` and `.2.log`) |
+| `logs/` | Flycast's own log and the graphics driver's messages |
+
+Settings > System > **Logs** chooses what is written, and where:
+
+- **Write logs** turns every log off: no boot log, no Flycast log, no crash
+  report. A problem then cannot be reported with a log, so turn it back on
+  to report one.
+- **Keep logs** puts them in PSFlyCast's folder (on the console's internal
+  drive) or on a USB drive, in `PSFlyCast/logs`. A USB drive needs USB access
+  (Settings > Library) and a drive that can be written to; with none, they stay
+  in PSFlyCast's folder, and the boot log says so.
+- **Save logs to the drive** is how often the boot log is forced onto the
+  drive: every 2 seconds, every 15 seconds (the default), or only when
+  PSFlyCast ends. Lines always reach the file within a moment. A console that
+  stops outright can lose what came after the last save, so use every 2
+  seconds when hunting one; the first 30 seconds of a start and of each game
+  are always every 2 seconds.
+- **Boot log** shows where this run's boot log is.
+
+All of these take effect the next time PSFlyCast starts.
 
 **To back up your saves, copy `data/`.**
 
@@ -1211,7 +1231,8 @@ no game is loaded.
 the IP address, the share and folder names, and the account in `network.cfg`.
 
 **PSFlyCast closes or does not start.** Copy `flycast-boot.log` and
-`flycast-boot.1.log` from its folder **before starting it again**, and report
+`flycast-boot.1.log` from its folder (Settings > System > Logs says where; they
+are off if you turned them off) **before starting it again**, and report
 the problem with both files and the build number (Settings > About). Never
 attach games, BIOS files or keys.
 

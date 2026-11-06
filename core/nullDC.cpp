@@ -197,6 +197,56 @@ bool dc_savestateAllowed() {
 			&& !settings.naomi.multiboard && !MapleLink::StorageEnabled();
 }
 
+namespace
+{
+// The state file of a slot as it stands on the drive: what its serialized state hashed to when it
+// was written or read, and its date then. A save of a state that hashes the same, while the file
+// is still the one (its date the same), is not written again: a game left as it was (saved from the
+// menu, then closed with auto save on; loaded and closed before it ran a frame) cost the drive a
+// whole state each time. 128 bits from two lanes; a state that differs in any byte writes as before.
+struct StateOnDisk
+{
+	std::string file;
+	u64 hash[2] = {};
+	size_t size = 0;
+	time_t date = 0;
+};
+StateOnDisk stateOnDisk;
+
+void stateHash(const void *data, size_t size, u64 out[2])
+{
+	const u8 *p = static_cast<const u8 *>(data);
+	u64 a = 0x9E3779B97F4A7C15ull ^ size, b = 0xC2B2AE3D27D4EB4Full + size;
+	size_t i = 0;
+	for (; i + 8 <= size; i += 8)
+	{
+		u64 w;
+		memcpy(&w, p + i, 8);
+		a = (a ^ w) * 0xFF51AFD7ED558CCDull;
+		a ^= a >> 32;
+		b = (b + w) * 0xC4CEB9FE1A85EC53ull;
+		b ^= b >> 29;
+	}
+	u64 tail = 0;
+	memcpy(&tail, p + i, size - i);
+	a = (a ^ tail) * 0xFF51AFD7ED558CCDull;
+	b = (b + tail) * 0xC4CEB9FE1A85EC53ull;
+	out[0] = a ^ (a >> 33);
+	out[1] = b ^ (b >> 31);
+}
+
+void rememberState(int index, const std::string& file, const void *data, size_t size)
+{
+	stateOnDisk = StateOnDisk();
+	if (index < 0)
+		return;
+	stateOnDisk.file = file;
+	stateOnDisk.size = size;
+	stateHash(data, size, stateOnDisk.hash);
+	stateOnDisk.date = dc_getStateCreationDate(index);
+}
+}
+
 void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 {
 	if (!dc_savestateAllowed())
@@ -217,6 +267,21 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 
 	ser = Serializer(data, ser.size());
 	dc_serialize(ser);
+
+	if (index >= 0 && !stateOnDisk.file.empty())
+	{
+		u64 hash[2];
+		stateHash(data, ser.size(), hash);
+		if (stateOnDisk.size == ser.size() && stateOnDisk.hash[0] == hash[0] && stateOnDisk.hash[1] == hash[1]
+				&& stateOnDisk.file == hostfs::getSavestatePath(index, false)
+				&& stateOnDisk.date != 0 && stateOnDisk.date == dc_getStateCreationDate(index))
+		{
+			free(data);
+			NOTICE_LOG(SAVESTATE, "State of slot %d is the one on the drive already: not written again", index);
+			os_notify(i18n::T("State saved"), 2000);
+			return;
+		}
+	}
 
 	hostfs::File *f = nullptr;
 	std::string filename = "";
@@ -264,6 +329,8 @@ void dc_savestate(int index, const u8 *pngData, u32 pngSize)
 	zipFile.Close();
 #endif
 
+	if (index >= 0)
+		rememberState(index, filename, data, ser.size());
 	free(data);
 	NOTICE_LOG(SAVESTATE, "Saved state to %s size %d", filename.c_str(), (int)ser.size());
 	os_notify(i18n::T("State saved"), 2000);
@@ -377,6 +444,8 @@ void dc_loadstate(int index)
 		Deserializer deser(data, total_size);
 		emu.loadstate(deser);
 	    NOTICE_LOG(SAVESTATE, "Loaded state ver %d from %s size %d", deser.version(), filename.c_str(), total_size);
+		if (index >= 0)
+			rememberState(index, filename, data, total_size);
 		if (deser.size() != total_size)
 			// Note: this isn't true for RA savestates
 			WARN_LOG(SAVESTATE, "Savestate size %d but only %d bytes used", total_size, (int)deser.size());

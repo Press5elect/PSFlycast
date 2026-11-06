@@ -109,6 +109,10 @@ struct Options
 	int discSpeed = 2;		// its speed: 0 quiet (8x a CD), 1 normal (24x), 2 as fast as it goes
 	bool ramCache = true;	// read a network game whole into memory before it starts
 	bool netBuffers = true;	// large send and receive buffers on a network share's connection (ps5_libc.cpp)
+	// Settings > System > Logs (ps5_diag.h; read at start, so a change takes effect at the next start):
+	bool logs = true;		// the boot log and Flycast's own log are written at all
+	int logPlace = 0;		// where: 0 PSFlyCast's folder, 1 the first USB drive that can be written to
+	int logSync = 1;		// forced onto the drive: 0 every 2 s, 1 every 15 s, 2 only when PSFlyCast ends
 	int source = 0;			// the library tab last open: 0 internal, 1 USB, 2 network
 	bool hz120 = true;		// take the display's 119.88 Hz mode where it has one
 	bool groupDiscs = true;	// the discs of one game are one entry in the library

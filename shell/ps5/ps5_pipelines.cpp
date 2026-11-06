@@ -111,7 +111,7 @@ void onSave(Event, void *)
 	ps5::diag::mark("pipelines: %d kept for %s", (int)records.size(), settings.content.gameId.c_str());
 	// The compiled pipelines go to data/vulkan_pipeline.cache now, not only when PSFlyCast ends.
 	if (VulkanContext *context = VulkanContext::Instance())
-		ps5::diag::mark("pipeline cache saved: %zu bytes", context->SavePipelineCache());
+		ps5::diag::mark("pipeline cache: %zu bytes (written only when a pipeline was added)", context->SavePipelineCache());
 	logCache("now");
 }
 } // namespace

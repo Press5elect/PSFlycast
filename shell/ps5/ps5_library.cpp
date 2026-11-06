@@ -72,6 +72,12 @@ bool unreadable;		// the file is there and could not be opened: it is not writte
 std::map<std::string, Entry> entries;		// by path
 std::map<std::string, CoverMark> coverMarks;	// by file name without extension
 unsigned currentGeneration = 1;
+// Cover marks are noted as covers arrive, a few hundred in a minute when a library is fetched whole:
+// the file is written at most every 20 s for them (and by any other save, and when the title ends),
+// not once for each cover, which rewrote all of it each time.
+std::atomic<bool> marksDirty{false};
+std::chrono::steady_clock::time_point lastSave;		// under the mutex
+constexpr std::chrono::seconds kMarksInterval{20};
 
 // The game the emulator runs, and what of its time is not in its entry yet.
 struct Clock
@@ -150,6 +156,8 @@ void load()
 // (it is written while a game runs) leaves the file of a minute ago.
 void save()
 {
+	marksDirty = false;
+	lastSave = std::chrono::steady_clock::now();
 	if (unreadable)
 		return;
 	const std::string file = fileName(), temporary = file + ".new";
@@ -192,9 +200,11 @@ void bank(bool keep)
 		save();
 }
 
-// The same while a game runs, each minute: the file is written on a thread of
+// The same while a game runs, each ten minutes (it was each minute: the whole file written
+// sixty times an hour for a counter; pausing and stopping bank the time as well): the file is written on a thread of
 // its own, so that the frame being drawn does not wait for the disk.
 std::atomic<bool> keeping;
+constexpr double kPlayKeepSeconds = 600;
 
 void bankLater()
 {
@@ -269,6 +279,13 @@ void playing(const std::string& path)
 void tick()
 {
 	const bool running = emu.running();
+	if (marksDirty)
+	{
+		// Cover marks waiting for their write: it is time when the last write is old enough.
+		std::unique_lock<std::mutex> marks(mutex, std::try_to_lock);
+		if (marks.owns_lock() && marksDirty && std::chrono::steady_clock::now() - lastSave >= kMarksInterval)
+			save();
+	}
 	// The clock is this thread's alone (playing() and flush() are called on it
 	// too): nothing is locked while no game runs.
 	if (!running && !playClock.wasRunning)
@@ -300,7 +317,7 @@ void tick()
 			entries[playClock.path].lastPlayed = (int64_t)time(nullptr);
 			bank(true);
 		}
-		else if (playClock.sinceKept >= 60)
+		else if (playClock.sinceKept >= kPlayKeepSeconds)
 			bankLater();
 	}
 	else
@@ -314,7 +331,11 @@ void flush()
 {
 	std::lock_guard<std::mutex> lock(mutex);
 	if (loaded)
+	{
 		bank(false);
+		if (marksDirty)
+			save();
+	}
 }
 
 void played(const std::string& path, uint64_t seconds, int64_t when)
@@ -335,7 +356,10 @@ void coverPut(const std::string& base, const std::string& which)
 	std::lock_guard<std::mutex> lock(mutex);
 	load();
 	coverMarks[base] = { which, (uint64_t)st.st_size, (int64_t)st.st_mtime };
-	save();
+	if (std::chrono::steady_clock::now() - lastSave >= kMarksInterval)
+		save();
+	else
+		marksDirty = true;
 }
 
 void coverGone(const std::string& base)

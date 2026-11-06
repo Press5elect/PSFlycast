@@ -4423,7 +4423,7 @@ bool openKeyboard(int purpose, const char *title, const char *placeholder, const
 	if (!ps5::ime::open(title, placeholder, value, maxLength, kind))
 	{
 		ps5::sound::cue(ps5::sound::Cue::Refuse);
-		os_notify("The keyboard did not open", 4000, "flycast-boot.log in PSFlyCast's folder says why");
+		os_notify("The keyboard did not open", 4000, "the boot log (Settings > System > Logs) says why");
 		return false;
 	}
 	keyboardFor = purpose;
@@ -4971,7 +4971,7 @@ void updateDialog(ImDrawList *dl, const Input& given)
 		sub = now.error;
 		lines.push_back({ now.restored ? "Nothing of the title was changed" : "Copy the release's ZIP over the title's folder to repair it",
 				now.restored ? Dim : Plain });
-		lines.push_back({ "Every step is in flycast-boot.log, in the title's folder", Dim });
+		lines.push_back({ "Every step is in flycast-boot.log (Settings > System > Logs says where, or whether)", Dim });
 		buttons = { { Glyph::Circle, "Close", true }, { Glyph::Square, "Try again", false } };
 		if (given.back)
 			updateUi.open = false;
@@ -6738,6 +6738,43 @@ std::vector<Category> buildCategories()
 		r.get = [] { return ps5::DriverOwnCore ? 1 : 0; };
 		r.set = [](int v) { ps5::DriverOwnCore.set(v != 0); SaveSettings(); };
 		r.restart = true;
+		system.rows.push_back(r);
+	}
+	system.rows.push_back(heading("Logs"));
+	{
+		Row r{ Row::Toggle, "Write logs",
+				"The boot log (flycast-boot.log: each start-up step and a crash report, to send with a problem) and Flycast's own log. Off writes no log file at all, and a crash leaves no report. Takes effect the next time PSFlyCast starts." };
+		r.get = [] { return ps5::options().logs ? 1 : 0; };
+		r.set = [](int v) { ps5::options().logs = v != 0; ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Choice, "Keep logs",
+				"A USB drive keeps the logs' writes off the console's internal drive. It needs USB access (Settings > Library) and a drive that can be written to; with none, PSFlyCast's folder is used. The logs are then in PSFlyCast/logs on the drive. Takes effect the next time PSFlyCast starts.",
+				{ "In PSFlyCast's folder", "On a USB drive" }, { 0, 1 } };
+		r.get = [] { return ps5::options().logPlace; };
+		r.set = [](int v) { ps5::options().logPlace = std::clamp(v, 0, 1); ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Choice, "Save logs to the drive",
+				"How often the boot log is forced onto the drive. Lines always reach the file within a moment; only a console that stops outright can lose what came after the last save. The first 30 seconds of a start and of each game are always every 2 seconds. Less often means fewer writes to the drive. Takes effect the next time PSFlyCast starts.",
+				{ "Every 2 seconds", "Every 15 seconds", "When PSFlyCast ends" }, { 0, 1, 2 } };
+		r.get = [] { return ps5::options().logSync; };
+		r.set = [](int v) { ps5::options().logSync = std::clamp(v, 0, 2); ps5::saveOptions(); };
+		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Info, "Boot log", "Where this run's boot log is." };
+		r.info = [] {
+			if (!ps5::diag::enabled())
+				return std::string("Off");
+			const std::string& path = ps5::diag::logPath();
+			return path.empty() ? std::string("Not open") : path;
+		};
 		system.rows.push_back(r);
 	}
 	cats.push_back(system);

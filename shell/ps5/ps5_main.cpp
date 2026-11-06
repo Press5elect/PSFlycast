@@ -108,6 +108,12 @@ void loadOptions(const std::string& dir)
 			currentOptions.ramCache = value != 0;
 		else if (!strcmp(key, "net_buffers"))
 			currentOptions.netBuffers = value != 0;
+		else if (!strcmp(key, "logs"))
+			currentOptions.logs = value != 0;
+		else if (!strcmp(key, "log_place"))
+			currentOptions.logPlace = std::clamp(value, 0, 1);
+		else if (!strcmp(key, "log_sync"))
+			currentOptions.logSync = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "source"))
 			currentOptions.source = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "defaults"))
@@ -168,15 +174,13 @@ void saveOptions()
 {
 	if (optionsFile.empty())
 		return;
-	FILE *f = fopen(optionsFile.c_str(), "w");
-	if (f == nullptr)
-		return;
-	fprintf(f, "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
+	char text[2048];
+	const int length = snprintf(text, sizeof(text), "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
 			"disc_drive = %d\ndisc_speed = %d\nthreaded_recording = %d\ngpu_wait_spin_us = %d\ngpu_wait_sleep_us = %d\n"
-			"short_queue = %d\nnet_buffers = %d\n",
+			"short_queue = %d\nnet_buffers = %d\nlogs = %d\nlog_place = %d\nlog_sync = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -186,8 +190,20 @@ void saveOptions()
 			(int)currentOptions.rewind, currentOptions.splashLast, currentOptions.uiScale,
 			(int)currentOptions.highContrast, (int)currentOptions.colourBlind, (int)currentOptions.discDrive,
 			currentOptions.discSpeed, (int)currentOptions.threadedRecording, currentOptions.gpuWaitSpinUs,
-			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers);
+			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers,
+			(int)currentOptions.logs, currentOptions.logPlace, currentOptions.logSync);
+	// Not written again when it reads as it did at the last write (a toggle back, a setting
+	// chosen twice): the drive's writes are not spent on a file that stays as it is.
+	static std::string lastSaved;
+	if (length <= 0 || length >= (int)sizeof(text) || lastSaved.compare(0, std::string::npos, text, length) == 0)
+		return;
+	FILE *f = fopen(optionsFile.c_str(), "w");
+	if (f == nullptr)
+		return;
+	const bool written = fwrite(text, 1, length, f) == (size_t)length;
 	fclose(f);
+	if (written)
+		lastSaved.assign(text, length);
 }
 
 std::string shownRoot()
@@ -278,7 +294,28 @@ void repairModes(const std::string& dir, int depth)
 	}
 }
 
-void redirectLogs(const std::string& root)
+// Settings > System > Logs, "On a USB drive": /mnt/usbN/PSFlyCast/logs/ on the first drive that can
+// be written to. Empty when the console is not elevated (USB drives are outside the sandbox) or no
+// drive takes a file.
+std::string usbLogFolder()
+{
+	if (!ps5::elevated)
+		return "";
+	for (int i = 0; i < 8; i++)
+	{
+		const std::string drive = "/mnt/usb" + std::to_string(i);
+		struct stat st;
+		if (stat(drive.c_str(), &st) != 0)
+			continue;
+		mkdir((drive + "/PSFlyCast").c_str(), 0777);
+		const std::string logs = drive + "/PSFlyCast/logs";
+		if (writableDir(logs))
+			return logs + "/";
+	}
+	return "";
+}
+
+void redirectLogs(const std::string& dir)
 {
 	// One file, each stream opened on it in append mode, each with a 64 KiB
 	// buffer a thread of its own writes out every second. A write to the
@@ -289,8 +326,8 @@ void redirectLogs(const std::string& root)
 	// to 16 pointed its descriptor at stdout's with dup2, and on the console
 	// nothing written to stderr (Flycast's own log lines, the driver's
 	// messages) reached the file.
-	const std::string log = root + "logs/flycast.log";
-	const std::string prev = root + "logs/flycast.prev.log";
+	const std::string log = dir + "flycast.log";
+	const std::string prev = dir + "flycast.prev.log";
 	rename(log.c_str(), prev.c_str());
 	if (freopen(log.c_str(), "a", stdout) == nullptr)
 		return;
@@ -528,8 +565,30 @@ int main(int argc, char *argv[])
 		ps5::rootDir = "/app0/";
 	ps5::loadOptions(ps5::rootDir);
 	ps5::diag::showNotifications(ps5::options().notifications);
-	ps5::diag::open(ps5::rootDir);
+	// Logs: off, or in PSFlyCast's folder (the boot log in it, Flycast's own in logs/), or on a USB
+	// drive (both in PSFlyCast/logs there), forced onto the drive as often as chosen.
+	static const int syncSeconds[] = { 2, 15, 0 };
+	ps5::diag::configure(ps5::options().logs, syncSeconds[std::clamp(ps5::options().logSync, 0, 2)]);
+	std::string bootLogDir = ps5::rootDir, emulatorLogDir = ps5::rootDir + "logs/", placeNote;
+	if (ps5::options().logs && ps5::options().logPlace == 1)
+	{
+		const std::string usb = usbLogFolder();
+		if (!usb.empty())
+			bootLogDir = emulatorLogDir = usb;
+		else
+			placeNote = ps5::elevated ? "no USB drive that can be written to" : "USB drives need the sandbox left (Settings > Library > USB)";
+	}
+	ps5::diag::open(bootLogDir);
 	ps5::diag::mark("PSFlyCast, build %d; root folder: %s", PS5_BUILD_NUMBER, ps5::rootDir.c_str());
+	if (ps5::options().logs)
+	{
+		ps5::diag::mark("logs: in %s%s", bootLogDir.c_str(),
+				placeNote.empty() ? "" : (std::string(" (a USB drive was asked for: ") + placeNote + ")").c_str());
+		ps5::diag::mark("logs: forced onto the drive %s; every 2 s for the first 30 s of a start and of each game",
+				ps5::options().logSync == 0 ? "every 2 s" : ps5::options().logSync == 1 ? "every 15 s" : "only when PSFlyCast ends or crashes");
+	}
+	else
+		ps5::diag::mark("logs: off (Settings > System > Logs)");
 	makeDirs(ps5::rootDir);
 	repairModes(ps5::rootDir, 0);
 	probeStorage();
@@ -549,8 +608,12 @@ int main(int argc, char *argv[])
 	}
 	ps5::disc::start();
 	ps5::smb::loadConfig();
-	redirectLogs(ps5::rootDir);
-	ps5::diag::mark("the emulator's log: %slogs/flycast.log", ps5::rootDir.c_str());
+	if (ps5::options().logs)
+	{
+		redirectLogs(emulatorLogDir);
+		ps5::diag::mark("the emulator's log: %sflycast.log", emulatorLogDir.c_str());
+	}
+	EventManager::listen(Event::Start, [](Event, void *) { ps5::diag::watch(30); });
 
 	writeDefaultConfig(ps5::rootDir);
 

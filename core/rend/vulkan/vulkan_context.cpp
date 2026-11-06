@@ -1571,6 +1571,24 @@ size_t VulkanContext::SavePipelineCache()
 	if (cacheData.empty())
 		return 0;
 	std::string cachePath = hostfs::getShaderCachePath("vulkan_pipeline.cache");
+	// The file as it is already holds this: nothing to write (reading it costs the drive nothing).
+	if (FILE *old = nowide::fopen(cachePath.c_str(), "rb"))
+	{
+		std::vector<u8> chunk(64 * 1024);
+		size_t offset = 0;
+		bool same = true;
+		while (same)
+		{
+			const size_t n = std::fread(chunk.data(), 1, chunk.size(), old);
+			if (n == 0)
+				break;
+			same = offset + n <= cacheData.size() && std::memcmp(chunk.data(), &cacheData[offset], n) == 0;
+			offset += n;
+		}
+		std::fclose(old);
+		if (same && offset == cacheData.size())
+			return cacheData.size();
+	}
 	FILE *f = nowide::fopen(cachePath.c_str(), "wb");
 	if (f == nullptr)
 		return 0;

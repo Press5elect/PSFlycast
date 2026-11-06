@@ -60,6 +60,9 @@ namespace
 {
 int logFd = -1;
 std::string path;
+bool logsOn = true;						// configure(): off, nothing is written
+volatile int syncEvery = 15;			// seconds between syncs; 0: only at the end
+volatile long long fastUntil;			// CLOCK_MONOTONIC second until which it is every 2 s
 // Marks made before the file is open, written when it opens.
 char early[8192];
 size_t earlyUsed;
@@ -178,11 +181,15 @@ void *writerMain(void *)
 			pthread_cond_timedwait(&ringWake, &ringLock, &until);
 		}
 		ringWriteOut();
-		// On the disk every 2 s, here, out of every other thread's way: a crash of the whole
-		// console loses what the cache held, and the log is what says what happened.
+		// On the drive as often as Settings > System > Logs says, here, out of every other
+		// thread's way: a console that stops outright loses what the cache held, and the log is
+		// what says what happened. Every 2 s while a start or a game's first moments last;
+		// each sync is a write the drive makes for a few lines, so the rest of the time it is
+		// less often (or only at the end).
 		timespec now;
 		clock_gettime(CLOCK_MONOTONIC, &now);
-		if (now.tv_sec - lastSync.tv_sec >= 2)
+		const int every = now.tv_sec < fastUntil ? 2 : syncEvery;
+		if (every > 0 && now.tv_sec - lastSync.tv_sec >= every)
 		{
 			lastSync = now;
 			pthread_mutex_unlock(&ringLock);
@@ -195,6 +202,8 @@ void *writerMain(void *)
 
 void writeAll(const char *text, size_t length)
 {
+	if (!logsOn)
+		return;
 	if (logFd < 0)
 	{
 		const size_t room = sizeof(early) - earlyUsed;
@@ -332,7 +341,10 @@ void report(int signal, siginfo_t *info, void *contextPointer)
 			fflush(stream);
 			funlockfile(stream);
 		}
-	sendNotification("PSFlyCast stopped. Please send flycast-boot.log from its folder.");
+	if (logsOn)
+		sendNotification("PSFlyCast stopped. Please send flycast-boot.log from its folder (Settings > System > Logs says where).");
+	else
+		sendNotification("PSFlyCast stopped. Logs are off (Settings > System > Logs).");
 	std::signal(signal, SIG_DFL);
 	std::raise(signal);
 }
@@ -372,8 +384,35 @@ void rotate(const std::string& dir)
 
 } // namespace
 
+void configure(bool enabled, int syncSeconds)
+{
+	logsOn = enabled;
+	syncEvery = syncSeconds < 0 ? 0 : syncSeconds;
+	if (!enabled)
+		earlyUsed = 0;
+}
+
+bool enabled()
+{
+	return logsOn;
+}
+
+void watch(int seconds)
+{
+	timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	const long long until = now.tv_sec + seconds;
+	if (until > fastUntil)
+		fastUntil = until;
+}
+
 bool open(const std::string& dir)
 {
+	if (!logsOn)
+	{
+		earlyUsed = 0;
+		return false;
+	}
 	if (logFd >= 0)
 		return true;
 	rotate(dir);
@@ -387,6 +426,7 @@ bool open(const std::string& dir)
 	writeAll(early, earlyUsed);
 	earlyUsed = 0;
 	fsync(logFd);
+	watch(30);
 	// From here the lines go through the writer thread.
 	pthread_t writer;
 	if (pthread_create(&writer, nullptr, &writerMain, nullptr) == 0)

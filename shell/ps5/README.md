@@ -42,10 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.7** (build 96). It is built
+Latest release: **v1.3.8** (build 97). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.7, v1.3.6 and v1.3.5 have not been run on a console: [New in v1.3.7](#new-in-v137),
+v1.3.8, v1.3.7, v1.3.6 and v1.3.5 have not been run on a console:
+[New in v1.3.8](#new-in-v138), [New in v1.3.7](#new-in-v137),
 [New in v1.3.6](#new-in-v136) and [New in v1.3.5](#new-in-v135) list their changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
 the widescreen game patches' default) ran games on a console, with Mesa 27's
 driver; its changes, in [New in v1.3.4](#new-in-v134), have not been checked
@@ -132,6 +133,32 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.8
+
+Added:
+
+- **Logs in Settings > System:** **Write logs** turns every log off (the boot
+  log, Flycast's own log and the crash report); **Keep logs** chooses
+  PSFlyCast's folder or a USB drive (`PSFlyCast/logs` on it), to keep their
+  writes off the console's internal drive; **Save logs to the drive** is how
+  often the boot log is forced onto it (every 2 s, every 15 s, or only when
+  PSFlyCast ends); **Boot log** says where this run's is.
+
+Changed:
+
+- **The boot log is saved to the drive every 15 seconds** (it was every 2): a
+  start and the first 30 seconds of each game are still every 2 seconds, and
+  a crash is saved at once.
+- **Fewer writes to the console's internal drive:**
+  - the library file (play times and which covers are kept) was rewritten for
+    every cover downloaded, and once a minute while a game ran; covers now
+    wait up to 20 seconds for one write, and play time is kept every ten
+    minutes, and when a game is paused or stopped;
+  - the pipeline cache is written only when a pipeline was added to it;
+  - a save state is not written again when it is the one already on the drive;
+  - `emu.cfg` and `frontend.cfg` are not rewritten when they would read as
+    they already do.
 
 ## New in v1.3.7
 
@@ -1522,7 +1549,7 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
-v1.3.7 is made as v1.3.6 is, with two more driver commits, PS5 Mesa `53cc83ff82b`
+v1.3.8 and v1.3.7 are made as v1.3.6 is, with two more driver commits, PS5 Mesa `53cc83ff82b`
 and `249fe49d2d8` (`shell/ps5/mesa/0003` and `0004`; the first had one conflict with
 Crux2's patches, resolved by hand and said in its message), and the payload SDK fork
 at `e105cf6`. PS5 Mesa's `f5610fe2709` (a freed buffer's memory kept until the GPU has

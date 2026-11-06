@@ -10,15 +10,29 @@ static std::string cfgPath;
 static bool autoSaving = true;
 static IniFile cfgdb;
 
+// What was last written, so that a save of the same text is not written again (a drive's writes
+// are counted: every toggle that changes nothing, and every option saved with its own value, was one).
+static std::string lastWritten;
+static bool haveWritten = false;
+
 static void saveFile()
 {
+	std::string data;
+	cfgdb.save(data);
+	if (haveWritten && data == lastWritten)
+		return;
 	hostfs::File* cfgfile = hostfs::storage().openFile(cfgPath.c_str(), "wt");
 	if (!cfgfile) {
 		WARN_LOG(COMMON, "Error: Unable to open file '%s' for saving", cfgPath.c_str());
 	}
 	else {
-		cfgdb.save(cfgfile);
+		const bool written = cfgfile->write(data.c_str(), 1, data.length()) == data.length();
 		delete cfgfile;
+		if (written)
+		{
+			lastWritten = std::move(data);
+			haveWritten = true;
+		}
 	}
 }
 
