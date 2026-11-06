@@ -15,8 +15,14 @@ namespace ps5::diag
 bool open(const std::string& dir);
 const std::string& logPath();
 
-// One line in the boot log, written straight to the file (no stdio buffer),
-// so it is there whatever happens next.
+// Everything logged so far in the file and on the disk (before the title
+// closes or restarts itself).
+void flush();
+
+// One line in the boot log. It goes through memory to the log's writer thread,
+// which writes it to the file at once and syncs the file every 2 s, so a line
+// never waits for the file system; a crash report empties that memory first.
+// (Before the file is open, lines are kept and written when it opens.)
 void mark(const char *format, ...) __attribute__((format(printf, 1, 2)));
 
 // A notice: a line of the boot log ("notice: ..."), and a notification in the

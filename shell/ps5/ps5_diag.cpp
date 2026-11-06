@@ -19,6 +19,7 @@
 */
 #include "ps5_diag.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <csignal>
 #include <cstdarg>
@@ -78,6 +79,120 @@ bool inText(uintptr_t address)
 			&& address < reinterpret_cast<uintptr_t>(__ps5_text_end);
 }
 
+void writeFile(const char *text, size_t length)
+{
+	while (length > 0)
+	{
+		const ssize_t n = write(logFd, text, length);
+		if (n <= 0)
+			return;
+		text += n;
+		length -= n;
+	}
+}
+
+// The lines go through memory to a writer thread of their own, as OGBox 0.0.3 does it (OGBox by
+// Press5elect): a line written straight to the file waits for the file system, and the emulator's
+// thread writes the speed lines; on a slow drive or while the console throttles writes, the game
+// stood still for it. Fixed storage, so that the crash report can empty it from a signal handler.
+constexpr size_t RING = size_t(1) << 20;
+char ring[RING];
+size_t ringHead, ringLength;			// the oldest byte, and how many
+unsigned long long ringDropped;
+pthread_mutex_t ringLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t ringWake = PTHREAD_COND_INITIALIZER;
+pthread_cond_t ringEmpty = PTHREAD_COND_INITIALIZER;
+volatile bool writerUp;
+bool writerBusy;						// a chunk taken out, being written
+volatile bool crashing;					// the crash report writes to the file itself
+
+void ringPut(const char *text, size_t length)
+{
+	pthread_mutex_lock(&ringLock);
+	if (ringLength + length > RING)
+		ringDropped += length;
+	else
+	{
+		size_t at = (ringHead + ringLength) % RING;
+		for (size_t done = 0; done < length;)
+		{
+			const size_t k = std::min(length - done, RING - at);
+			memcpy(ring + at, text + done, k);
+			done += k;
+			at = (at + k) % RING;
+		}
+		ringLength += length;
+	}
+	pthread_cond_signal(&ringWake);
+	pthread_mutex_unlock(&ringLock);
+}
+
+// The ring into the file; the caller holds the lock, released while it writes.
+void ringWriteOut()
+{
+	static char chunk[64 * 1024];
+	while (ringLength)
+	{
+		const size_t n = std::min({ ringLength, sizeof(chunk), RING - ringHead });
+		memcpy(chunk, ring + ringHead, n);
+		ringHead = (ringHead + n) % RING;
+		ringLength -= n;
+		writerBusy = true;
+		pthread_mutex_unlock(&ringLock);
+		writeFile(chunk, n);
+		pthread_mutex_lock(&ringLock);
+		writerBusy = false;
+	}
+	if (ringDropped)
+	{
+		char note[96];
+		const int k = snprintf(note, sizeof(note), "[log: %llu bytes of lines dropped: the file system was slow]\n",
+				ringDropped);
+		ringDropped = 0;
+		pthread_mutex_unlock(&ringLock);
+		if (k > 0)
+			writeFile(note, (size_t)k);
+		pthread_mutex_lock(&ringLock);
+	}
+	pthread_cond_broadcast(&ringEmpty);
+}
+
+void *writerMain(void *)
+{
+	pthread_set_name_np(pthread_self(), "psflycast-log");
+	timespec lastSync;
+	clock_gettime(CLOCK_MONOTONIC, &lastSync);
+	pthread_mutex_lock(&ringLock);
+	for (;;)
+	{
+		if (ringLength == 0)
+		{
+			timespec until;
+			clock_gettime(CLOCK_REALTIME, &until);
+			until.tv_nsec += 100 * 1000000L;
+			if (until.tv_nsec >= 1000000000L)
+			{
+				until.tv_sec++;
+				until.tv_nsec -= 1000000000L;
+			}
+			pthread_cond_timedwait(&ringWake, &ringLock, &until);
+		}
+		ringWriteOut();
+		// On the disk every 2 s, here, out of every other thread's way: a crash of the whole
+		// console loses what the cache held, and the log is what says what happened.
+		timespec now;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		if (now.tv_sec - lastSync.tv_sec >= 2)
+		{
+			lastSync = now;
+			pthread_mutex_unlock(&ringLock);
+			fsync(logFd);
+			pthread_mutex_lock(&ringLock);
+		}
+	}
+	return nullptr;
+}
+
 void writeAll(const char *text, size_t length)
 {
 	if (logFd < 0)
@@ -88,14 +203,26 @@ void writeAll(const char *text, size_t length)
 		earlyUsed += n;
 		return;
 	}
-	while (length > 0)
+	if (writerUp && !crashing)
+		ringPut(text, length);
+	else
+		writeFile(text, length);
+}
+
+// The crash report's: what the ring holds into the file before the report's own lines, unless
+// another thread holds the ring (a signal handler can't wait for it).
+void drainForCrash()
+{
+	if (logFd < 0 || pthread_mutex_trylock(&ringLock) != 0)
+		return;
+	while (ringLength)
 	{
-		const ssize_t n = write(logFd, text, length);
-		if (n <= 0)
-			return;
-		text += n;
-		length -= n;
+		const size_t n = std::min(ringLength, RING - ringHead);
+		writeFile(ring + ringHead, n);
+		ringHead = (ringHead + n) % RING;
+		ringLength -= n;
 	}
+	pthread_mutex_unlock(&ringLock);
 }
 
 // Signal-safe enough: snprintf into a stack buffer and write().
@@ -138,6 +265,9 @@ void report(int signal, siginfo_t *info, void *contextPointer)
 	const uintptr_t base = imageBase();
 	size_t flexible = 0;
 	sceKernelAvailableFlexibleMemorySize(&flexible);
+	// The lines still in memory first, then the report straight to the file.
+	crashing = true;
+	drainForCrash();
 
 	writef("\n=== CRASH: signal %d (%s) ===\n", signal,
 			signal == SIGSEGV ? "SIGSEGV" : signal == SIGBUS ? "SIGBUS" : signal == SIGILL ? "SIGILL"
@@ -257,7 +387,36 @@ bool open(const std::string& dir)
 	writeAll(early, earlyUsed);
 	earlyUsed = 0;
 	fsync(logFd);
+	// From here the lines go through the writer thread.
+	pthread_t writer;
+	if (pthread_create(&writer, nullptr, &writerMain, nullptr) == 0)
+	{
+		pthread_detach(writer);
+		writerUp = true;
+	}
 	return true;
+}
+
+void flush()
+{
+	if (!writerUp || logFd < 0)
+		return;
+	pthread_mutex_lock(&ringLock);
+	for (int i = 0; i < 100 && (ringLength || writerBusy); i++)
+	{
+		pthread_cond_signal(&ringWake);
+		timespec until;
+		clock_gettime(CLOCK_REALTIME, &until);
+		until.tv_nsec += 50 * 1000000L;
+		if (until.tv_nsec >= 1000000000L)
+		{
+			until.tv_sec++;
+			until.tv_nsec -= 1000000000L;
+		}
+		pthread_cond_timedwait(&ringEmpty, &ringLock, &until);
+	}
+	pthread_mutex_unlock(&ringLock);
+	fsync(logFd);
 }
 
 const std::string& logPath()

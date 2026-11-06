@@ -29,6 +29,10 @@ enum class Status : std::uint32_t
     rollback_failed = 8,
     transport_error = 9,
     protocol_error = 10,
+    // From OGBox 0.0.2 (OGBox by Press5elect): the helper's own root was not the console's, so it
+    // wrote the root into the title's fd_rdir and fd_jdir as the boilerplate did: the title's exit
+    // releases references it never took
+    ok_unbalanced = 11,
 };
 
 namespace wire
@@ -48,7 +52,7 @@ enum class Kind : std::uint32_t
 struct Message
 {
     std::uint32_t magic = 0x31564c45; // "ELV1"
-    std::uint16_t version = 1;
+    std::uint16_t version = 2;
     std::uint16_t size = 24;
     Kind kind = Kind::request;
     Capability capability = Capability::filesystem;
@@ -65,7 +69,7 @@ constexpr Status validate(const Message &message) noexcept
     if (message.version != Message{}.version)
         return Status::unsupported_version;
     if (message.kind < Kind::request || message.kind > Kind::response || message.pid == 0 ||
-        message.pid > INT32_MAX || message.status > Status::protocol_error)
+        message.pid > INT32_MAX || message.status > Status::ok_unbalanced)
         return Status::invalid_request;
     if (message.capability != Capability::filesystem)
         return Status::unsupported_capability;

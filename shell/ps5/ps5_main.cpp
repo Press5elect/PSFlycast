@@ -480,9 +480,14 @@ int main(int argc, char *argv[])
 	{
 		// Before any other thread exists, as the helper's protocol asks.
 		const unsigned status = ps5::elevateFilesystem("/app0/sandbox-elevator.elf");
-		ps5::elevated = status == 0;
+		// 0: granted with the root's references counted (the helper trades its own with this
+		// process's, as OGBox fixed it); 11: granted the old way, when the helper's own root was
+		// not the console's, so this process's exit releases two references on the console's root
+		// that it never took, and enough such exits bring the console down.
+		ps5::elevated = status == 0 || status == 11;
 		ps5::dataJailbroken = ps5::elevated;
-		ps5::diag::mark("usb: sandbox elevation %s (status %u)", ps5::elevated ? "granted" : "not granted", status);
+		ps5::diag::mark("usb: sandbox elevation %s (status %u)%s", ps5::elevated ? "granted" : "not granted", status,
+				status == 11 ? ": the old way, the console's root references unbalanced" : "");
 		ps5::diag::mark("ids: uid %d euid %d gid %d egid %d", (int)getuid(), (int)geteuid(), (int)getgid(), (int)getegid());
 		// The helper zeroes the real and saved ids but leaves the effective
 		// group as it was. Mesa only uses its on-disk shader cache for a
@@ -845,6 +850,7 @@ extern "C" void catchReturnFromMain(int status)
 {
 	ps5::diag::mark("quit (status %d)", status);
 	fflush(nullptr);
+	ps5::diag::flush();
 	if (ps5::restartOnExit)
 	{
 		// The title's own executable in place of this one (after an update).
@@ -852,11 +858,13 @@ extern "C" void catchReturnFromMain(int status)
 		const int restart = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
 		ps5::diag::mark("restart request: %d", restart);
 		fflush(nullptr);
+		ps5::diag::flush();
 		if (restart >= 0)
 			usleep(5000000);
 	}
 	const int result = sceSystemServiceLoadExec("exit", nullptr);
 	ps5::diag::mark("close request: %d", result);
+	ps5::diag::flush();
 	if (result >= 0)
 		for (;;)
 			usleep(100000);

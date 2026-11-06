@@ -42,11 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.5** (build 94). It is built
+Latest release: **v1.3.6** (build 95). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.5 has not been run on a console: [New in v1.3.5](#new-in-v135) lists its
-changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
+v1.3.6 and v1.3.5 have not been run on a console: [New in v1.3.6](#new-in-v136)
+and [New in v1.3.5](#new-in-v135) list their changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
 the widescreen game patches' default) ran games on a console, with Mesa 27's
 driver; its changes, in [New in v1.3.4](#new-in-v134), have not been checked
 one by one. v1.3.1 and v1.3.2 are listed in [New in v1.3.2](#new-in-v132) and
@@ -132,6 +132,34 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.6
+
+Added:
+
+- **Find servers on the network** (Settings > Library > Network, from OGBox): the
+  shared folders' servers on the console's network are listed by name, and
+  one is picked to add a folder on it.
+- **Continue where you left off:** with Auto save state on and Auto load
+  state off, a game with a saved state asks whether to continue from it or
+  start from the beginning.
+- **Every disc game's cover is fetched in the background** after a scan,
+  when covers are on, instead of only the covers on screen.
+
+Changed:
+
+- **Flycast** is its `dev` branch at a14c02e (3 November 2026): saves,
+  memory cards and arcade cards are written to a temporary file and renamed
+  over the old one, and fixes to the network stack.
+- **The boot log** (`flycast-boot.log`) is written by a thread of its own
+  and synced every two seconds (from OGBox), instead of on each line.
+
+Fixed:
+
+- **Each time PSFlyCast closed, the console lost two references to its root
+  folder** (the USB drive access helper gave the title the root folder
+  without counting it), which could crash the console after many sessions.
+  The helper, now OGBox's, trades counted references for the title's.
 
 ## New in v1.3.5
 
@@ -1468,7 +1496,7 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
-v1.3.5 is made with PS5_Vulkan `f410e67` as published, PS5_Mesa `1ba9874`
+v1.3.6 and v1.3.5 are made with PS5_Vulkan `f410e67` as published, PS5_Mesa `1ba9874`
 plus Crux2's driver patches at `08c3507` (Mesa 27.0-devel of 2026-10-31), the
 payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; the driver is compiled
 with the SDK at `b83202b`. `build-radv-psflycast.sh` runs PS5_Vulkan's

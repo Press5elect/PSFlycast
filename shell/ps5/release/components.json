@@ -61,7 +61,7 @@
    ],
    "source": {
     "kind": "fixed",
-    "revision": "2c83abcce4b80d51730e4b38307438a4bed5a108",
+    "revision": "a14c02e2bd571a737d008e6711cc1442c16e48f4",
     "url": "https://github.com/flyinghead/flycast",
     "where": "merged into this title's repository, at the release's tag, with the libraries it carries"
    },
@@ -1070,7 +1070,7 @@
     "path": ".",
     "where": "shell/ps5/elevation/ in this title's repository; upstream: https://github.com/BlackBearReloaded/ps5-native-app-boilerplate"
    },
-   "modifications": "The example's helper and protocol, adapted to this title (shell/ps5/elevation/).",
+   "modifications": "The example's helper and protocol, adapted to this title (shell/ps5/elevation/); the helper is OGBox's (github.com/Press5elect/OGBox, by Press5elect), which hands the title counted references to the root folder in exchange for its sandbox ones.",
    "files": [
     "sandbox-elevator.elf",
     "eboot.bin"

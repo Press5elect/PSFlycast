@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.5 (build 94). The README's Status says what has been
+This manual is for v1.3.6 (build 95). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -383,7 +383,14 @@ one). Either way what the card held stays beside it as a `.bak` file.
 
 Settings > Library > Network adds and removes network folders on the console
 itself (**Add a network folder**, **Network user**, **Network password**); they
-are kept in `network.cfg`. Only SMB (Windows sharing) is supported; NFS is not.
+are kept in `network.cfg`. **Find servers on the network** lists the computers
+sharing folders on the console's network, by name, and **Add a folder on** one
+of them starts the folder's address with that computer's. Only SMB (Windows
+sharing) is supported; NFS is not.
+
+With **Auto save state** on and **Auto load state** off, starting a game that
+has a saved state asks first: Cross continues from it, Square starts from the
+beginning, Circle goes back.
 
 Settings > Video > **Beside the picture** chooses what fills the screen beside
 (or above and below) a picture that does not fill it, as in PSSwanStation:

@@ -199,6 +199,15 @@ void cancelLoad();
 // Forgets that a share did not answer a moment ago (before a scan the user
 // asked for).
 void retryNow();
+// The SMB servers on this console's network (its /24): those that answer on port 445, with the
+// name a NetBIOS node status gives, as OGBox finds them (OGBox by Press5elect). Takes about 2 s:
+// call it off the interface's thread.
+struct FoundServer
+{
+	std::string ip;
+	std::string name;	// empty when the server gave none
+};
+std::vector<FoundServer> findServers();
 // Memory card backups: on by default, and only when a share is in network.cfg.
 extern config::Option<bool> CardBackup;
 // Where they go: smb://server/share/PSFlyCast/Memory cards on the first games folder's share; empty without a share.

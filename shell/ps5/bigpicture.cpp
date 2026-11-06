@@ -1794,6 +1794,25 @@ bool refreshGames(bool networkOpen)
 				games.back().title = games.back().fullTitle = games.back().setTitle = d.title;
 			}
 	findDiscSets();
+	// Every game's cover is asked for now, in the list's order, not only those on screen, as
+	// OGBox does it (OGBox by Press5elect): the covers arrive in the background while the
+	// library is browsed. The downloader asks each game once and skips those it found nothing for.
+	if (ps5::options().covers)
+		for (const Game& g : games)
+		{
+			if (!g.disc)
+				continue;
+			const std::string base = get_file_basename(g.media.fileName);
+			bool have = false;
+			for (const char *ext : { ".png", ".jpg", ".jpeg" })
+				if (file_exists(ps5::rootDir + "covers/" + base + ext))
+				{
+					have = true;
+					break;
+				}
+			if (!have)
+				ps5::covers::request(base, g.title);
+		}
 	return true;
 }
 
@@ -2414,6 +2433,9 @@ void launch(Game& g, bool selectDisk, int stateSlot = -1)
 	gameStarted(g.media.path);
 	gui_start_game(g.media.path);
 }
+
+// Cross on a game: launch, or first the question of where it was left (further down).
+void playGame(Game& g, bool selectDisk);
 
 // ---- a forwarder's request
 //
@@ -3581,7 +3603,7 @@ void detailsInput(Game& g, bool selectDisk)
 			if (det.action == 0)
 			{
 				lib.details = false;
-				launch(g, false);
+				playGame(g, false);
 			}
 			else if (det.action == 1)
 			{
@@ -4457,6 +4479,99 @@ void quitDialog(ImDrawList *dl, const Input& given)
 	x += dialogButton(dl, x, y, Glyph::Cross, "Quit", true) + 20;
 	dialogButton(dl, x, y, Glyph::Circle, "Stay", false);
 }
+
+namespace
+{
+
+// ---- where the game was left (as OGBox asks it, OGBox by Press5elect)
+//
+// A game that stopped with "Auto save state" on left a state of where it was. Started again from
+// the list or its page while "Auto load state" is off, it asks: go on from there, or start from
+// the beginning. Without the question the state was only reachable through Load state.
+
+struct ResumeUi
+{
+	bool open = false;
+	std::string path;		// the game's
+	std::string title;
+	int slot = 0;
+	time_t saved = 0;
+} resumeUi;
+
+// The game's state in the slot an auto-saved state goes to, if there is one, and when it was saved.
+bool leftState(const Game& g, int& slot, time_t& saved)
+{
+	slot = config::SavestateSlot;
+	const std::string base = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName);
+	struct stat st;
+	if (stat((base + (slot > 0 ? "_" + std::to_string(slot) : "") + ".state").c_str(), &st) != 0)
+		return false;
+	saved = st.st_mtime;
+	return true;
+}
+
+// Cross on a game: asks first when it has a state of where it was left, else starts it.
+void playGame(Game& g, bool selectDisk)
+{
+	int slot = 0;
+	time_t saved = 0;
+	if (!selectDisk && !config::AutoLoadState && config::AutoSaveState && !g.media.path.empty() && leftState(g, slot, saved))
+	{
+		resumeUi = ResumeUi{};
+		resumeUi.open = true;
+		resumeUi.path = g.media.path;
+		resumeUi.title = g.title;
+		resumeUi.slot = slot;
+		resumeUi.saved = saved;
+		return;
+	}
+	launch(g, selectDisk, -1);
+}
+
+void resumeDialog(ImDrawList *dl, const Input& given)
+{
+	const auto start = [](int stateSlot) {
+		resumeUi.open = false;
+		for (Game& g : games)
+			if (g.media.path == resumeUi.path)
+			{
+				ps5::diag::mark("library: starting %s %s", resumeUi.path.c_str(),
+						stateSlot >= 0 ? "where it was left" : "from the beginning");
+				launch(g, false, stateSlot);
+				return;
+			}
+	};
+	if (given.accept)
+	{
+		start(resumeUi.slot);
+		return;
+	}
+	if (given.square)
+	{
+		start(-1);
+		return;
+	}
+	if (given.back)
+	{
+		resumeUi.open = false;
+		return;
+	}
+	char when[64] = "";
+	struct tm local;
+	if (localtime_r(&resumeUi.saved, &local) != nullptr)
+		strftime(when, sizeof(when), "Saved %d %B %Y at %H:%M", &local);
+	const float w = 880, h = 300, pad = 52;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "Where you left off");
+	text(dl, regular(), 23, at.x + pad, at.y + pad + 50, col::dim, (resumeUi.title + "  \xC2\xB7  " + when).c_str());
+	float x = at.x + pad;
+	const float y = at.y + h - pad - 60 + 8;
+	x += dialogButton(dl, x, y, Glyph::Cross, "Go on from there", true) + 20;
+	x += dialogButton(dl, x, y, Glyph::Square, "Start from the beginning", false) + 20;
+	dialogButton(dl, x, y, Glyph::Circle, "Back", false);
+}
+
+} // namespace
 
 // ---- another cover for a game (ps5_covers.cpp)
 //
@@ -5702,6 +5817,12 @@ void libraryScreen(bool selectDisk)
 		in = Input{};
 		quitDialog(ImGui::GetForegroundDrawList(), given);
 	}
+	if (resumeUi.open)
+	{
+		const Input given = in;
+		in = Input{};
+		resumeDialog(ImGui::GetForegroundDrawList(), given);
+	}
 	if (coverUi.open)
 	{
 		const Input given = in;
@@ -5795,7 +5916,7 @@ void libraryScreen(bool selectDisk)
 			lib.flatPath = games[lib.flat[f]].media.path;
 		}
 		if (in.accept && focused != nullptr)
-			launch(*focused, selectDisk);
+			playGame(*focused, selectDisk);
 		if (in.triangle && focused != nullptr)
 			openDetails(*focused);
 		if (in.square && lib.source == Disc)
@@ -6317,7 +6438,15 @@ SpaceNow& spaceNow(bool force = false)
 	return now;
 }
 
-bool rebuildCategories;		// a row changed what the rows are (the network folders)
+std::atomic<bool> rebuildCategories;	// a row changed what the rows are (the network folders)
+// Settings > Library > Network's servers found on the network (Find servers on the network).
+struct
+{
+	std::mutex mutex;
+	bool running = false;
+	bool done = false;
+	std::vector<ps5::smb::FoundServer> list;
+} foundServers;
 
 // A row of the Settings for one of the options a game can also have of its
 // own: a switch, a slider for a range, or a choice.
@@ -6920,6 +7049,55 @@ std::vector<Category> buildCategories()
 		Row r{ Row::Info, folder.substr(6), "" };
 		r.info = [] { return std::string(); };
 		storage.rows.push_back(r);
+	}
+	{
+		// The SMB servers on the network, looked for in the background (ps5::smb::findServers, as
+		// OGBox does it); each found is a row that opens the keyboard with its address typed.
+		Row r{ Row::Action, "Find servers on the network",
+				"Look for computers and NAS devices that share folders on this network. Each one found is listed below; choose it to add one of its folders." };
+		r.info = [] {
+			std::lock_guard<std::mutex> lock(foundServers.mutex);
+			if (foundServers.running)
+				return std::string("Looking\xE2\x80\xA6");
+			if (!foundServers.done)
+				return std::string();
+			return foundServers.list.empty() ? std::string("None found") : std::to_string(foundServers.list.size()) + " found";
+		};
+		r.action = [] {
+			{
+				std::lock_guard<std::mutex> lock(foundServers.mutex);
+				if (foundServers.running)
+					return;
+				foundServers.running = true;
+			}
+			std::thread([] {
+				std::vector<ps5::smb::FoundServer> list = ps5::smb::findServers();
+				std::lock_guard<std::mutex> lock(foundServers.mutex);
+				foundServers.list = std::move(list);
+				foundServers.running = false;
+				foundServers.done = true;
+				rebuildCategories = true;
+			}).detach();
+		};
+		storage.rows.push_back(r);
+	}
+	{
+		std::vector<ps5::smb::FoundServer> list;
+		{
+			std::lock_guard<std::mutex> lock(foundServers.mutex);
+			list = foundServers.list;
+		}
+		for (const ps5::smb::FoundServer& server : list)
+		{
+			Row r{ Row::Action, "Add a folder on " + (server.name.empty() ? server.ip : server.name),
+					"Type the share and the folder after the address, for example " + server.ip + "/Games/Dreamcast." };
+			r.info = [ip = server.ip] { return ip; };
+			r.action = [ip = server.ip] {
+				const std::string example = ip + "/Games/Dreamcast";
+				openKeyboard(KeyboardNetPath, "Network folder: server/share/folder", example.c_str(), ip + "/", 200);
+			};
+			storage.rows.push_back(r);
+		}
 	}
 	{
 		Row r{ Row::Action, "Add a network folder",
