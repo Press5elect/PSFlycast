@@ -109,6 +109,9 @@ radv_link_flags+=(--wrap=fgetpos --wrap=fsetpos)
 # is answered from the processor's counter (about 12 ns) for the whole title,
 # the graphics driver included (shell/ps5/ps5_clock.c, from Crux2).
 radv_link_flags+=(--wrap=clock_gettime)
+# setsockopt: a TCP connection's send and receive buffers are made large where libsmb2 sets
+# TCP_NODELAY, before it connects (shell/ps5/ps5_libc.cpp, from OGBox 0.1.29).
+radv_link_flags+=(--wrap=setsockopt)
 
 # Imports a title cannot use as they are (only libkernel_sys exports them, the
 # SDK lists them but the console lacks them, or a title is refused them):

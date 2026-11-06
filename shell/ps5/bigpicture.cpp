@@ -7035,6 +7035,13 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Toggle, "Large network buffers",
+			"Ask the console for 4 MB send and receive buffers on a network share's connection, where its small default limits a read to about 18 MB/s. Applies to connections made from now on. Turn it off if a share misbehaves." };
+		r.get = [] { return ps5::options().netBuffers ? 1 : 0; };
+		r.set = [](int v) { ps5::options().netBuffers = v != 0; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Info, "Network folders", "SMB shares, as used by Windows file sharing and most NAS devices. Added here and saved in network.cfg." };
 		r.info = [] {
 			const auto& folders = ps5::smb::gameFolders();

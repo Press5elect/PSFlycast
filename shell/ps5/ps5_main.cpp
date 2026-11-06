@@ -106,6 +106,8 @@ void loadOptions(const std::string& dir)
 			currentOptions.discSpeed = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "ram_cache"))
 			currentOptions.ramCache = value != 0;
+		else if (!strcmp(key, "net_buffers"))
+			currentOptions.netBuffers = value != 0;
 		else if (!strcmp(key, "source"))
 			currentOptions.source = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "defaults"))
@@ -174,7 +176,7 @@ void saveOptions()
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
 			"disc_drive = %d\ndisc_speed = %d\nthreaded_recording = %d\ngpu_wait_spin_us = %d\ngpu_wait_sleep_us = %d\n"
-			"short_queue = %d\n",
+			"short_queue = %d\nnet_buffers = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -184,7 +186,7 @@ void saveOptions()
 			(int)currentOptions.rewind, currentOptions.splashLast, currentOptions.uiScale,
 			(int)currentOptions.highContrast, (int)currentOptions.colourBlind, (int)currentOptions.discDrive,
 			currentOptions.discSpeed, (int)currentOptions.threadedRecording, currentOptions.gpuWaitSpinUs,
-			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue);
+			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers);
 	fclose(f);
 }
 

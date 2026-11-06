@@ -19,8 +19,15 @@
 #   0017  variable refresh found while the title runs: the driver calls the title's weak
 #         ps5_title_videoout_vrr_unpeg (shell/ps5/ps5_videoout.cpp) instead of importing
 #         sceVideoOutVrrUnpegFromFixedRate, which not every firmware exports.
-# 0015 and 0016 are this repository's shell/ps5/mesa/*.patch, as they are; Crux2 carries them.
+# 0015 and 0016 are this repository's shell/ps5/mesa/0001 and 0002, as they are; Crux2 carries them.
 # PSFlyCast's own copies are applied only when the Crux2 set does not already hold them.
+# After them, two commits of PS5 Mesa's main that the Crux2 set does not have yet
+# (shell/ps5/mesa/0003 and 0004, PS5 Mesa 53cc83ff82b and 249fe49d2d8): a large buffer is backed by
+# several direct-memory ranges when no single one is free, each placed only where nothing else is.
+# 0003 had one conflict with Crux2's patches, resolved by hand (said in its message). PS5 Mesa's
+# f5610fe2709 (a freed buffer's memory kept until the GPU has run what was submitted before it) is
+# not applied: the Crux2 set already keeps a freed buffer's memory that way (its zombie list), and
+# f5610fe also covers sparse ranges and a retry after a failed allocation, which this title does not use.
 #
 # The Crux2 revision the release names is CRUX2_REVISION below: the patches are taken from a
 # Crux2 checkout at that revision (../crux2 or CRUX2_MESA_PATCHES).
@@ -103,7 +110,8 @@ fi
 # run-time variable refresh among them.
 git -C "$mesa" merge-base --is-ancestor "$pin" "$branch" ||
 	{ echo "build-radv-psflycast: $branch is not built on ${pin:0:11}" >&2; exit 1; }
-for wanted in "119.88 Hz on a VRR display" "leave its fixed rate" "variable refresh found while the title runs"; do
+for wanted in "119.88 Hz on a VRR display" "leave its fixed rate" "variable refresh found while the title runs" \
+	"back a large buffer with several direct-memory" "a buffer piece is mapped only where nothing else is"; do
 	git -C "$mesa" log --format=%s "$pin..$branch" | grep -q "$wanted" ||
 		{ echo "build-radv-psflycast: $branch lacks \"$wanted\"" >&2; exit 1; }
 done
@@ -146,5 +154,10 @@ mv "$native/radv-release" "$native/radv-psflycast"
 	echo "PSFlyCast: PS5 Mesa $pin, branch $branch at $revision (tree $(git -C "$mesa" rev-parse "$branch^{tree}")),"
 	echo "with Crux2's patches at $CRUX2_REVISION:"
 	for patch in "$patches"/*.patch; do echo "  $(basename "$patch")"; done
+	echo "and PSFlyCast's own, from shell/ps5/mesa (the first two are Crux2's 0015 and 0016):"
+	for patch in "$own"/*.patch; do
+		[[ -f $patch ]] || continue
+		echo "  $(basename "$patch")"
+	done
 } >> "$native/radv-psflycast/PROVENANCE.txt"
 echo "==> $native/radv-psflycast (Mesa $branch ${revision:0:11}); shell/ps5/build.sh links it"

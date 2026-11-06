@@ -3,7 +3,7 @@
 How to install PSFlyCast, add your games and use everything in it. For how it
 is built and what it is made of, see [README.md](README.md).
 
-This manual is for v1.3.6 (build 95). The README's Status says what has been
+This manual is for v1.3.7 (build 96). The README's Status says what has been
 played on a console.
 
 > **No games, BIOS files or keys come with PSFlyCast, and none ever will.**
@@ -386,7 +386,10 @@ itself (**Add a network folder**, **Network user**, **Network password**); they
 are kept in `network.cfg`. **Find servers on the network** lists the computers
 sharing folders on the console's network, by name, and **Add a folder on** one
 of them starts the folder's address with that computer's. Only SMB (Windows
-sharing) is supported; NFS is not.
+sharing) is supported; NFS is not. **Large network buffers** (on) asks the console
+for 4 MB send and receive buffers on each connection to a share, where its small
+default limits how fast a game can be read; turn it off if a share misbehaves. It
+applies to connections made from then on.
 
 With **Auto save state** on and **Auto load state** off, starting a game that
 has a saved state asks first: Cross continues from it, Square starts from the

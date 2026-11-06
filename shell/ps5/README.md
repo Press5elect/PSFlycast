@@ -42,11 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.6** (build 95). It is built
+Latest release: **v1.3.7** (build 96). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.6 and v1.3.5 have not been run on a console: [New in v1.3.6](#new-in-v136)
-and [New in v1.3.5](#new-in-v135) list their changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
+v1.3.7, v1.3.6 and v1.3.5 have not been run on a console: [New in v1.3.7](#new-in-v137),
+[New in v1.3.6](#new-in-v136) and [New in v1.3.5](#new-in-v135) list their changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
 the widescreen game patches' default) ran games on a console, with Mesa 27's
 driver; its changes, in [New in v1.3.4](#new-in-v134), have not been checked
 one by one. v1.3.1 and v1.3.2 are listed in [New in v1.3.2](#new-in-v132) and
@@ -132,6 +132,31 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.7
+
+Added:
+
+- **Large network buffers** (Settings > Library > Network, on; from OGBox): a
+  connection to a network share asks the console for 4 MB send and receive
+  buffers instead of its small default. In OGBox the default held a share to
+  about 18 MB/s whatever the link; it has not been measured in PSFlyCast yet.
+
+Changed:
+
+- **The graphics driver** has two more PS5 Mesa fixes: a large buffer is
+  backed by several direct-memory ranges when no single one is free, and each
+  piece is placed only where nothing else is.
+- **The payload SDK** (the platform layer the title is built on) is at
+  `e105cf6`: the heap grows 2 MiB at a time instead of 16 MiB, and the file
+  table tracks as many files as it has descriptor slots. A payload also takes
+  its direct memory from the application's pool, which changes nothing for a
+  title.
+
+Fixed:
+
+- **A large graphics buffer could fail to allocate while the memory was free
+  but in many pieces.**
 
 ## New in v1.3.6
 
@@ -1466,13 +1491,14 @@ make -C PS5_Vulkan        # it may stop at its own sample afterwards; the tool a
 
 # The graphics driver: PS5_Mesa at 1ba9874 with Crux2's ps5/patches/mesa-27
 # (among them Mesa main, 27.0-devel, and this repository's two display patches,
-# shell/ps5/mesa, as 0015 and 0016), built by PS5_Vulkan's build-radv.sh into
+# shell/ps5/mesa, as 0015 and 0016), then two PS5 Mesa fixes (shell/ps5/mesa 0003
+# and 0004), built by PS5_Vulkan's build-radv.sh into
 # PS5_Vulkan/.deps/native/radv-psflycast. A long build.
 PSFlyCast/shell/ps5/build-radv-psflycast.sh
 
-# The title is compiled with the payload SDK fork at b5efad5, installed the way
+# The title is compiled with the payload SDK fork at e105cf6, installed the way
 # the fork's own script does it, in a folder that PS5_PAYLOAD_SDK names.
-sdk=b5efad528e0ac1b8289f39d72a0e890ff68ff0a6
+sdk=e105cf6f25801d9e9981812a89a3b74021d2d2a2
 mkdir -p sdk-psflycast sdk-tree
 git -C PS5_PayloadSDK archive $sdk | tar -x -C sdk-tree
 bash sdk-tree/platform/tools/setup-sdk.sh "$PWD/sdk-psflycast/ps5-payload-sdk" $sdk "$PWD/sdk-psflycast"
@@ -1496,6 +1522,13 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
+v1.3.7 is made as v1.3.6 is, with two more driver commits, PS5 Mesa `53cc83ff82b`
+and `249fe49d2d8` (`shell/ps5/mesa/0003` and `0004`; the first had one conflict with
+Crux2's patches, resolved by hand and said in its message), and the payload SDK fork
+at `e105cf6`. PS5 Mesa's `f5610fe2709` (a freed buffer's memory kept until the GPU has
+run what was submitted before it) is not applied: Crux2's patches already keep a freed
+buffer's memory that way, and `f5610fe2709` also covers sparse ranges and a retry after a
+failed allocation, which this title does not use.
 v1.3.6 and v1.3.5 are made with PS5_Vulkan `f410e67` as published, PS5_Mesa `1ba9874`
 plus Crux2's driver patches at `08c3507` (Mesa 27.0-devel of 2026-10-31), the
 payload SDK fork at `b5efad5` and libsmb2 `7e4ff97`; the driver is compiled

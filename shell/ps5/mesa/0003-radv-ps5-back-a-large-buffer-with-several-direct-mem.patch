@@ -1,0 +1,236 @@
+From 5f24da9a3d94f52f60869908649ce57a255c4ea2 Mon Sep 17 00:00:00 2001
+From: Mihawk <163614687+mihawk-99@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 06:07:51 -0400
+Subject: [PATCH 1/2] radv/ps5: back a large buffer with several direct-memory
+ ranges when no single one is free
+
+Every device-memory buffer was one direct-memory allocation, so a large one
+needed one free range of its size. The pool the CPU and the GPU share ends up
+in many free ranges when a title gives memory back as it goes, and a title
+failed to allocate a 341 MiB image while 1.4 GiB of the pool was free (in 177
+ranges).
+
+When the single allocation fails, a buffer above 2 MiB in the device-memory
+region is backed by several 2 MiB-aligned allocations, each mapped at its
+place in the buffer's granules: one range for the CPU and the GPU, the same
+page tables (one per 2 MiB either way). Freeing, mapping a buffer at another
+address and sparse binding walk its pieces. Window buffers keep one
+allocation.
+
+(cherry picked from commit 53cc83ff82b43deeb9d207bc0e359102a47320f9)
+
+One conflict with Crux2's patches resolved by hand: the failure crumb is
+kept after the chunked fallback.
+
+Generated-by: LLM
+
+---
+ src/amd/vulkan/winsys/ps5/radv_ps5_platform.c | 126 ++++++++++++++++++
+ src/amd/vulkan/winsys/ps5/radv_ps5_platform.h |  14 +-
+ 2 files changed, 139 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
+index 5725b684fbb..54c807446f8 100644
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.c
+@@ -294,6 +294,8 @@ radv_ps5_memory_available_bytes(void)
+    return available;
+ }
+ 
++static bool radv_ps5_memory_alloc_chunked(uint64_t bytes, uint64_t alignment, struct radv_ps5_memory *out);
++
+ bool
+ radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct radv_ps5_memory *out)
+ {
+@@ -307,6 +309,8 @@ radv_ps5_memory_alloc(uint64_t bytes, uint64_t alignment, bool window32, struct
+    int64_t physical = -1;
+    if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), bytes, alignment,
+                                      RADV_PS5_DIRECT_TYPE, &physical) != 0) {
++      if (!window32 && bytes > RADV_PS5_LARGE_BYTES && radv_ps5_memory_alloc_chunked(bytes, alignment, out))
++         return true;
+       PS5_CRUMB("memory: sceKernelAllocateDirectMemory FAILED");
+       return false;
+    }
+@@ -540,6 +544,87 @@ radv_ps5_map_fixed(uint8_t *at, uint64_t bytes, int64_t physical)
+           address == at;
+ }
+ 
++/* A device-memory buffer the pool has no single free range for is backed by
++ * several, each 2 MiB aligned and mapped at its place in the buffer's
++ * granules: the CPU and the GPU see one range, as they do one allocation, and
++ * pay the same page tables (one per 2 MiB either way). The pool the CPU and
++ * the GPU share ends up in many free ranges when a title gives memory back as
++ * it goes, and an image of 341 MiB found none large enough while 1.4 GiB of
++ * the pool was free. */
++#define RADV_PS5_MAX_CHUNKS 256u
++
++static void
++radv_ps5_chunks_release(uint8_t *base, struct radv_ps5_chunk *chunks, uint32_t count)
++{
++   for (uint32_t i = 0; i < count; i++) {
++      sceKernelMunmap(base + chunks[i].offset, chunks[i].bytes);
++      sceKernelReleaseDirectMemory(chunks[i].physical, chunks[i].bytes);
++   }
++   free(chunks);
++}
++
++static bool
++radv_ps5_memory_alloc_chunked(uint64_t bytes, uint64_t alignment, struct radv_ps5_memory *out)
++{
++   bytes = align64(bytes, RADV_PS5_LARGE_BYTES);
++   const uint32_t granules = (uint32_t)(bytes / RADV_PS5_LARGE_BYTES);
++   const uint32_t granule =
++      radv_ps5_granules_take(&radv_ps5_region, granules, (uint32_t)MAX2(alignment / RADV_PS5_LARGE_BYTES, 1));
++   if (granule == UINT32_MAX)
++      return false;
++   uint8_t *const base = (uint8_t *)(uintptr_t)(RADV_PS5_REGION_BASE + (uint64_t)granule * RADV_PS5_LARGE_BYTES);
++   struct radv_ps5_chunk *chunks = calloc(RADV_PS5_MAX_CHUNKS, sizeof(*chunks));
++   if ((uint64_t)(uintptr_t)base + bytes > RADV_PS5_GPU_ADDRESS_LIMIT || !chunks) {
++      free(chunks);
++      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
++      return false;
++   }
++
++   const int64_t pool = sceKernelGetDirectMemorySize();
++   uint32_t count = 0, misses = 0;
++   uint64_t offset = 0;
++   while (offset < bytes && count < RADV_PS5_MAX_CHUNKS && misses < 4) {
++      /* The largest free range now; another thread may take it first. */
++      int64_t start = -1;
++      size_t largest = 0;
++      if (sceKernelAvailableDirectMemorySize(0, pool, RADV_PS5_LARGE_BYTES, &start, &largest) != 0)
++         break;
++      const uint64_t take = MIN2(bytes - offset, (uint64_t)largest & ~(RADV_PS5_LARGE_BYTES - 1));
++      if (take == 0)
++         break;
++      int64_t physical = -1;
++      if (sceKernelAllocateDirectMemory(0, pool, take, RADV_PS5_LARGE_BYTES, RADV_PS5_DIRECT_TYPE, &physical) != 0) {
++         misses++;
++         continue;
++      }
++      if (!radv_ps5_map_fixed(base + offset, take, physical)) {
++         sceKernelReleaseDirectMemory(physical, take);
++         break;
++      }
++      chunks[count++] = (struct radv_ps5_chunk){.physical = physical, .offset = offset, .bytes = take};
++      offset += take;
++   }
++   if (offset < bytes) {
++      radv_ps5_chunks_release(base, chunks, count);
++      radv_ps5_granules_give(&radv_ps5_region, granule, granules);
++      return false;
++   }
++
++   static uint32_t reported;
++   if (p_atomic_inc_return(&reported) <= 16)
++      fprintf(stderr, "radv/ps5: %" PRIu64 " MiB in %u pieces (no single free range)\n", bytes >> 20, count);
++   *out = (struct radv_ps5_memory){
++      .cpu = base,
++      .bytes = bytes,
++      .physical = -1,
++      .chunks = chunks,
++      .chunk_count = count,
++      .granule = granule,
++      .granules = granules,
++   };
++   return true;
++}
++
+ bool
+ radv_ps5_vrange_unbind(void *at, uint64_t bytes)
+ {
+@@ -558,6 +643,24 @@ radv_ps5_vrange_unbind(void *at, uint64_t bytes)
+ bool
+ radv_ps5_vrange_bind(void *at, uint64_t bytes, const struct radv_ps5_memory *memory, uint64_t offset)
+ {
++   if (memory->chunks) {
++      /* Each chunk the range covers, in its own piece. */
++      if (offset > memory->bytes || bytes > memory->bytes - offset || (uintptr_t)at % RADV_PS5_PAGE_BYTES ||
++          offset % RADV_PS5_PAGE_BYTES || bytes % RADV_PS5_PAGE_BYTES)
++         return false;
++      uint64_t done = 0;
++      for (uint32_t i = 0; i < memory->chunk_count && done < bytes; i++) {
++         const struct radv_ps5_chunk *chunk = &memory->chunks[i];
++         const uint64_t from = offset + done;
++         if (from < chunk->offset || from >= chunk->offset + chunk->bytes)
++            continue;
++         const uint64_t piece = MIN2(bytes - done, chunk->offset + chunk->bytes - from);
++         if (!radv_ps5_map_fixed((uint8_t *)at + done, piece, chunk->physical + (int64_t)(from - chunk->offset)))
++            return false;
++         done += piece;
++      }
++      return done == bytes;
++   }
+    if (memory->physical < 0 || offset > memory->bytes || bytes > memory->bytes - offset ||
+        (uintptr_t)at % RADV_PS5_PAGE_BYTES || offset % RADV_PS5_PAGE_BYTES || bytes % RADV_PS5_PAGE_BYTES)
+       return false;
+@@ -652,6 +755,12 @@ radv_ps5_memory_free(struct radv_ps5_memory *memory)
+       *memory = (struct radv_ps5_memory){.physical = -1};
+       return;
+    }
++   if (memory->chunks) {
++      radv_ps5_chunks_release(memory->cpu, memory->chunks, memory->chunk_count);
++      radv_ps5_granules_give(&radv_ps5_region, memory->granule, memory->granules);
++      *memory = (struct radv_ps5_memory){.physical = -1};
++      return;
++   }
+    const int32_t unmapped = sceKernelMunmap(memory->cpu, memory->bytes);
+    if (unmapped != 0)
+       fprintf(stderr, "radv/ps5: sceKernelMunmap(%p, %" PRIu64 ") failed: 0x%08x\n", (void *)memory->cpu,
+@@ -754,6 +863,23 @@ radv_ps5_set_hs_offchip_param(uint32_t granularity, uint32_t buffering)
+ bool
+ radv_ps5_memory_map_at(const struct radv_ps5_memory *memory, void *address)
+ {
++   if (memory->chunks) {
++      for (uint32_t i = 0; i < memory->chunk_count; i++) {
++         void *want = (uint8_t *)address + memory->chunks[i].offset;
++         void *at = want;
++         const int32_t result =
++            sceKernelMapDirectMemory(&at, memory->chunks[i].bytes, PS5_KERNEL_PROT_CPU_READ | PS5_KERNEL_PROT_CPU_WRITE,
++                                     PS5_KERNEL_MAP_FIXED, memory->chunks[i].physical, PS5_KERNEL_PAGE_SIZE);
++         if (result != 0 || at != want) {
++            if (result == 0)
++               sceKernelMunmap(at, memory->chunks[i].bytes);
++            if (i)
++               sceKernelMunmap(address, memory->chunks[i].offset);
++            return false;
++         }
++      }
++      return true;
++   }
+    if (memory->physical < 0)
+       return false;
+    void *at = address;
+diff --git a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
+index 68bdeb35a7c..70b718ec91f 100644
+--- a/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
++++ b/src/amd/vulkan/winsys/ps5/radv_ps5_platform.h
+@@ -37,12 +37,24 @@
+ #define RADV_PS5_PAGE_BYTES UINT64_C(0x4000)
+ #define RADV_PS5_LARGE_BYTES UINT64_C(0x200000)
+ 
++/* One of the direct-memory allocations behind a buffer the pool had no single
++ * free range for (radv_ps5_memory_alloc). */
++struct radv_ps5_chunk {
++   int64_t physical;
++   uint64_t offset;
++   uint64_t bytes;
++};
++
+ struct radv_ps5_memory {
+    /* The CPU mapping, which is also the GPU address. */
+    uint8_t *cpu;
+    uint64_t bytes;
+-   /* The direct-memory allocation behind it; -1 on the host. */
++   /* The direct-memory allocation behind it; -1 on the host, and when chunks
++    * back it instead. */
+    int64_t physical;
++   /* Several allocations, each mapped at its offset, when one would not fit. */
++   struct radv_ps5_chunk *chunks;
++   uint32_t chunk_count;
+    /* The device-memory region granules the mapping took, if any, or the
+     * window's replay range's (window_replay). */
+    uint32_t granule;
+-- 
+2.43.0
+
