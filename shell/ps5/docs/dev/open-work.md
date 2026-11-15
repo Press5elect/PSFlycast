@@ -5,7 +5,7 @@ what no longer applies.
 
 ## Not run on a console
 
-Builds 94 to 98 (v1.3.5 to v1.3.9) have not been run on a console. What each needs checking:
+Builds 94 to 99 (v1.3.5 to v1.3.9) have not been run on a console. What each needs checking:
 
 | Build | What to look at |
 | --- | --- |
@@ -13,7 +13,7 @@ Builds 94 to 98 (v1.3.5 to v1.3.9) have not been run on a console. What each nee
 | 95, v1.3.6 | the elevation helper's counted root references (protocol 2); the boot log ring; finding servers |
 | 96, v1.3.7 | 4 MiB network buffers (a share's speed); driver patches 0003 and 0004; payload SDK `e105cf6` |
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
-| 98, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line |
+| 98 and 99, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line |
 
 ## PlayStation Move (v1.3.9, build 99)
 
