@@ -900,6 +900,16 @@ at the TV's next fixed step. Turn it on, start PSFlyCast again, and look at
 Settings > About > Display: it says "variable refresh" when the console
 allowed it. If the picture stutters more than before, turn it off.
 
+**Down-sampling and SMAA** (Settings > Video; from OGBox). When the internal
+resolution is higher than the screen, **Down-sampling** says how the picture is
+brought down to it: **Bilinear** (as before) takes four of its pixels for each
+screen pixel and lets fine detail flicker; **Soft (SSAA)** averages every pixel a
+screen pixel covers; **Sharp (SSAA, Lanczos)** keeps edges crisper, with a
+slight halo. **SMAA** (off) smooths the jagged edges the game leaves, at the size
+the picture is shown, after the down-sampling, or before it is upscaled when the
+picture is smaller than the screen. Both change at once. Not tested on a
+console yet.
+
 **HDR** (Settings > Video, off by default; from OGBox). The picture goes to an
 HDR TV as HDR10 (BT.2020 colours, the PQ curve). **HDR white level** is how
 bright white is, the menus' and the picture's (203 nits, HDR's reference, by

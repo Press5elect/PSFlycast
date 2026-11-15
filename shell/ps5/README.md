@@ -74,6 +74,9 @@ Added:
   side goes to the other; one changed on both keeps the newer, and the other
   is put in an "older" folder on its side. In place of the one-way backup, in
   the same folder.
+- **SSAA and SMAA** (Settings > Video, from OGBox): Down-sampling (Bilinear,
+  Soft or Sharp with Lanczos) for an internal resolution above the screen's,
+  and SMAA over the picture.
 - **PlayStation Move and Navigation controllers** (Settings > Controls,
   off; experimental), through Move Management, a separate payload by
   REXCRAFT88: each player's are a controller of their own, and in a

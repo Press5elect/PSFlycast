@@ -151,6 +151,7 @@ static void CheckImGuiResult(VkResult err)
 #include "ps5_border.h"
 #include "ps5_framegen.h"
 #include "ps5_hdr.h"
+#include "ps5_aa.h"
 #include <cerrno>
 #define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
 
@@ -964,6 +965,7 @@ void VulkanContext::CreateSwapChain()
 #ifdef USE_PS5
 		ps5::fsr::reset();
 		ps5::hdr::reset();
+		ps5::aa::reset();
 		ps5::border::reset();
 		ps5::framegen::reset();
 		ps5display::reset();
@@ -1699,6 +1701,7 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 			// What this present shows: the game's picture, or with frame
 			// generation one made between the last and this (ps5_framegen.cpp).
 			vk::ImageView shown = imageView;
+			vk::Extent2D shownExtent = extent;
 			if (lastFrameView)
 			{
 				if (image)
@@ -1712,21 +1715,25 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 						generatedSlots);
 				if (!gui_is_open())
 					ps5::perf::present((bool)image, shown != imageView);
-				// FSR upscales the picture in a render pass of its own, before this one.
+				// FSR upscales the picture in a render pass of its own, before this one; SSAA's
+				// down-sampling and SMAA first (ps5_aa.cpp), which hand on a picture of their own.
 				int dx = 0, dy = 0;
 				getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
-				ps5::fsr::upscale(GetCurrentCommandBuffer(), (bool)image || shown != imageView, shown, extent,
-						vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
+				const vk::Rect2D region(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2));
+				const bool fresh = (bool)image || shown != imageView;
+				shown = ps5::aa::apply(GetCurrentCommandBuffer(), fresh, shown, shownExtent, region);
+				ps5::fsr::upscale(GetCurrentCommandBuffer(), fresh, shown, shownExtent, region);
 				if (dx > 0 || dy > 0)
-					ps5::border::prepare(GetCurrentCommandBuffer(), (bool)image, shown, extent);
+					ps5::border::prepare(GetCurrentCommandBuffer(), (bool)image, shown, shownExtent);
 			}
 #else
 			const vk::ImageView shown = imageView;
+			const vk::Extent2D shownExtent = extent;
 #endif
 			BeginRenderPass();
 
 			if (lastFrameView) // Might have been nullified if swap chain recreated
-				DrawFrame(shown, extent, aspectRatio);
+				DrawFrame(shown, shownExtent, aspectRatio);
 
 			BeginMenusLayer();
 			DrawOverlay(settings.display.uiScale, config::FloatVMUs, true);
@@ -1752,6 +1759,7 @@ void VulkanContext::ReleaseGameResources()
 	lastFrameView = nullptr;
 	ps5::fsr::reset();
 	ps5::hdr::reset();
+	ps5::aa::reset();
 	ps5::border::reset();
 	ps5::framegen::reset();
 	// The memory line once every image has been through a frame again.
@@ -1787,6 +1795,7 @@ void VulkanContext::term()
 #ifdef USE_PS5
 	ps5::fsr::reset();
 	ps5::hdr::reset();
+	ps5::aa::reset();
 	ps5::border::reset();
 	ps5::framegen::reset();
 #endif

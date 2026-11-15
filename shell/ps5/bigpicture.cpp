@@ -40,6 +40,7 @@
 #include "ps5_vmu.h"
 #include "ps5_card_sync.h"
 #include "ps5_hdr.h"
+#include "ps5_aa.h"
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
@@ -6711,6 +6712,17 @@ std::vector<Category> buildCategories()
 				"Show each frame as soon as it is ready, on a VRR display with 120 Hz output. Takes effect the next time PSFlyCast starts. Experimental." };
 		r.get = [] { return ps5::options().vrr ? 1 : 0; };
 		r.set = [](int v) { ps5::options().vrr = v != 0; ps5::saveOptions(); };
+		video.rows.push_back(r);
+	}
+	// SSAA's down-sampling and SMAA (ps5_aa.h, from OGBox). Change at once.
+	video.rows.push_back(choice("Down-sampling",
+			"When the internal resolution is higher than the screen: Bilinear takes four of the picture's pixels for each screen pixel and lets the rest flicker; Soft (SSAA) averages every pixel a screen pixel covers, the smoothest; Sharp (SSAA with Lanczos) keeps edges crisper, with a slight halo. Fine patterns that the screen cannot show are smoothed rather than left to shimmer.",
+			{ "Bilinear", "Soft (SSAA)", "Sharp (SSAA, Lanczos)" }, { 0, 1, 2 }, ps5::aa::Downsampling));
+	{
+		Row r{ Row::Toggle, "SMAA",
+				"Smooth the jagged edges the game leaves (SMAA 1x), at the size the picture is shown, after the down-sampling; on a picture smaller than the screen, before it is upscaled. Costs a little GPU time; not tested on a console yet." };
+		r.get = [] { return ps5::aa::Smaa ? 1 : 0; };
+		r.set = [](int v) { ps5::aa::Smaa.set(v != 0); };
 		video.rows.push_back(r);
 	}
 	// HDR output (ps5_hdr.h, from OGBox). Changes at once.

@@ -13,7 +13,7 @@
    "id": "psflycast",
    "name": "PSFlyCast (this port: the PS5 platform code, the interface, the build and release scripts)",
    "kind": "code",
-   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline or from Crux2 (by Press5elect, the same author: shell/ps5/ps5_clock.c, ps5_timing.*, ps5_priority.*, ps5_videoout.*, ps5_thread_layout.*, ps5_card_sync.* and tests/cardsync, which keep Crux2's attribution; and from OGBox, by the same author: ps5_hdr.* and tests/hdr, which keep OGBox's attribution)",
+   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline or from Crux2 (by Press5elect, the same author: shell/ps5/ps5_clock.c, ps5_timing.*, ps5_priority.*, ps5_videoout.*, ps5_thread_layout.*, ps5_card_sync.* and tests/cardsync, which keep Crux2's attribution; and from OGBox, by the same author: ps5_hdr.*, ps5_aa.* and tests/hdr, which keep OGBox's attribution)",
    "copyright": [
     "Copyright 2026 Press5elect and the PSFlyCast contributors",
     "Copyright (C) 2026 BlackBearReloaded and Mihawk (the title's start-up and link layout, shell/ps5/runtime)"
@@ -1224,6 +1224,28 @@
     "kind": "in-tree"
    },
    "modifications": "Unmodified: github.com/REXCRAFT88/Move-Management-PS5 at 4d8851b6809756906a9c029ba11baaecda7ceb49, its integrations/move_management_client.hpp and aim_screen_profile.hpp, in shell/ps5/third_party/move_management. Move Management itself is a separate payload and is not included.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
+   "id": "smaa",
+   "name": "SMAA (Enhanced Subpixel Morphological Antialiasing): SMAA.hlsl and its area and search tables",
+   "kind": "code",
+   "licence": "MIT",
+   "copyright": [
+    "Copyright (C) 2013 Jorge Jimenez, Jose I. Echevarria, Belen Masia, Fernando Navarro, Diego Gutierrez"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/third_party/smaa/LICENSE.txt",
+     "to": "SMAA-LICENSE.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: SMAA.hlsl (github.com/iryoku/smaa, as OGBox carries it, wrapped as a C++ string in third_party/smaa/SMAA.hlsl.inc) and AreaTex.h and SearchTex.h, widened to RGBA when uploaded; the three passes' entry points are OGBox's (shell/ps5/ps5_aa.cpp).",
    "files": [
     "eboot.bin"
    ]
