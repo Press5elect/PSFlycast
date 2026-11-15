@@ -108,6 +108,12 @@ Changed:
   console's processor time limit; the console ending PSFlyCast is one line in
   the log, not a crash.
 
+Fixed:
+
+- **The picture out of shape with FSR** when Beside the picture is on and the
+  picture is already the size of its place (4.5x on a 4K screen): it was drawn
+  with the bars' settings. FSR there now also keeps Film grain and the colours.
+
 ## New in v1.3.8
 
 Added:
