@@ -1,5 +1,6 @@
 build/
 build-ps5/
+build-pc-tests/
 artifact/
 
 # macOS

@@ -1,0 +1,31 @@
+# PSFlyCast: the PC tests of the PS5 port's own code (shell/ps5/tests/run-pc-tests.sh), with both
+# compilers: clang passes code that g++ under -Werror refuses (OGBox's lesson).
+name: PS5 port PC tests
+
+on:
+  push:
+    paths:
+      - 'shell/ps5/**'
+      - '.github/workflows/ps5-pc-tests.yml'
+  pull_request:
+    paths:
+      - 'shell/ps5/**'
+      - '.github/workflows/ps5-pc-tests.yml'
+
+jobs:
+  pc-tests:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools (lavapipe, the validation layer, glslang)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers glslang-tools clang
+      - name: The tests
+        env:
+          CXX: ${{ matrix.cxx }}
+        run: bash shell/ps5/tests/run-pc-tests.sh "$RUNNER_TEMP/pc-tests"
