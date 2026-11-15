@@ -223,6 +223,19 @@ extern config::Option<bool> CardBackup;
 std::string backupFolder();
 // Writes one file there (the folders are made); false with the reason.
 bool putFile(const std::string& folder, const std::string& name, const void *data, size_t size, std::string& why);
+// Whole files on a share, for the memory cards kept in sync (ps5_card_sync.h). Each is false with
+// the reason when the share does not answer or refuses.
+// The files (not folders) in a folder.
+bool listFiles(const std::string& folder, std::vector<std::string>& names, std::string& why);
+// Whether a file is there, its size and its time (Unix seconds); true when the share answered,
+// whether or not the file is there.
+bool fileInfo(const std::string& path, bool& exists, u64& size, s64& mtime, std::string& why);
+// A whole file, up to limit bytes.
+bool getFile(const std::string& path, std::vector<uint8_t>& data, size_t limit, std::string& why);
+// One file written whole or not at all: beside it first, then put in its place.
+bool storeFile(const std::string& folder, const std::string& name, const void *data, size_t size, std::string& why);
+// A folder and the ones above it.
+bool makeFolder(const std::string& folder, std::string& why);
 
 // What the share is doing, for the screen: "Waiting for the network share
 // (12 s)" while a request has had no answer for a while (a NAS waking its

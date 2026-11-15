@@ -1406,6 +1406,151 @@ bool putFile(const std::string& folder, const std::string& name, const void *dat
 	return false;
 }
 
+// ---- whole files on a share, for the memory cards kept in sync (ps5_card_sync.h)
+//
+// Each runs under the share's lock and asks once more on a new connection when the old one is
+// what failed (Share::lost), as putFile does.
+
+namespace
+{
+// One request with the share's lock held, made again once on a new connection.
+template<typename F>
+bool onShare(const std::string& path, std::string& why, F&& run)
+{
+	std::string relative;
+	Share *share = locate(path, relative);
+	if (share == nullptr)
+	{
+		why = "not a network folder";
+		return false;
+	}
+	std::lock_guard<std::recursive_mutex> lock(share->mutex);
+	Busy busy;
+	for (int attempt = 0; attempt < 2; attempt++)
+	{
+		if (!share->connect())
+		{
+			why = "the share does not answer";
+			return false;
+		}
+		const long long started = nowMs();
+		if (run(share->context, relative))
+			return true;
+		why = stripped(smb2_get_error(share->context));
+		if (!share->lost(started))
+			return false;
+	}
+	return false;
+}
+} // namespace
+
+bool listFiles(const std::string& folder, std::vector<std::string>& names, std::string& why)
+{
+	return onShare(folder, why, [&](smb2_context *c, const std::string& relative) {
+		names.clear();
+		smb2dir *dir = smb2_opendir(c, relative.c_str());
+		if (dir == nullptr)
+			return false;
+		while (smb2dirent *entry = smb2_readdir(c, dir))
+			if (entry->st.smb2_type == SMB2_TYPE_FILE && entry->name != nullptr)
+				names.push_back(entry->name);
+		smb2_closedir(c, dir);
+		return true;
+	});
+}
+
+bool fileInfo(const std::string& path, bool& exists, u64& size, s64& mtime, std::string& why)
+{
+	exists = false;
+	size = 0;
+	mtime = 0;
+	// A file that is not there is an answer, not a failure: the share is asked for its root
+	// then (Share::lost), and only a share that does not answer fails.
+	bool answered = false;
+	const bool ok = onShare(path, why, [&](smb2_context *c, const std::string& relative) {
+		smb2_stat_64 st{};
+		if (smb2_stat(c, relative.c_str(), &st) == 0)
+		{
+			exists = st.smb2_type == SMB2_TYPE_FILE;
+			size = st.smb2_size;
+			mtime = (s64)st.smb2_mtime;
+			return true;
+		}
+		answered = true;
+		return false;
+	});
+	return ok || (answered && why != "the share does not answer");
+}
+
+bool getFile(const std::string& path, std::vector<uint8_t>& data, size_t limit, std::string& why)
+{
+	return onShare(path, why, [&](smb2_context *c, const std::string& relative) {
+		data.clear();
+		smb2fh *handle = smb2_open(c, relative.c_str(), O_RDONLY);
+		if (handle == nullptr)
+			return false;
+		const uint32_t chunk = std::max<uint32_t>(4096, std::min<uint32_t>(smb2_get_max_read_size(c), 1u << 20));
+		std::vector<uint8_t> piece(chunk);
+		bool ok = true;
+		for (;;)
+		{
+			const int got = smb2_pread(c, handle, piece.data(), chunk, data.size());
+			if (got < 0)
+			{
+				ok = false;
+				break;
+			}
+			if (got == 0)
+				break;
+			data.insert(data.end(), piece.begin(), piece.begin() + got);
+			if (data.size() > limit)
+			{
+				ok = false;
+				break;
+			}
+		}
+		smb2_close(c, handle);
+		return ok;
+	});
+}
+
+bool storeFile(const std::string& folder, const std::string& name, const void *data, size_t size, std::string& why)
+{
+	// Written beside it first, then put in its place: a cut-off write leaves the old file or
+	// none, never half a card. (libsmb2's rename does not replace a file, so the old one is
+	// removed just before.)
+	const std::string part = name + ".part";
+	if (!putFile(folder, part, data, size, why))
+		return false;
+	return onShare(folder, why, [&](smb2_context *c, const std::string& relative) {
+		const std::string base = relative.empty() ? "" : relative + "/";
+		smb2_unlink(c, (base + name).c_str());
+		return smb2_rename(c, (base + part).c_str(), (base + name).c_str()) == 0;
+	});
+}
+
+bool makeFolder(const std::string& folder, std::string& why)
+{
+	return onShare(folder, why, [&](smb2_context *c, const std::string& relative) {
+		std::string made;
+		size_t at = 0;
+		while (at <= relative.size() && !relative.empty())
+		{
+			size_t slash = relative.find('/', at);
+			if (slash == std::string::npos)
+				slash = relative.size();
+			made = relative.substr(0, slash);
+			smb2_stat_64 st{};
+			if (smb2_stat(c, made.c_str(), &st) != 0 && smb2_mkdir(c, made.c_str()) != 0)
+				return false;
+			at = slash + 1;
+			if (slash == relative.size())
+				break;
+		}
+		return true;
+	});
+}
+
 void retryNow()
 {
 	std::lock_guard<std::mutex> lock(sharesMutex);

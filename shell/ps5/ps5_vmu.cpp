@@ -1136,6 +1136,14 @@ std::string sharedCardPath(const std::string& folder, int port, int slot)
 	return join(folder, say("vmu_save_%c%d.bin", 'A' + port, slot + 1));
 }
 
+bool isCardFile(const std::string& name)
+{
+	Card probe;
+	probe.fileName = name;
+	nameCard(probe);
+	return probe.port >= 0;
+}
+
 std::vector<Card> cards(const std::string& folder)
 {
 	std::vector<Card> found;

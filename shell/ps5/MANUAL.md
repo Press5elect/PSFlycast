@@ -958,13 +958,26 @@ and is read as it runs.
 A NAS that is waking up gets a minute to answer; the screen shows how long it
 has waited, and Circle cancels.
 
-### Memory card backup on the share
+### Memory cards kept in sync with the share
 
-With a share in `network.cfg`, Settings > System > **Back up memory cards to
-the network share** (on by default) copies the cards that changed to
-`PSFlyCast/Memory cards` on the first share, each time you quit a game.
-**Back up memory cards now** does it at once. The share needs write access,
-and a failure is said on the screen. Not tested on a console yet.
+With a share in `network.cfg`, Settings > System > **Keep memory cards in sync
+with the network share** (on by default) makes the cards here and in
+`PSFlyCast/Memory cards` on the first share the same, both ways, when
+PSFlyCast starts and each time you quit a game (Crux2's sync):
+
+- a card on one side only is copied to the other (a card is never deleted:
+  one deleted on one side comes back from the other);
+- a card changed on one side since the last sync goes to the other;
+- a card changed on both keeps the newer on both, and the other is put in an
+  "older" folder on its side first: `data/older memory cards` here, `.older`
+  on the share, named with the moment it was put aside.
+
+Another console syncing with the same share gets the same cards. "Newer" is
+by the files' times: the console's clock here, the share's own there. Nothing
+is brought onto the console while a game is loaded. **Sync memory cards now**
+does it at once. The share needs write access; a card that could not be
+copied is said on the screen, a share that does not answer in Settings and
+the boot log. Not tested on a console yet.
 
 ## 19. Games on a USB drive
 

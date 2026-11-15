@@ -13,7 +13,7 @@
    "id": "psflycast",
    "name": "PSFlyCast (this port: the PS5 platform code, the interface, the build and release scripts)",
    "kind": "code",
-   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline or from Crux2 (by Press5elect, the same author: shell/ps5/ps5_clock.c, ps5_timing.*, ps5_priority.*, ps5_videoout.*, ps5_thread_layout.*, which keep Crux2's attribution)",
+   "licence": "GPL-3.0 as a whole (the combined title); its own files are GPL-2.0-or-later, and GPL-3.0-or-later where they come from the PS5 title pipeline or from Crux2 (by Press5elect, the same author: shell/ps5/ps5_clock.c, ps5_timing.*, ps5_priority.*, ps5_videoout.*, ps5_thread_layout.*, ps5_card_sync.* and tests/cardsync, which keep Crux2's attribution)",
    "copyright": [
     "Copyright 2026 Press5elect and the PSFlyCast contributors",
     "Copyright (C) 2026 BlackBearReloaded and Mihawk (the title's start-up and link layout, shell/ps5/runtime)"

@@ -461,18 +461,23 @@ void openCards()
 	readCards();
 }
 
-// ---- the memory cards, copied to the network share
+// ---- the memory cards, kept the same on the console and on the network share
 //
-// When a game is quit (and from the Settings), every card file that changed
-// since it was last sent goes to the share of the first games folder in
-// network.cfg: PSFlyCast/Memory cards. On a thread of its own, one at a time.
+// Crux2's sync (ps5_card_sync.h, Crux2 by Press5elect), both ways, with PSFlyCast/Memory cards on
+// the share of the first games folder in network.cfg (where earlier versions' one-way backups
+// went): a card on one side only is copied to the other; one changed on one side since the last
+// sync goes to the other; one changed on both keeps the newer on both and puts the other in the
+// "older" folder of its side first (data/older memory cards here, .older there). What each side
+// was after the last sync is kept in data/memory-cards-sync.txt. When PSFlyCast starts, when a
+// game is quit, and from Settings; on a thread of its own. Nothing is brought here while a game is
+// loaded: a game that starts stops it first (stopCardSync).
 struct CardBackup
 {
 	std::mutex mutex;
 	std::thread thread;
 	std::atomic<bool> running{ false };
-	std::map<std::string, unsigned long long> sent;		// path -> a hash of the content last sent
-	std::string result;									// the last run, for the Settings
+	std::atomic<bool> stop{ false };		// a game is starting: no more changes here
+	std::string result;						// the last run, for the Settings
 };
 
 CardBackup& cardBackup()
@@ -486,11 +491,148 @@ std::string cardBackupResult()
 	CardBackup& b = cardBackup();
 	std::lock_guard<std::mutex> lock(b.mutex);
 	if (b.running)
-		return "Copying...";
+		return "Syncing...";
 	return b.result.empty() ? "Not yet" : b.result;
 }
 
-// manual: said on the screen when done, also when nothing needed sending.
+// A game is about to open its cards: a sync under way stops before its next change here, and
+// this waits for the one it is making. (In the file's unnamed namespace, where launch() is.)
+namespace
+{
+void stopCardSync()
+{
+	CardBackup& b = cardBackup();
+	if (!b.running)
+		return;
+	b.stop = true;
+	if (b.thread.joinable())
+		b.thread.join();
+}
+} // namespace
+
+namespace cardsync
+{
+// The file access for both sides: smb:// paths are the share's, the rest the console's.
+PS5CardSync::Io io(const CardBackup& b)
+{
+	using PS5CardSync::FileInfo;
+	PS5CardSync::Io io;
+	auto split = [](const std::string& path, std::string& folder, std::string& name) {
+		const size_t slash = path.find_last_of('/');
+		folder = slash == std::string::npos ? "" : path.substr(0, slash);
+		name = slash == std::string::npos ? path : path.substr(slash + 1);
+	};
+	io.list = [](const std::string& folder, std::vector<std::string> *names) {
+		names->clear();
+		if (ps5::smb::isNetworkPath(folder))
+		{
+			std::string why;
+			return ps5::smb::listFiles(folder, *names, why);
+		}
+		DIR *dir = opendir(folder.c_str());
+		if (dir == nullptr)
+			return false;
+		while (dirent *entry = readdir(dir))
+		{
+			struct stat st;
+			const std::string name = entry->d_name;
+			if (stat((folder + "/" + name).c_str(), &st) == 0 && S_ISREG(st.st_mode))
+				names->push_back(name);
+		}
+		closedir(dir);
+		return true;
+	};
+	io.stat = [](const std::string& path) {
+		FileInfo info;
+		if (ps5::smb::isNetworkPath(path))
+		{
+			bool exists = false;
+			u64 size = 0;
+			s64 mtime = 0;
+			std::string why;
+			if (ps5::smb::fileInfo(path, exists, size, mtime, why))
+				info = FileInfo{ exists, size, mtime };
+			return info;
+		}
+		struct stat st;
+		if (::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode))
+			info = FileInfo{ true, (uint64_t)st.st_size, (int64_t)st.st_mtime };
+		return info;
+	};
+	io.read = [](const std::string& path, std::string *data) {
+		data->clear();
+		if (ps5::smb::isNetworkPath(path))
+		{
+			std::vector<uint8_t> bytes;
+			std::string why;
+			if (!ps5::smb::getFile(path, bytes, 1u << 20, why))
+				return false;
+			data->assign(bytes.begin(), bytes.end());
+			return true;
+		}
+		FILE *f = fopen(path.c_str(), "rb");
+		if (f == nullptr)
+			return false;
+		char chunk[64 * 1024];
+		size_t n;
+		while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0 && data->size() <= (1u << 20))
+			data->append(chunk, n);
+		const bool ok = !ferror(f) && data->size() <= (1u << 20);
+		fclose(f);
+		return ok;
+	};
+	io.write = [split](const std::string& path, const std::string& data) {
+		std::string folder, name;
+		split(path, folder, name);
+		if (ps5::smb::isNetworkPath(path))
+		{
+			std::string why;
+			return ps5::smb::storeFile(folder, name, data.data(), data.size(), why);
+		}
+		// Beside it, then in its place: a cut-off write leaves the card as it was.
+		const std::string part = path + ".part";
+		FILE *f = fopen(part.c_str(), "wb");
+		if (f == nullptr)
+			return false;
+		const bool written = fwrite(data.data(), 1, data.size(), f) == data.size();
+		if (fclose(f) != 0 || !written || rename(part.c_str(), path.c_str()) != 0)
+		{
+			unlink(part.c_str());
+			return false;
+		}
+		chmod(path.c_str(), 0666);
+		return true;
+	};
+	io.make_folder = [](const std::string& folder) {
+		if (ps5::smb::isNetworkPath(folder))
+		{
+			std::string why;
+			return ps5::smb::makeFolder(folder, why);
+		}
+		mkdir(folder.c_str(), 0777);
+		return true;
+	};
+	io.stop = [&b] { return b.stop.load(); };
+	io.is_card = [](const std::string& name) { return vmu::isCardFile(name); };
+	return io;
+}
+
+std::string readText(const std::string& file)
+{
+	std::string text;
+	FILE *f = fopen(file.c_str(), "rb");
+	if (f == nullptr)
+		return text;
+	char chunk[16 * 1024];
+	size_t n;
+	while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0)
+		text.append(chunk, n);
+	fclose(f);
+	return text;
+}
+} // namespace cardsync
+
+// manual: said on the screen when done, also when nothing had changed.
 void startCardBackup(bool manual)
 {
 	CardBackup& b = cardBackup();
@@ -498,71 +640,66 @@ void startCardBackup(bool manual)
 	if (target.empty())
 	{
 		if (manual)
-			os_notify("No network share", 4000, "Add a path line to network.cfg: the cards are copied to that share");
+			os_notify("No network share", 4000, "Add a path line to network.cfg: the cards are kept in sync with that share");
 		return;
 	}
+	if (game_started)
+		return;		// the game has its cards open
 	if (b.running.exchange(true))
 		return;
 	if (b.thread.joinable())
 		b.thread.join();
-	const std::string folder = get_writable_data_path("");
+	b.stop = false;
+	std::string folder = get_writable_data_path("");
+	while (!folder.empty() && folder.back() == '/')
+		folder.pop_back();
 	b.thread = std::thread([&b, target, folder, manual] {
-		int copied = 0, failed = 0, same = 0;
-		std::string why;
-		for (const vmu::Card& card : vmu::cards(folder))
+		PS5CardSync::Folders folders;
+		folders.here = folder;
+		folders.there = target;
+		folders.older_here = folder + "/older memory cards";
+		folders.older_there = target + "/.older";
+		const std::string recordsFile = folder + "/memory-cards-sync.txt";
+		const std::string before = cardsync::readText(recordsFile);
+		PS5CardSync::Records records = PS5CardSync::ParseRecords(before);
+		const PS5CardSync::Result result = PS5CardSync::Sync(cardsync::io(b), folders, &records, time(nullptr));
+		// The records only when they changed: a sync that found nothing to do writes nothing here.
+		const std::string after = PS5CardSync::FormatRecords(records);
+		if (result.listed && after != before)
 		{
-			if (!card.exists)
-				continue;
-			FILE *f = fopen(card.path.c_str(), "rb");
-			if (f == nullptr)
-				continue;
-			std::vector<unsigned char> data(vmu::ImageSize);
-			data.resize(fread(data.data(), 1, data.size(), f));
-			fclose(f);
-			if (data.empty())
-				continue;
-			unsigned long long hash = 1469598103934665603ull;
-			for (unsigned char c : data)
-				hash = (hash ^ c) * 1099511628211ull;
+			const std::string part = recordsFile + ".part";
+			if (FILE *f = fopen(part.c_str(), "wb"))
 			{
-				std::lock_guard<std::mutex> lock(b.mutex);
-				const auto at = b.sent.find(card.path);
-				if (at != b.sent.end() && at->second == hash)
-				{
-					same++;
-					continue;
-				}
-			}
-			std::string one;
-			if (ps5::smb::putFile(target, card.fileName, data.data(), data.size(), one))
-			{
-				std::lock_guard<std::mutex> lock(b.mutex);
-				b.sent[card.path] = hash;
-				copied++;
-			}
-			else
-			{
-				failed++;
-				why = one;
-				if (one.find("does not answer") != std::string::npos)
-					break;		// the share is not there: not asked again for each card
+				const bool written = fwrite(after.data(), 1, after.size(), f) == after.size();
+				if (fclose(f) == 0 && written)
+					rename(part.c_str(), recordsFile.c_str());
+				else
+					unlink(part.c_str());
 			}
 		}
+		for (const std::string& line : result.lines)
+			ps5::diag::mark("cards: %s", line.c_str());
+		ps5::diag::mark("cards: sync with %s: %d sent, %d brought here, %d changed on both sides, %d unchanged, %d failed%s%s",
+				target.c_str(), result.sent, result.brought, result.both_changed, result.unchanged, result.failed,
+				result.listed ? "" : " (the share did not answer)", result.stopped ? " (stopped: a game started)" : "");
+		const std::string summary = PS5CardSync::Summary(result, "the network share");
 		{
 			std::lock_guard<std::mutex> lock(b.mutex);
-			if (failed)
-				b.result = "Failed: " + why;
-			else if (copied)
-				b.result = std::to_string(copied) + (copied == 1 ? " card copied" : " cards copied");
+			if (!result.listed)
+				b.result = "The share did not answer";
+			else if (result.failed)
+				b.result = std::to_string(result.failed) + " could not be copied";
+			else if (result.sent || result.brought)
+				b.result = std::to_string(result.sent) + " sent, " + std::to_string(result.brought) + " brought here";
 			else
 				b.result = "Up to date";
 			b.running = false;
 		}
-		if (failed)
-			os_notify("Memory card backup failed", 6000, why.c_str());
-		else if (manual)
-			os_notify(copied ? "Memory cards copied to the network share" : "Memory cards are up to date on the share", 3000);
-		ps5::diag::mark("cards: backup to %s: %d copied, %d unchanged, %d failed %s", target.c_str(), copied, same, failed, why.c_str());
+		// A share that is off is said in the Settings and the log; on the screen only when asked.
+		if ((!result.listed && manual) || result.failed)
+			os_notify("Memory cards not synced", 6000, summary.c_str());
+		else if (manual || result.brought || result.both_changed)
+			os_notify("Memory cards synced", 3000, summary.c_str());
 	});
 }
 

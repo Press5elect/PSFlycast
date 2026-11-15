@@ -152,6 +152,9 @@ struct Result
 // then each game's own card (*_vmu_save_A1.bin) in the order of their names.
 // A card that could not be read is in the list too, with the reason.
 std::vector<Card> cards(const std::string& folder);
+// Whether a file of that name is a card Flycast opens (what cards() lists): for the cards kept in
+// sync with a share, which take no other file there or here.
+bool isCardFile(const std::string& name);
 
 // One image, by its path: as an entry of cards(), also when there is no file
 // (exists is false then), which is how a slot with no card yet is described.

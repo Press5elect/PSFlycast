@@ -38,6 +38,7 @@
 #include "ps5_build.h"
 #include "ps5_rewind.h"
 #include "ps5_vmu.h"
+#include "ps5_card_sync.h"
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
@@ -2406,8 +2407,12 @@ struct DiscSwap
 } discSwap;
 
 // stateSlot: the state the game starts from (0-based), or -1 for a fresh start.
+void stopCardSync();		// bigpicture_cards.inc
+
 void launch(Game& g, bool selectDisk, int stateSlot = -1)
 {
+	// The memory cards' sync makes no change here once the game has them (bigpicture_cards.inc).
+	stopCardSync();
 	ps5::pad::menuBuzz(0.7f, 180);	// the start's buzz (OGBox's, PSWin's)
 	ensureArt(g);
 	loadingPath = g.media.path;
@@ -5740,6 +5745,14 @@ void library(bool selectDisk)
 	}
 	if (splash.state == SplashState::Over)
 	{
+		// Once, when the library is first there: the memory cards kept in sync with the share.
+		static bool cardsSynced = false;
+		if (!cardsSynced && !selectDisk)
+		{
+			cardsSynced = true;
+			if (ps5::smb::CardBackup)
+				startCardBackup(false);
+		}
 		libraryScreen(selectDisk);
 		return;
 	}
@@ -6703,14 +6716,14 @@ std::vector<Category> buildCategories()
 			"How fast fast forward runs the game, in times its normal speed. Unlimited runs it as fast as the display takes its frames.",
 			{ "2x", "3x", "4x", "6x", "8x", "Unlimited" }, { 2, 3, 4, 6, 8, 0 }, ps5::FastForwardSpeed));
 	{
-		Row r{ Row::Toggle, "Back up memory cards to the network share",
-				"When you quit a game, copy the memory cards that changed to PSFlyCast/Memory cards on the first share in network.cfg." };
+		Row r{ Row::Toggle, "Keep memory cards in sync with the network share",
+				"When PSFlyCast starts and when you quit a game, the memory cards here and in PSFlyCast/Memory cards on the first share in network.cfg are made the same, both ways: a card changed on one side goes to the other; one changed on both keeps the newer, and the other is put in an \"older\" folder on its side (data/older memory cards here, .older on the share). Another console syncing with the same share gets the same cards." };
 		r.get = [] { return ps5::smb::CardBackup ? 1 : 0; };
 		r.set = [](int v) { ps5::smb::CardBackup.set(v != 0); };
 		system.rows.push_back(r);
 	}
 	{
-		Row r{ Row::Action, "Back up memory cards now", "Copy the memory cards that changed since the last backup. The share needs write access." };
+		Row r{ Row::Action, "Sync memory cards now", "Make the memory cards here and on the share the same now. The share needs write access." };
 		r.info = [] { return cardBackupResult(); };
 		r.action = [] {
 			if (game_started)
