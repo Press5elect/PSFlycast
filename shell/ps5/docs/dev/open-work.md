@@ -5,7 +5,7 @@ what no longer applies.
 
 ## Not run on a console
 
-Builds 94 to 100 (v1.3.5 to v1.3.9) have not been run on a console. What each needs checking:
+Builds 94 to 101 (v1.3.5 to v1.3.9) have not been run on a console. What each needs checking:
 
 | Build | What to look at |
 | --- | --- |

@@ -5,7 +5,7 @@ first. Each later version adds its own paragraph at the top. Say plainly what wa
 
 ## v1.3.5 to v1.3.9
 
-Not run on a console (builds 94 to 100).
+Not run on a console (builds 94 to 101).
 
 ## Up to v1.3.4
 
