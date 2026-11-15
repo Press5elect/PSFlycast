@@ -3438,6 +3438,7 @@ struct DetailsState
 	bool coverSure = true;
 	unsigned coverGeneration = 0;
 	std::vector<std::pair<int, time_t>> states;		// slot, when saved
+	int deleteArmed = -1;	// the states page's row whose Triangle asked to delete it (from OGBox)
 	// The cheats page.
 	std::vector<std::string> cheatFiles;	// closest names first
 	int cheatFile = -1;						// index in cheatFiles; -1 for none
@@ -3619,12 +3620,41 @@ void detailsInput(Game& g, bool selectDisk)
 		const int n = (int)det.states.size();
 		if (in.up && det.row > 0) det.row--;
 		if (in.down && det.row < n - 1) det.row++;
+		if (in.up || in.down || in.back || in.accept)
+			det.deleteArmed = -1;
 		if (in.back)
 			det.page = PageActions;
 		else if (in.accept && n > 0)
 		{
 			lib.details = false;
 			launch(g, false, det.states[std::clamp(det.row, 0, n - 1)].first);
+		}
+		else if (in.triangle && n > 0)
+		{
+			// Triangle once asks, Triangle again on the same slot deletes it (OGBox 1.0.0's).
+			const int row = std::clamp(det.row, 0, n - 1);
+			if (det.deleteArmed != row)
+				det.deleteArmed = row;
+			else
+			{
+				const int slot = det.states[row].first;
+				const std::string file = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName)
+						+ (slot > 0 ? "_" + std::to_string(slot) : "") + ".state";
+				const bool gone = ::remove(file.c_str()) == 0 || errno == ENOENT;
+				ps5::diag::mark("states: slot %d of %s %s", slot + 1, get_file_basename(g.media.fileName).c_str(),
+						gone ? "deleted" : "could not be deleted");
+				det.deleteArmed = -1;
+				if (gone)
+				{
+					det.states.erase(det.states.begin() + row);
+					det.row = std::clamp(det.row, 0, std::max(0, (int)det.states.size() - 1));
+					os_notify("State deleted", 2000);
+					if (det.states.empty())
+						det.page = PageActions;
+				}
+				else
+					os_notify("The state could not be deleted", 3000);
+			}
 		}
 		break;
 	}
@@ -3856,7 +3886,7 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		{
 			const auto& [slot, when] = det.states[i];
 			text(dl, bold(), 26, tx + 8, ry + 14, ink, ("Slot " + std::to_string(slot + 1)).c_str());
-			value(timeToShortDateTimeString(when), false);
+			value(det.deleteArmed == i ? "Triangle again to delete" : timeToShortDateTimeString(when), false);
 		}
 		else if (det.page == PageOptions)
 		{
@@ -6091,7 +6121,8 @@ void libraryScreen(bool selectDisk)
 	else if (lib.details && det.page == PageActions)
 		hintBar(dl, { { Glyph::DPadLR, "Choose" }, { Glyph::Cross, "Select" }, { Glyph::Circle, "Back" } });
 	else if (lib.details && det.page == PageStates)
-		hintBar(dl, { { Glyph::DPadUD, "Slot" }, { Glyph::Cross, "Start from it" }, { Glyph::Circle, "Back" } });
+		hintBar(dl, { { Glyph::DPadUD, "Slot" }, { Glyph::Cross, "Start from it" }, { Glyph::Triangle, "Delete" },
+				{ Glyph::Circle, "Back" } });
 	else if (lib.details && det.page == PageManage && det.row == ManageFavourite)
 		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "On / off" }, { Glyph::Circle, "Back" } });
 	else if (lib.details && det.page == PageManage && det.row <= ManageCover)
