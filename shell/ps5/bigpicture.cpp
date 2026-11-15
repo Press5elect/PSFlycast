@@ -852,6 +852,9 @@ enum class Glyph { Cross, Circle, Square, Triangle, L1, R1, L1R1, L2, R2, L2R2, 
 // A DualSense button, as the face buttons are printed: white symbol on a dark disc.
 float glyph(ImDrawList *dl, Glyph g, float x, float cy, float size = 34.f)
 {
+	// With Circle confirms the hints' "choose" and "back" are the other way round.
+	if (ps5::options().circleConfirms && (g == Glyph::Cross || g == Glyph::Circle))
+		g = g == Glyph::Cross ? Glyph::Circle : Glyph::Cross;
 	const float r = size / 2;
 	const ImU32 bg = col::rgba(255, 255, 255, 34), fg = col::text;
 	const float t = size * 0.075f;
@@ -993,8 +996,11 @@ void readInput()
 {
 	const auto& pad = ps5::pad::player1();
 	in = Input{};
-	in.accept = pad.pressed & ps5::pad::Cross;
-	in.back = pad.pressed & ps5::pad::Circle;
+	// Circle confirms (Settings > Controls, from OGBox): Circle chooses and Cross goes back, in
+	// PSFlyCast's menus only; a game's own buttons stay as they are.
+	const bool swap = ps5::options().circleConfirms;
+	in.accept = pad.pressed & (swap ? ps5::pad::Circle : ps5::pad::Cross);
+	in.back = pad.pressed & (swap ? ps5::pad::Cross : ps5::pad::Circle);
 	in.triangle = pad.pressed & ps5::pad::Triangle;
 	in.square = pad.pressed & ps5::pad::Square;
 	in.l1 = pad.pressed & ps5::pad::L1;
@@ -2396,6 +2402,7 @@ struct DiscSwap
 // stateSlot: the state the game starts from (0-based), or -1 for a fresh start.
 void launch(Game& g, bool selectDisk, int stateSlot = -1)
 {
+	ps5::pad::menuBuzz(0.7f, 180);	// the start's buzz (OGBox's, PSWin's)
 	ensureArt(g);
 	loadingPath = g.media.path;
 	loadingTitle = g.title.empty() ? get_file_basename(g.media.fileName) : g.title;
@@ -6635,6 +6642,20 @@ std::vector<Category> buildCategories()
 		controls.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Toggle, "Vibration in the menus",
+				"A short buzz when a game starts and when something cannot be done." };
+		r.get = [] { return ps5::options().menuVibration ? 1 : 0; };
+		r.set = [](int v) { ps5::options().menuVibration = v != 0; ps5::saveOptions(); };
+		controls.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Toggle, "Circle confirms",
+				"Circle chooses and Cross goes back, in PSFlyCast's menus only. The games' own buttons stay as they are." };
+		r.get = [] { return ps5::options().circleConfirms ? 1 : 0; };
+		r.set = [](int v) { ps5::options().circleConfirms = v != 0; ps5::saveOptions(); };
+		controls.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Toggle, "USB keyboard and mouse",
 				"Use a USB keyboard and mouse plugged into the console, in the ports after the controllers. Takes effect when a game starts." };
 		r.get = [] { return ps5::options().usbInput ? 1 : 0; };
@@ -10344,8 +10365,9 @@ void applyTheme()
 void feedNav(ImGuiIO& io)
 {
 	const auto& p = ps5::pad::player1();
-	io.AddKeyEvent(ImGuiKey_GamepadFaceDown, p.buttons & ps5::pad::Cross);
-	io.AddKeyEvent(ImGuiKey_GamepadFaceRight, p.buttons & ps5::pad::Circle);
+	const bool swap = ps5::options().circleConfirms;
+	io.AddKeyEvent(ImGuiKey_GamepadFaceDown, p.buttons & (swap ? ps5::pad::Circle : ps5::pad::Cross));
+	io.AddKeyEvent(ImGuiKey_GamepadFaceRight, p.buttons & (swap ? ps5::pad::Cross : ps5::pad::Circle));
 	io.AddKeyEvent(ImGuiKey_GamepadFaceUp, p.buttons & ps5::pad::Triangle);
 	io.AddKeyEvent(ImGuiKey_GamepadFaceLeft, p.buttons & ps5::pad::Square);
 	io.AddKeyEvent(ImGuiKey_GamepadDpadUp, p.buttons & ps5::pad::Up);

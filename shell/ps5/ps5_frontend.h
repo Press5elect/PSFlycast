@@ -123,6 +123,10 @@ struct Options
 	bool splashSound = true;	// and its sound
 	bool menuSounds = true;		// a sound for moving, choosing and going back
 	bool lightBar = true;		// each pad's light bar in its player's colour
+	// The DualSense in the menus (from OGBox 1.0.0): a short buzz when something is refused and
+	// when a game starts, and Circle to choose with Cross to go back (the games' own buttons stay).
+	bool menuVibration = true;
+	bool circleConfirms = false;
 	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
 	bool vrr = true;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts

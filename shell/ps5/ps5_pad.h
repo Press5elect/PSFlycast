@@ -218,6 +218,9 @@ void term();
 void poll();
 // Player 1's pad (or an all-released state when none is connected).
 const State& player1();
+// A short buzz on player 1's pad for the menus (Settings > Controls > Vibration in the menus, from
+// OGBox): strength 0 to 1, the small motor's tick, the large one joining for strong ones.
+void menuBuzz(float strength, u32 durationMs);
 // Number of connected pads.
 int connectedCount();
 // Looks, about once a second, for users who signed in or out and for

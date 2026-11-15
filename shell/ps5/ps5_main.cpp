@@ -139,6 +139,10 @@ void loadOptions(const std::string& dir)
 			currentOptions.menuSounds = value != 0;
 		else if (!strcmp(key, "light_bar"))
 			currentOptions.lightBar = value != 0;
+		else if (!strcmp(key, "menu_vibration"))
+			currentOptions.menuVibration = value != 0;
+		else if (!strcmp(key, "circle_confirms"))
+			currentOptions.circleConfirms = value != 0;
 		else if (!strcmp(key, "usb_input"))
 			currentOptions.usbInput = value != 0;
 		else if (!strcmp(key, "vrr"))
@@ -181,7 +185,8 @@ void saveOptions()
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
 			"disc_drive = %d\ndisc_speed = %d\nthreaded_recording = %d\ngpu_wait_spin_us = %d\ngpu_wait_sleep_us = %d\n"
-			"short_queue = %d\nnet_buffers = %d\nlogs = %d\nlog_place = %d\nlog_sync = %d\n",
+			"short_queue = %d\nnet_buffers = %d\nlogs = %d\nlog_place = %d\nlog_sync = %d\n"
+			"menu_vibration = %d\ncircle_confirms = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -192,7 +197,8 @@ void saveOptions()
 			(int)currentOptions.highContrast, (int)currentOptions.colourBlind, (int)currentOptions.discDrive,
 			currentOptions.discSpeed, (int)currentOptions.threadedRecording, currentOptions.gpuWaitSpinUs,
 			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers,
-			(int)currentOptions.logs, currentOptions.logPlace, currentOptions.logSync);
+			(int)currentOptions.logs, currentOptions.logPlace, currentOptions.logSync,
+			(int)currentOptions.menuVibration, (int)currentOptions.circleConfirms);
 	// Not written again when it reads as it did at the last write (a toggle back, a setting
 	// chosen twice): the drive's writes are not spent on a file that stays as it is.
 	static std::string lastSaved;

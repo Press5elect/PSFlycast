@@ -995,6 +995,9 @@ void ps5::sound::stopStartup()
 
 void ps5::sound::cue(Cue which)
 {
+	// A refusal is felt too (Settings > Controls > Vibration in the menus), sounds on or off.
+	if (which == Cue::Refuse)
+		ps5::pad::menuBuzz(0.45f, 90);
 	if (!options().menuSounds || (int)which < 0 || (int)which >= (int)Cue::Count)
 		return;
 	play({ cueSound(which), 0, 1.f, false, 1.f, false });

@@ -314,6 +314,11 @@ public:
 			large = (u8)std::lround(v);
 			small = (u8)std::lround(v * blend);
 		}
+		if (t < buzzUntil)
+		{
+			large = std::max(large, buzzLarge);
+			small = std::max(small, buzzSmall);
+		}
 		if (large != sentLarge || small != sentSmall)
 		{
 			// { large motor, small motor }
@@ -322,6 +327,16 @@ public:
 			sentLarge = large;
 			sentSmall = small;
 		}
+	}
+
+	// The menus' buzz (ps5::pad::menuBuzz), over the vibration pack's: the small motor's tick,
+	// the large one joining for strong ones (PSWin's and OGBox's).
+	void buzz(float strength, u32 durationMs)
+	{
+		strength = std::clamp(strength, 0.f, 1.f);
+		buzzSmall = (u8)std::lround(strength * 255.f);
+		buzzLarge = (u8)std::lround(strength > 0.6f ? (strength - 0.6f) * 2.5f * 255.f : 0.f);
+		buzzUntil = now() + durationMs;
 	}
 
 	void stopRumble()
@@ -691,6 +706,10 @@ private:
 	float rumbleHz = 0.f;		// its vibration frequency
 	u8 sentLarge = 0;
 	u8 sentSmall = 0;
+	// The menus' buzz (menuBuzz), over the vibration pack's.
+	u64 buzzUntil = 0;
+	u8 buzzLarge = 0;
+	u8 buzzSmall = 0;
 	float rumbleInclination = 0.f;
 	u64 rumbleUntil = 0;
 	u64 rumbleStarted = 0;
@@ -1248,6 +1267,18 @@ void poll()
 	// The first pad is also a mouse and a keyboard, when the game asks for it.
 	ps5::usb::padInput(player1());
 	twinStickLayout();
+}
+
+void menuBuzz(float strength, u32 durationMs)
+{
+	if (!ps5::options().menuVibration)
+		return;
+	for (int i = 0; i < MaxPads; i++)
+		if (pads[i] && states[i].connected)
+		{
+			pads[i]->buzz(strength, durationMs);
+			return;
+		}
 }
 
 const State& player1()
