@@ -42,11 +42,14 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.9** (build 101). It is built
+Latest release: **v1.3.9** (build 103). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.5 to v1.3.9 have not been run on a console: their notes below list their
-changes. v1.3.4's test build (91) ran games on a console with Mesa 27's driver.
+v1.3.9's test builds ran games on a console: a game from a network share with
+FSR, CAS and the looks, HDR, SMAA and the memory card sync. Not run on a
+console yet: PlayStation Move, SSAA's down-sampling, the HDR brightness screen,
+a memory card actually copied by the sync, Kept in memory logs, the quick menu
+order, Circle confirms and deleting a save state.
 What was run on a console, version by version, and what was not, is in
 [docs/history/console-testing.md](https://github.com/Press5elect/PSFlycast/blob/main/shell/ps5/docs/history/console-testing.md).
 

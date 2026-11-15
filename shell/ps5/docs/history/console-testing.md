@@ -3,9 +3,21 @@
 The console test record of every version, as the README's Status had it up to v1.3.8, newest
 first. Each later version adds its own paragraph at the top. Say plainly what was not run.
 
-## v1.3.5 to v1.3.9
+## v1.3.9
 
-Not run on a console (builds 94 to 101).
+Test builds 100 to 102 ran on a console (15 November 2026): the library, a game streamed from an
+SMB share at 4.5x with FSR, CAS and the looks, HDR10 output (the framebuffers retyped), SMAA at
+2880 x 2160 at full speed, and the memory card sync with the share at start and after the game
+(no card changed, so nothing was copied). Build 101's log found the picture drawn out of shape
+with FSR at 4.5x (the bars' pipeline left bound); build 102 fixed it, confirmed by the owner. Not
+run: PlayStation Move, SSAA's down-sampling (no internal resolution above the screen's was
+tried), the HDR brightness screen, the memory card sync copying a card, Kept in memory logs, the
+quick menu order, Circle confirms, deleting a save state. The release is build 103, the same code
+as build 102.
+
+## v1.3.5 to v1.3.8
+
+Not run on a console (builds 94 to 97); their changes are in v1.3.9, which was.
 
 ## Up to v1.3.4
 
