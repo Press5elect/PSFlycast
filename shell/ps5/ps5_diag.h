@@ -14,8 +14,16 @@ namespace ps5::diag
 // file is forced onto the drive: every `syncSeconds` seconds, or 0 for only when the title
 // ends, restarts or crashes. Lines always reach the file within a moment; the sync is what the
 // drive is made to write, and a console that stops outright can lose what came after the last one.
-void configure(bool enabled, int syncSeconds);
+// inMemory (Save logs to the drive: Kept in memory, from OGBox 0.0.7): the boot log is kept in
+// memory and no file is made, until keep() writes it, from then on to the file as usual.
+void configure(bool enabled, int syncSeconds, bool inMemory = false);
 bool enabled();
+
+// A log kept in memory into its file now (why: what went wrong, said at its top), and to the file
+// from then on: a crash, an uncaught exception, a game that did not start, or asked for in
+// Settings. True if it was in memory. Not from a signal handler (the crash report does its own).
+bool keep(const char *why);
+bool inMemory();
 
 // The next `seconds` seconds sync every 2 s whatever configure() chose: the start of PSFlyCast
 // and the first moments of a game are where a console that stops leaves its reason.
@@ -24,7 +32,8 @@ void watch(int seconds);
 // Opens <dir>/flycast-boot.log for this run (the two runs before it are kept
 // as flycast-boot.1.log and flycast-boot.2.log) and writes the marks made
 // before it was open. Returns false when the folder cannot be written, or
-// when logs are off.
+// when logs are off. Kept in memory, it only remembers the folder: the file is
+// made, and the earlier runs' moved along, when keep() or a crash writes it.
 bool open(const std::string& dir);
 const std::string& logPath();
 
@@ -55,4 +64,8 @@ void memory(const char *when);
 // signal, the faulting instruction as an offset in eboot.bin, the registers,
 // the return addresses found on the stack, and the last mark.
 void installCrashHandler();
+
+// The calling thread's name, for the crash report's "thread:" line (the console gives a title no
+// way to read one back). Up to 64 threads, 31 characters each.
+void nameThread(const char *name);
 }

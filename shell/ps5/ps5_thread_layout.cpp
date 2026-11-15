@@ -107,6 +107,7 @@ void emulationThreadStarting()
 extern "C" void ps5_title_thread_named(const char *name)
 {
 	ps5::diag::mark("threads: the driver started %s", name ? name : "a thread");
+	ps5::diag::nameThread(name);
 	if (name && std::strcmp(name, "RADV recorder") == 0 && PS5ThreadLayout::active() && ps5::DriverOwnCore)
 		PS5ThreadLayout::pinCallingThread(PS5ThreadLayout::kDriverMask, "the driver's recording thread");
 }

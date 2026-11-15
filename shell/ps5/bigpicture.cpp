@@ -1048,6 +1048,12 @@ void readInput()
 	// that did not start), which is closed with Cross.
 	if (keyboardFor != KeyboardNone || gui_error_shown())
 		in = Input{};
+	// Flycast's message box (a game that did not start, the emulator stopped): a boot log kept in
+	// memory is written now, so there is one to send.
+	static bool errorShown = false;
+	if (gui_error_shown() && !errorShown)
+		ps5::diag::keep("Flycast showed an error");
+	errorShown = gui_error_shown();
 	// The menu's sounds, one a frame: what the press is for, most telling first.
 	using ps5::sound::Cue;
 	if (in.accept)
@@ -6812,11 +6818,23 @@ std::vector<Category> buildCategories()
 	}
 	{
 		Row r{ Row::Choice, "Save logs to the drive",
-				"How often the boot log is forced onto the drive. Lines always reach the file within a moment; only a console that stops outright can lose what came after the last save. The first 30 seconds of a start and of each game are always every 2 seconds. Less often means fewer writes to the drive. Takes effect the next time PSFlyCast starts.",
-				{ "Every 2 seconds", "Every 15 seconds", "When PSFlyCast ends" }, { 0, 1, 2 } };
+				"How often the boot log is forced onto the drive. Lines always reach the file within a moment; only a console that stops outright can lose what came after the last save. The first 30 seconds of a start and of each game are always every 2 seconds. Less often means fewer writes to the drive. Kept in memory writes no boot log at all until something goes wrong (a crash, a game that does not start) or Write the log now is chosen; a console that stops outright then leaves none. Takes effect the next time PSFlyCast starts.",
+				{ "Every 2 seconds", "Every 15 seconds", "When PSFlyCast ends", "Kept in memory" }, { 0, 1, 2, 3 } };
 		r.get = [] { return ps5::options().logSync; };
-		r.set = [](int v) { ps5::options().logSync = std::clamp(v, 0, 2); ps5::saveOptions(); };
+		r.set = [](int v) { ps5::options().logSync = std::clamp(v, 0, 3); ps5::saveOptions(); };
 		r.restart = true;
+		system.rows.push_back(r);
+	}
+	{
+		Row r{ Row::Action, "Write the log now",
+				"With the boot log kept in memory: write it to the drive now, and from then on for this run, to send with a problem." };
+		r.info = [] { return std::string(ps5::diag::inMemory() ? "In memory" : "On the drive"); };
+		r.action = [] {
+			if (ps5::diag::keep("it was asked for in Settings"))
+				os_notify("The boot log is written", 2500);
+			else
+				os_notify(ps5::diag::enabled() ? "The boot log is on the drive already" : "Logs are off", 2500);
+		};
 		system.rows.push_back(r);
 	}
 	{

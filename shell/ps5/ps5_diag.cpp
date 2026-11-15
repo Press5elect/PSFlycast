@@ -34,6 +34,8 @@
 
 #include <cxxabi.h>
 #include <fcntl.h>
+#include <atomic>
+#include <mutex>
 #include <pthread.h>
 #include <pthread_np.h>
 #include <sys/stat.h>
@@ -66,6 +68,79 @@ volatile long long fastUntil;			// CLOCK_MONOTONIC second until which it is ever
 // Marks made before the file is open, written when it opens.
 char early[8192];
 size_t earlyUsed;
+// Kept in memory (configure's inMemory): the log's folder, and the lines, for keep() or a crash
+// to write. The first MemHead bytes (the start, the settings, the first game) are kept whole;
+// past MEM the rest is a ring of the latest lines, and what fell out of it is said where it was.
+volatile bool memoryMode;				// lines go to mem, no file yet
+std::string memoryDir;
+constexpr size_t MEM = size_t(8) << 20, MemHead = size_t(512) << 10;
+char mem[MEM];
+size_t memHeadUsed;						// bytes of the head
+size_t memTailStart, memTailLength;		// the ring after the head: the oldest byte, and how many
+unsigned long long memDropped;			// bytes that fell out of the ring
+pthread_mutex_t memLock = PTHREAD_MUTEX_INITIALIZER;
+
+void memPut(const char *text, size_t length)
+{
+	pthread_mutex_lock(&memLock);
+	const size_t head = std::min(length, MemHead - memHeadUsed);
+	memcpy(mem + memHeadUsed, text, head);
+	memHeadUsed += head;
+	text += head;
+	length -= head;
+	const size_t tailRoom = MEM - MemHead;
+	if (length > tailRoom)
+	{
+		memDropped += length - tailRoom;
+		text += length - tailRoom;
+		length = tailRoom;
+	}
+	for (size_t done = 0; done < length;)
+	{
+		if (memTailLength == tailRoom)
+		{
+			// Full: the oldest byte gives way.
+			memTailStart = (memTailStart + 1) % tailRoom;
+			memTailLength--;
+			memDropped++;
+		}
+		const size_t at = (memTailStart + memTailLength) % tailRoom;
+		const size_t k = std::min({ length - done, tailRoom - at, tailRoom - memTailLength });
+		memcpy(mem + MemHead + at, text + done, k);
+		memTailLength += k;
+		done += k;
+	}
+	pthread_mutex_unlock(&memLock);
+}
+
+// What memory holds, into fd, oldest first. From keep() under memLock, or from a signal handler
+// that got it.
+void memWriteOut(int fd)
+{
+	auto put = [fd](const char *p, size_t n) {
+		while (n > 0)
+		{
+			const ssize_t w = write(fd, p, n);
+			if (w <= 0)
+				return;
+			p += w;
+			n -= (size_t)w;
+		}
+	};
+	put(mem, memHeadUsed);
+	if (memDropped)
+	{
+		char note[96];
+		const int k = snprintf(note, sizeof(note), "[log: %llu bytes of lines left out here: kept in memory, it was full]\n",
+				memDropped);
+		if (k > 0)
+			put(note, (size_t)k);
+	}
+	const size_t tailRoom = MEM - MemHead;
+	const size_t first = std::min(memTailLength, tailRoom - memTailStart);
+	put(mem + MemHead + memTailStart, first);
+	put(mem + MemHead, memTailLength - first);
+}
 // The last mark, for the crash report.
 char lastMark[256] = "(none)";
 timespec startTime;
@@ -163,6 +238,7 @@ void ringWriteOut()
 void *writerMain(void *)
 {
 	pthread_set_name_np(pthread_self(), "psflycast-log");
+	nameThread("psflycast-log");
 	timespec lastSync;
 	clock_gettime(CLOCK_MONOTONIC, &lastSync);
 	pthread_mutex_lock(&ringLock);
@@ -204,6 +280,11 @@ void writeAll(const char *text, size_t length)
 {
 	if (!logsOn)
 		return;
+	if (logFd < 0 && memoryMode && !memoryDir.empty())
+	{
+		memPut(text, length);
+		return;
+	}
 	if (logFd < 0)
 	{
 		const size_t room = sizeof(early) - earlyUsed;
@@ -232,6 +313,23 @@ void drainForCrash()
 		ringLength -= n;
 	}
 	pthread_mutex_unlock(&ringLock);
+}
+
+// Thread names, for the crash report (nameThread). A slot is claimed with a compare-and-swap and
+// read without a lock from the signal handler.
+struct NamedThread
+{
+	std::atomic<pthread_t> thread{};
+	char name[32];
+};
+NamedThread named[64];
+
+const char *nameOf(pthread_t thread)
+{
+	for (const NamedThread& slot : named)
+		if (slot.thread.load(std::memory_order_acquire) == thread)
+			return slot.name;
+	return nullptr;
 }
 
 // Signal-safe enough: snprintf into a stack buffer and write().
@@ -265,9 +363,55 @@ void sendNotification(const char *text)
 	sceKernelSendNotificationRequest(0, &request, sizeof(request), 0);
 }
 
+void rotate(const std::string& dir);
+void report(int signal, siginfo_t *info, void *contextPointer);
+
+// A crash with the log kept in memory: the file is made here, in the signal handler (open, rename
+// and write are system calls), and what memory holds goes first. The lock is only tried: a thread
+// that crashed while putting a line keeps it, and its lines are then lost, not the report.
+void keepForCrash(const char *why)
+{
+	if (!memoryMode || logFd >= 0 || memoryDir.empty())
+		return;
+	if (pthread_mutex_trylock(&memLock) != 0)
+		return;
+	char file[512];
+	snprintf(file, sizeof(file), "%s/flycast-boot.log", memoryDir.c_str());
+	char one[512], two[512];
+	snprintf(one, sizeof(one), "%s/flycast-boot.1.log", memoryDir.c_str());
+	snprintf(two, sizeof(two), "%s/flycast-boot.2.log", memoryDir.c_str());
+	rename(one, two);
+	rename(file, one);
+	const int fd = ::open(file, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
+	if (fd >= 0)
+	{
+		fchmod(fd, 0666);
+		char note[160];
+		const int k = snprintf(note, sizeof(note), "[log: kept in memory until now; written because %s]\n", why);
+		if (k > 0)
+			(void)!write(fd, note, (size_t)k);
+		memWriteOut(fd);
+		logFd = fd;
+		memoryMode = false;
+	}
+	pthread_mutex_unlock(&memLock);
+}
+
 void report(int signal, siginfo_t *info, void *contextPointer)
 {
 	const ucontext_t *context = static_cast<const ucontext_t *>(contextPointer);
+	// SIGTERM is the console ending the title (its close request, or closed from the PS menu):
+	// one line, not a crash, and a log kept in memory stays there.
+	if (signal == SIGTERM)
+	{
+		writef("[%s] the console ended PSFlyCast (SIGTERM)\n", lastMark);
+		if (logFd >= 0 && !writerUp)
+			fsync(logFd);
+		std::signal(signal, SIG_DFL);
+		std::raise(signal);
+		return;
+	}
+	keepForCrash(signal == SIGXCPU ? "the console's processor time limit ended PSFlyCast" : "of a crash");
 	const mcontext_t& mc = context->uc_mcontext;
 	const uintptr_t rip = mc.mc_rip;
 	const uintptr_t rsp = mc.mc_rsp;
@@ -281,7 +425,13 @@ void report(int signal, siginfo_t *info, void *contextPointer)
 	writef("\n=== CRASH: signal %d (%s) ===\n", signal,
 			signal == SIGSEGV ? "SIGSEGV" : signal == SIGBUS ? "SIGBUS" : signal == SIGILL ? "SIGILL"
 			: signal == SIGFPE ? "SIGFPE" : signal == SIGABRT ? "SIGABRT" : signal == SIGSYS ? "SIGSYS"
-			: signal == SIGTRAP ? "SIGTRAP" : "?");
+			: signal == SIGTRAP ? "SIGTRAP" : signal == SIGXCPU ? "SIGXCPU, the processor time limit" : "?");
+	// The thread it happened on, by the name it was given (nameThread: psflycast-log, Flycast's
+	// threads through os_SetThreadName, the graphics driver's).
+	{
+		const char *name = nameOf(pthread_self());
+		writef("thread: %s\n", name != nullptr ? name : "(no name)");
+	}
 	writef("last step: %s\n", lastMark);
 	writef("fault address: 0x%llx\n", (unsigned long long)(uintptr_t)info->si_addr);
 	if (inText(rip))
@@ -384,12 +534,18 @@ void rotate(const std::string& dir)
 
 } // namespace
 
-void configure(bool enabled, int syncSeconds)
+void configure(bool enabled, int syncSeconds, bool inMemory)
 {
 	logsOn = enabled;
 	syncEvery = syncSeconds < 0 ? 0 : syncSeconds;
+	memoryMode = enabled && inMemory;
 	if (!enabled)
 		earlyUsed = 0;
+}
+
+bool inMemory()
+{
+	return memoryMode;
 }
 
 bool enabled()
@@ -415,6 +571,15 @@ bool open(const std::string& dir)
 	}
 	if (logFd >= 0)
 		return true;
+	if (memoryMode)
+	{
+		// No file: the lines so far into memory, and the folder for keep().
+		memoryDir = dir;
+		path.clear();
+		memPut(early, earlyUsed);
+		earlyUsed = 0;
+		return true;
+	}
 	rotate(dir);
 	const std::string file = dir + "/flycast-boot.log";
 	const int fd = ::open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
@@ -464,6 +629,48 @@ const std::string& logPath()
 	return path;
 }
 
+bool keep(const char *why)
+{
+	static std::mutex keeping;
+	std::lock_guard<std::mutex> one(keeping);
+	if (!memoryMode || logFd >= 0 || memoryDir.empty())
+		return false;
+	pthread_mutex_lock(&memLock);
+	if (!memoryMode)
+	{
+		pthread_mutex_unlock(&memLock);
+		return false;
+	}
+	rotate(memoryDir);
+	const std::string file = memoryDir + "/flycast-boot.log";
+	const int fd = ::open(file.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0666);
+	if (fd < 0)
+	{
+		pthread_mutex_unlock(&memLock);
+		return false;
+	}
+	fchmod(fd, 0666);
+	char note[256];
+	const int k = snprintf(note, sizeof(note), "[log: kept in memory until now; written because %s]\n", why);
+	if (k > 0)
+		(void)!write(fd, note, (size_t)std::min(k, (int)sizeof(note) - 1));
+	memWriteOut(fd);
+	fsync(fd);
+	path = file;
+	logFd = fd;
+	memoryMode = false;
+	// From here as an ordinary log: through the writer thread, synced as configured.
+	pthread_t writer;
+	if (pthread_create(&writer, nullptr, &writerMain, nullptr) == 0)
+	{
+		pthread_detach(writer);
+		writerUp = true;
+	}
+	pthread_mutex_unlock(&memLock);
+	mark("logs: kept in memory until now, in %s from here on (%s)", path.c_str(), why);
+	return true;
+}
+
 void mark(const char *format, ...)
 {
 	if (startTime.tv_sec == 0 && startTime.tv_nsec == 0)
@@ -510,6 +717,37 @@ void memory(const char *when)
 			when, largest >> 20, (long long)(pool > 0 ? pool >> 20 : 0), flexible >> 20);
 }
 
+void nameThread(const char *name)
+{
+	if (name == nullptr)
+		return;
+	const pthread_t self = pthread_self();
+	NamedThread *slot = nullptr;
+	for (NamedThread& s : named)
+		if (s.thread.load(std::memory_order_acquire) == self)
+			slot = &s;
+	for (NamedThread& s : named)
+	{
+		if (slot != nullptr)
+			break;
+		pthread_t none{};
+		if (s.thread.load(std::memory_order_relaxed) == none)
+		{
+			// Named first, then claimed: the handler never reads a half-written name.
+			strncpy(s.name, name, sizeof(s.name) - 1);
+			s.name[sizeof(s.name) - 1] = 0;
+			if (s.thread.compare_exchange_strong(none, self, std::memory_order_acq_rel))
+				return;
+		}
+	}
+	if (slot != nullptr)
+	{
+		// A new name for a thread already named (Flycast's ThreadName puts "flycast" back).
+		strncpy(slot->name, name, sizeof(slot->name) - 1);
+		slot->name[sizeof(slot->name) - 1] = 0;
+	}
+}
+
 void installCrashHandler()
 {
 	struct sigaction action;
@@ -517,9 +755,15 @@ void installCrashHandler()
 	action.sa_sigaction = report;
 	action.sa_flags = SA_SIGINFO | SA_RESETHAND;
 	sigemptyset(&action.sa_mask);
-	for (const int signal : { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGSYS, SIGTRAP })
+	for (const int signal : { SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGSYS, SIGTRAP, SIGXCPU, SIGTERM })
 		sigaction(signal, &action, nullptr);
 	std::set_terminate(onTerminate);
 }
 
 } // namespace ps5::diag
+
+// Flycast's os_SetThreadName on the console (core/linux/common.cpp).
+void ps5_diag_name_thread(const char *name)
+{
+	ps5::diag::nameThread(name);
+}

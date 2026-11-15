@@ -114,7 +114,7 @@ void loadOptions(const std::string& dir)
 		else if (!strcmp(key, "log_place"))
 			currentOptions.logPlace = std::clamp(value, 0, 1);
 		else if (!strcmp(key, "log_sync"))
-			currentOptions.logSync = std::clamp(value, 0, 2);
+			currentOptions.logSync = std::clamp(value, 0, 3);
 		else if (!strcmp(key, "source"))
 			currentOptions.source = std::clamp(value, 0, 2);
 		else if (!strcmp(key, "defaults"))
@@ -600,8 +600,10 @@ int main(int argc, char *argv[])
 	ps5::diag::showNotifications(ps5::options().notifications);
 	// Logs: off, or in PSFlyCast's folder (the boot log in it, Flycast's own in logs/), or on a USB
 	// drive (both in PSFlyCast/logs there), forced onto the drive as often as chosen.
-	static const int syncSeconds[] = { 2, 15, 0 };
-	ps5::diag::configure(ps5::options().logs, syncSeconds[std::clamp(ps5::options().logSync, 0, 2)]);
+	// Kept in memory (3): no file until something goes wrong, then every 15 s as the default.
+	static const int syncSeconds[] = { 2, 15, 0, 15 };
+	ps5::diag::configure(ps5::options().logs, syncSeconds[std::clamp(ps5::options().logSync, 0, 3)],
+			ps5::options().logSync == 3);
 	std::string bootLogDir = ps5::rootDir, emulatorLogDir = ps5::rootDir + "logs/", placeNote;
 	if (ps5::options().logs && ps5::options().logPlace == 1)
 	{
@@ -618,7 +620,9 @@ int main(int argc, char *argv[])
 		ps5::diag::mark("logs: in %s%s", bootLogDir.c_str(),
 				placeNote.empty() ? "" : (std::string(" (a USB drive was asked for: ") + placeNote + ")").c_str());
 		ps5::diag::mark("logs: forced onto the drive %s; every 2 s for the first 30 s of a start and of each game",
-				ps5::options().logSync == 0 ? "every 2 s" : ps5::options().logSync == 1 ? "every 15 s" : "only when PSFlyCast ends or crashes");
+				ps5::options().logSync == 0 ? "every 2 s" : ps5::options().logSync == 1 ? "every 15 s"
+				: ps5::options().logSync == 2 ? "only when PSFlyCast ends or crashes"
+				: "never: kept in memory, written only after a crash, a game that did not start, or when asked");
 	}
 	else
 		ps5::diag::mark("logs: off (Settings > System > Logs)");

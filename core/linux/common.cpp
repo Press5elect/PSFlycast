@@ -196,6 +196,11 @@ void os_SetThreadName(const char *name)
 		name = tmp;
 	}
 	pthread_setname_np(pthread_self(), name);
+#elif defined(USE_PS5)
+	// PSFlyCast: the console gives a title no way to read a thread's name back, so the crash
+	// report keeps its own (shell/ps5/ps5_diag.cpp).
+	extern void ps5_diag_name_thread(const char *name);
+	ps5_diag_name_thread(name);
 #endif
 }
 
