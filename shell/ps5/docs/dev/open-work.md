@@ -39,6 +39,13 @@ Builds 94 to 98 (v1.3.5 to v1.3.9) have not been run on a console. What each nee
 - **GitHub issue 4** ("A 4:3 aspect ratio at 4K is bad", performance at 4K): what the reporter
   sees is not known; v1.3.9 adds 4.5x (2160p). A reply asking for the version, the settings and
   the boot log is drafted, not posted.
+- **HDR's layers between frames**: they are kept from being redrawn while the frame before still
+  reads them by an execution barrier (fragment shader to colour output) before their render pass
+  (`ps5_hdr.cpp` beginPicture). The swapchain's render pass, which they use, has no external
+  dependency, so by the letter of Vulkan its layout transition from undefined does not chain onto
+  that barrier; on RADV a barrier waits for the earlier fragment work, so it holds in practice. A
+  render pass of their own with an external dependency would be exact; the pipelines are made
+  with the swapchain's, so that is more than a one-line change.
 - **HDR's overlays**: Flycast's quad overlays (the VMU screen, crosshairs) blend their alpha
   squared into the menus' layer, so their translucent edges are a little light in HDR.
 - **Data on a USB drive** (OGBox's measured slowdown of a title's writes to internal storage after

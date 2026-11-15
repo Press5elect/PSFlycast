@@ -73,3 +73,9 @@ its machine and are never committed.
   (`ps5::smb::storeFile`).
 - **Every present path** has to be covered by a change to how frames reach the screen: the game's
   (`PresentFrame`) and the menus' own (`vulkan_driver.h`'s `renderDrawData`).
+- **A signal handler takes no lock.** v1.3.9's SIGTERM line and its memory-kept log first went
+  through mutexes the interrupted thread could hold, which would hang the title at close; they now
+  write straight to the file or drop the line (`ps5_diag.cpp`). Read every path a handler reaches.
+- **Don't make a UI action wait on the network.** A game's start joined the card sync's thread,
+  which could be in a share request for a minute; guard only what needs guarding (the local
+  card writes, `bigpicture_cards.inc`).
