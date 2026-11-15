@@ -39,6 +39,7 @@
 #include "ps5_rewind.h"
 #include "ps5_vmu.h"
 #include "ps5_card_sync.h"
+#include "ps5_hdr.h"
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
@@ -4888,6 +4889,104 @@ std::string megabytes(uint64_t bytes)
 	return amount;
 }
 
+// ---- Settings > Video > Adjust HDR brightness (ps5_hdr.h; OGBox's test screen, OGBox by Press5elect)
+//
+// First the highlights: a square at PQ's top (the TV's brightest) with an X in it at the chosen
+// peak, raised until the X can no longer be seen: that is the TV's peak. Then the white level: the
+// menus and a grey scale at it, chosen as it looks right. The patterns are drawn by the HDR pass,
+// over everything; the words are in a panel below them.
+struct HdrCalUi
+{
+	bool open = false;
+	int step = 1;
+	int peak = 1000, white = 203;
+} hdrCal;
+
+const std::vector<int>& hdrPeaks()
+{
+	static const std::vector<int> peaks = { 400, 500, 600, 700, 800, 900, 1000, 1250, 1500, 2000, 2500, 3000, 4000 };
+	return peaks;
+}
+
+const std::vector<int>& hdrWhites()
+{
+	static const std::vector<int> whites = [] {
+		std::vector<int> w;
+		for (int n = 80; n <= 400; n += 10)
+		{
+			if (n == 210)
+				w.push_back(203);
+			w.push_back(n);
+		}
+		return w;
+	}();
+	return whites;
+}
+
+int stepIn(const std::vector<int>& list, int now, int by)
+{
+	size_t at = 0;
+	for (size_t i = 0; i < list.size(); i++)
+		if (list[i] <= now)
+			at = i;
+	return list[std::clamp((int)at + by, 0, (int)list.size() - 1)];
+}
+
+void openHdrCalibration()
+{
+	hdrCal = HdrCalUi{};
+	hdrCal.open = true;
+	hdrCal.peak = ps5::hdr::Peak > 0 ? (int)ps5::hdr::Peak : 1000;
+	hdrCal.white = ps5::hdr::White;
+}
+
+void hdrDialog(ImDrawList *dl, const Input& given)
+{
+	HdrCalUi& ui = hdrCal;
+	const int by = given.left ? -1 : given.right ? 1 : 0;
+	if (ui.step == 1)
+	{
+		if (by != 0)
+			ui.peak = stepIn(hdrPeaks(), ui.peak, by);
+		if (given.accept)
+			ui.step = 2;
+	}
+	else
+	{
+		if (by != 0)
+			ui.white = stepIn(hdrWhites(), ui.white, by);
+		if (given.accept)
+		{
+			ps5::hdr::Peak.set(ui.peak);
+			ps5::hdr::White.set(ui.white);
+			SaveSettings();
+			ui.open = false;
+			ps5::diag::mark("hdr: adjusted: highlights %d nits, white %d nits", ui.peak, ui.white);
+		}
+	}
+	if (given.back)
+		ui.open = false;
+	if (!ui.open)
+	{
+		ps5::hdr::setCalibration(0, 0);
+		return;
+	}
+	ps5::hdr::setCalibration(ui.step, ui.step == 1 ? ui.peak : ui.white);
+
+	const float w = 1240, h = 210, x = (W - w) / 2, y = H - h - 120;
+	rect(dl, x, y, w, h, col::rgba(0, 0, 0, 220), 18);
+	const std::string title = ui.step == 1 ? "HDR highlights: " + std::to_string(ui.peak) + " nits"
+			: "HDR white level: " + std::to_string(ui.white) + " nits";
+	const char *what = ui.step == 1
+			? "Raise it with Right until the X in the square can no longer be seen, then go one step back: that is your TV's brightest."
+			: "The menus and the grey scale are at the white level. Choose what looks as bright as you like the menus and the picture's whites.";
+	text(dl, bold(), 30, x + 36, y + 28, col::text, title.c_str());
+	text(dl, regular(), 22, x + 36, y + 80, col::dim, what, w - 72);
+	if (ps5::hdr::status() != "On")
+		text(dl, regular(), 22, x + 36, y + 150, col::warm, ("HDR is not on: " + ps5::hdr::status()).c_str());
+	hintBar(dl, { { Glyph::DPadLR, "Change" }, { Glyph::Cross, ui.step == 1 ? "Next" : "Done" }, { Glyph::Circle, "Cancel" } });
+}
+
 void updateDialog(ImDrawList *dl, const Input& given)
 {
 	using ps5::update::Phase;
@@ -6614,6 +6713,53 @@ std::vector<Category> buildCategories()
 		r.set = [](int v) { ps5::options().vrr = v != 0; ps5::saveOptions(); };
 		video.rows.push_back(r);
 	}
+	// HDR output (ps5_hdr.h, from OGBox). Changes at once.
+	{
+		Row r{ Row::Toggle, "HDR",
+				"Send the picture to an HDR TV as HDR10 (BT.2020 colours, the PQ curve), with the game's brightest parts raised toward HDR highlights. Needs the console's own HDR setting on and a TV that takes HDR; otherwise the picture stays SDR. With HDR declared, an HDR TV is in HDR mode while PSFlyCast runs, with this on or off. Not tested on a console yet." };
+		r.get = [] { return ps5::hdr::Enabled ? 1 : 0; };
+		r.set = [](int v) { ps5::hdr::Enabled.set(v != 0); };
+		r.info = [] { return ps5::hdr::status(); };
+		video.rows.push_back(r);
+	}
+	{
+		std::vector<std::string> names = { "Off" };
+		std::vector<int> values = { 0 };
+		for (int n : hdrPeaks())
+		{
+			names.push_back(std::to_string(n) + " nits");
+			values.push_back(n);
+		}
+		video.rows.push_back(choice("HDR highlights",
+				"How bright the brightest parts of the game's picture get: your TV's peak (Adjust HDR brightness finds it). Off keeps them at the white level.",
+				names, values, ps5::hdr::Peak));
+	}
+	{
+		std::vector<std::string> names;
+		std::vector<int> values;
+		for (int n : hdrWhites())
+		{
+			names.push_back(std::to_string(n) + (n == 203 ? " nits (reference)" : " nits"));
+			values.push_back(n);
+		}
+		video.rows.push_back(choice("HDR white level",
+				"How bright white is, the menus' and the picture's: 203 nits is HDR's reference white.", names, values,
+				ps5::hdr::White));
+	}
+	{
+		Row r{ Row::Action, "Adjust HDR brightness",
+				"A test screen for your TV: first the highlights' peak, then the white level." };
+		r.action = [] {
+			if (ps5::hdr::status() != "On")
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("HDR is not on", 4000, ps5::hdr::status().c_str());
+			}
+			else
+				openHdrCalibration();
+		};
+		video.rows.push_back(r);
+	}
 	cats.push_back(video);
 
 	Category audio{ ICON_FA_VOLUME_HIGH, "Audio" };
@@ -7619,10 +7765,12 @@ void settings()
 	}
 	// A dialog over the Settings takes the pad.
 	const Input given = in;
-	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open || bindsUi.open;
+	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open || bindsUi.open || hdrCal.open;
 	if (dialog)
 		in = Input{};
-	if (updateUi.open)
+	if (hdrCal.open)
+		hdrDialog(ImGui::GetForegroundDrawList(), given);
+	else if (updateUi.open)
 		updateDialog(ImGui::GetForegroundDrawList(), given);
 	else if (addressUi.open)
 	{

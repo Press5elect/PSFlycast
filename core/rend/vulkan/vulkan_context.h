@@ -117,6 +117,9 @@ public:
 	bool IsValid() { return width != 0 && height != 0; }
 	void NewFrame();
 	void BeginRenderPass();
+	// PSFlyCast's HDR output (shell/ps5/ps5_hdr.h): the overlays and the menus that follow go to
+	// a layer of their own. Nothing changes without HDR.
+	void BeginMenusLayer();
 	void EndFrame(vk::CommandBuffer cmdBuffer = vk::CommandBuffer());
 	void Present() noexcept;
 	void PresentFrame(vk::Image image, vk::ImageView imageView, const vk::Extent2D& extent, float aspectRatio) noexcept;
@@ -268,6 +271,11 @@ private:
 	std::vector<vk::UniqueImageView> imageViews;
 	u32 currentImage = 0;
 	vk::Format presentFormat = vk::Format::eUndefined;
+#if defined(USE_PS5)
+	std::vector<vk::Image> ps5SwapImages;	// the swapchain's images, for HDR's copy
+	bool hdrFrame = false;				// this frame is drawn in HDR's layers
+	bool hdrMenus = false;				// and is in the menus' layer
+#endif
 
 	vk::Queue graphicsQueue;
 	vk::Queue presentQueue;

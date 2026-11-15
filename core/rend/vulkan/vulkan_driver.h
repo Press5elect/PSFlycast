@@ -61,6 +61,9 @@ public:
 			}
 			if (!justStarted)
 			{
+#if defined(USE_PS5)
+				context->BeginMenusLayer();	// HDR output's menus layer (shell/ps5/ps5_hdr.h)
+#endif
 				const vk::CommandBuffer targetCommandBuffer = getCommandBuffer();
 				static const float scopeColor[4] = {0.26f, 0.59f, 0.98f, 0.31f};
 				CommandBufferDebugScope _(targetCommandBuffer, "ImGui", scopeColor);

@@ -150,6 +150,7 @@ static void CheckImGuiResult(VkResult err)
 #include "ps5_fsr.h"
 #include "ps5_border.h"
 #include "ps5_framegen.h"
+#include "ps5_hdr.h"
 #include <cerrno>
 #define PS5_MARK(...) ps5::diag::mark(__VA_ARGS__)
 
@@ -962,6 +963,7 @@ void VulkanContext::CreateSwapChain()
 		device->waitIdle();
 #ifdef USE_PS5
 		ps5::fsr::reset();
+		ps5::hdr::reset();
 		ps5::border::reset();
 		ps5::framegen::reset();
 		ps5display::reset();
@@ -1081,6 +1083,10 @@ void VulkanContext::CreateSwapChain()
 			if (surfaceCapabilities.maxImageCount != 0)
 				imageCount = std::min(imageCount, surfaceCapabilities.maxImageCount);
 			vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eColorAttachment;
+#if defined(USE_PS5)
+			// HDR output copies its 10:10:10:2 pixels into the framebuffer (ps5_hdr.cpp).
+			usage |= vk::ImageUsageFlagBits::eTransferDst;
+#endif
 #if defined(TEST_AUTOMATION) || (defined(VIDEO_ROUTING) && defined(TARGET_MAC))
 			// for final screenshot or Syphon
 			usage |= vk::ImageUsageFlagBits::eTransferSrc;
@@ -1115,6 +1121,9 @@ void VulkanContext::CreateSwapChain()
 		swappyvk::init(physicalDevice, *device, *swapChain);
 
 		std::vector<vk::Image> swapChainImages = device->getSwapchainImagesKHR(*swapChain);
+#if defined(USE_PS5)
+		ps5SwapImages = swapChainImages;
+#endif
 
 		imageViews.resize(swapChainImages.size());
 		commandPools.reserve(swapChainImages.size());
@@ -1333,8 +1342,29 @@ void VulkanContext::BeginRenderPass()
 	const std::array<vk::ClearValue, 2> clear_colors = { getBorderColor(), vk::ClearDepthStencilValue{ 0.f, 0 } };
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
 	vkcount::pass();
+#if defined(USE_PS5)
+	// HDR output: the picture's layer first, the menus' after (BeginMenusLayer), made into HDR10
+	// at EndFrame (ps5_hdr.cpp).
+	hdrMenus = false;
+	hdrFrame = ps5::hdr::frameStart(presentFormat, width, height);
+	if (hdrFrame)
+	{
+		ps5::hdr::beginPicture(commandBuffer, *renderPass, width, height, clear_colors[0]);
+		return;
+	}
+#endif
 	commandBuffer.beginRenderPass(vk::RenderPassBeginInfo(*renderPass, *framebuffers[currentImage], vk::Rect2D({0, 0}, {width, height}), clear_colors),
 			vk::SubpassContents::eInline);
+}
+
+void VulkanContext::BeginMenusLayer()
+{
+#if defined(USE_PS5)
+	if (!hdrFrame || hdrMenus || !IsValid())
+		return;
+	hdrMenus = true;
+	ps5::hdr::beginMenus(*commandBuffers[currentImage], *renderPass, width, height);
+#endif
 }
 
 void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
@@ -1342,6 +1372,15 @@ void VulkanContext::EndFrame(vk::CommandBuffer overlayCmdBuffer)
 	if (!IsValid())
 		return;
 	vk::CommandBuffer commandBuffer = *commandBuffers[currentImage];
+#if defined(USE_PS5)
+	if (hdrFrame)
+	{
+		BeginMenusLayer();	// a frame with no menus has an empty layer of them
+		ps5::hdr::finish(commandBuffer, ps5SwapImages[currentImage], *imageViews[currentImage], presentFormat, width, height);
+		hdrFrame = false;
+		hdrMenus = false;
+	}
+#endif
 	commandBuffer.endRenderPass();
 	commandBuffer.end();
 	vk::PipelineStageFlags wait_stage(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -1689,6 +1728,7 @@ void VulkanContext::PresentFrame(vk::Image image, vk::ImageView imageView, const
 			if (lastFrameView) // Might have been nullified if swap chain recreated
 				DrawFrame(shown, extent, aspectRatio);
 
+			BeginMenusLayer();
 			DrawOverlay(settings.display.uiScale, config::FloatVMUs, true);
 			imguiDriver->renderDrawData(ImGui::GetDrawData(), false);
 			EndFrame(overlayCmdBuffer);
@@ -1711,6 +1751,7 @@ void VulkanContext::ReleaseGameResources()
 	WaitIdle();
 	lastFrameView = nullptr;
 	ps5::fsr::reset();
+	ps5::hdr::reset();
 	ps5::border::reset();
 	ps5::framegen::reset();
 	// The memory line once every image has been through a frame again.
@@ -1745,6 +1786,7 @@ void VulkanContext::term()
 	overlay.reset();
 #ifdef USE_PS5
 	ps5::fsr::reset();
+	ps5::hdr::reset();
 	ps5::border::reset();
 	ps5::framegen::reset();
 #endif

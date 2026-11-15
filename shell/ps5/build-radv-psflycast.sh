@@ -29,6 +29,9 @@
 #   0005        PS5 Mesa 7bd4aac55d8: a cached graphics pipeline that lost a stage is compiled
 #               again instead of created from the broken entry;
 #   0006        PS5 Mesa 0f86253f674: the mesh shaders' scratch ring is 128 MiB, not 320.
+#   0007        OGBox's HDR10 framebuffers on request (github.com/Press5elect/OGBox, its
+#               ps5/patches/mesa-27/0019): wsi_videoout_set_hdr10 retypes the framebuffers as
+#               HDR10 for shell/ps5/ps5_hdr.cpp.
 # PS5 Mesa's
 # f5610fe2709 (a freed buffer's memory kept until the GPU has run what was submitted before it) is
 # not applied: the Crux2 set already keeps a freed buffer's memory that way (its zombie list), and
@@ -117,7 +120,8 @@ git -C "$mesa" merge-base --is-ancestor "$pin" "$branch" ||
 	{ echo "build-radv-psflycast: $branch is not built on ${pin:0:11}" >&2; exit 1; }
 for wanted in "119.88 Hz on a VRR display" "leave its fixed rate" "variable refresh found while the title runs" \
 	"back a large buffer with several direct-memory" "a buffer piece is mapped only where nothing else is" \
-	"a cached graphics pipeline that lost a stage is a miss" "scratch ring is 128 MiB"; do
+	"a cached graphics pipeline that lost a stage is a miss" "scratch ring is 128 MiB" \
+	"HDR10 framebuffers on request"; do
 	git -C "$mesa" log --format=%s "$pin..$branch" | grep -q "$wanted" ||
 		{ echo "build-radv-psflycast: $branch lacks \"$wanted\"" >&2; exit 1; }
 done

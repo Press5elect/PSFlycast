@@ -693,7 +693,7 @@ Circle goes back.
 
 | Category | What is in it |
 |---|---|
-| **Video** | Internal resolution (up to 10x; 4x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate |
+| **Video** | Internal resolution (up to 10x; 4x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate, HDR and its brightness |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
 | **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager, and under PlayStation 5 the graphics driver's thread and waits, the short display queue, sound and controls first, and threads on cores of their own (with the driver's thread on a core of its own), and the logs (whether, where, how often saved) |
@@ -868,6 +868,20 @@ with 120 Hz output on: each frame is shown as soon as it is ready instead of
 at the TV's next fixed step. Turn it on, start PSFlyCast again, and look at
 Settings > About > Display: it says "variable refresh" when the console
 allowed it. If the picture stutters more than before, turn it off.
+
+**HDR** (Settings > Video, off by default; from OGBox). The picture goes to an
+HDR TV as HDR10 (BT.2020 colours, the PQ curve). **HDR white level** is how
+bright white is, the menus' and the picture's (203 nits, HDR's reference, by
+default); **HDR highlights** is how bright the game's brightest parts get (Off,
+or 400 to 4000 nits; 1000 by default): the picture's brightness above its
+middle is raised toward it, and the menus stay at the white level. It needs
+the console's own HDR setting on and a TV that takes HDR; otherwise the
+picture stays SDR, and the row says why. **Adjust HDR brightness** is a test
+screen: first a square at the TV's brightest with an X in it, raised until the
+X can no longer be seen (your TV's peak); then the menus and a grey scale at
+the white level. PSFlyCast now declares HDR to the console, so an HDR TV is in
+HDR mode while PSFlyCast runs, with HDR on or off. Not tested on a console
+yet.
 
 **Language.** The first time v1.0.2 or a later version starts, the Dreamcast's language
 is set to the console's (Japanese, English, German, French, Spanish or
