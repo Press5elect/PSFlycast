@@ -1570,10 +1570,27 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 		ps5::border::draw(commandBuffer, *renderPass, width, height,
 				vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
 	// The picture upscaled by FSR, where there is one of this frame (ps5_fsr.cpp).
-	if (ps5::fsr::present(commandBuffer, imageView, extent, *renderPass,
+	const bool byFsr = ps5::fsr::present(commandBuffer, imageView, extent, *renderPass,
 			vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)),
 			(int)std::lround(shiftX * (width - dx * 2) / (float)extent.width),
-			(int)std::lround(shiftY * (height - dy * 2) / (float)extent.height)))
+			(int)std::lround(shiftY * (height - dy * 2) / (float)extent.height));
+	{
+		// Diagnostic (FSR's picture out of shape, 2026-11-15): how the picture reaches the screen, once
+		// each time any of it changes: the path, the picture's size, its place, the aspect asked for,
+		// the shift, and the accurate quad.
+		static std::string said;
+		char line[320];
+		snprintf(line, sizeof(line), "picture: %s, %u x %u into %d x %d at (%d, %d) of %u x %u, aspect %.4f, shift %.2f %.2f%s",
+				byFsr ? "the upscaling's own draw (FSR, CAS, NIS, a look or a filter)" : "the plain quad",
+				extent.width, extent.height, (int)(width - dx * 2), (int)(height - dy * 2), dx, dy, width, height,
+				aspectRatio, shiftX, shiftY, !byFsr && lastFrameAccuracy.active() ? ", accurate (flicker filter / 16-bit)" : "");
+		if (said != line)
+		{
+			said = line;
+			ps5::diag::mark("%s", line);
+		}
+	}
+	if (byFsr)
 		return;
 #endif
 	

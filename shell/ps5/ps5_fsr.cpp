@@ -890,6 +890,19 @@ void upscale(vk::CommandBuffer commandBuffer, bool fresh, vk::ImageView view, co
 			&& !casCanScale((float)extent.width, (float)extent.height, (float)region.extent.width, (float)region.extent.height))
 			|| (nis && !nisDirect);
 	const bool wanted = easu && !failed && bigger;
+	if (isFsr(mode) && !wanted)
+	{
+		// Diagnostic (FSR's picture out of shape, 2026-11-15): FSR chosen but not used, and why.
+		static std::string said;
+		char line[200];
+		snprintf(line, sizeof(line), "fsr: not used for %u x %u into %u x %u (%s)", extent.width, extent.height,
+				region.extent.width, region.extent.height, failed ? "it failed" : !bigger ? "the picture is not smaller than its place" : "?");
+		if (said != line)
+		{
+			said = line;
+			ps5::diag::mark("%s", line);
+		}
+	}
 	if (!wanted && !nisDirect)
 	{
 		if (state)
