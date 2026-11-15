@@ -88,6 +88,10 @@ Option<int> ScreenStretching("rend.ScreenStretching", 100);
 Option<bool> StretchToFill("rend.StretchToFill");
 Option<bool> Fog("rend.Fog", true);
 Option<bool> FloatVMUs("rend.FloatVMUs");
+#ifdef __ANDROID__
+Option<bool> VmuSecondaryScreen("rend.VmuSecondaryScreen", true);
+Option<int> VmuSecondaryScreenScaling("rend.VmuSecondaryScreenScaling", 0);
+#endif
 Option<bool> Rotate90("rend.Rotate90");
 Option<bool> PerStripSorting("rend.PerStripSorting");
 #ifdef __APPLE__
@@ -118,6 +122,7 @@ Option<bool> AccurateMipmaps("rend.AccurateMipmaps", false);
 Option<bool> Original16Bit("rend.Original16BitColour", false);
 Option<bool> FlickerFilter("rend.FlickerFilter", false);
 Option<bool> ThreadedRendering("rend.ThreadedRendering", true);
+Option<bool> VblankPacing("");
 Option<bool> DupeFrames("rend.DupeFrames", false);
 Option<int> PerPixelLayers("rend.PerPixelLayers", 32);
 // PS5: an AMD graphics chip, as in the Xbox consoles the UWP build is for.

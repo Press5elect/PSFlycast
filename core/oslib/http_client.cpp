@@ -332,7 +332,7 @@ void term()
 }
 #endif	// !TARGET_UWP
 
-#elif (!defined(__ANDROID__) || defined(LIBRETRO)) && !defined(__APPLE__)
+#elif !defined(__ANDROID__) && !defined(__APPLE__)
 
 #include <curl/curl.h>
 
@@ -482,4 +482,4 @@ void term()
 }
 
 }
-#endif	// !_WIN32 && (!__ANDROID__ || LIBRETRO) && !__APPLE__
+#endif	// !_WIN32 && !__ANDROID__ && !__APPLE__

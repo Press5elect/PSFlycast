@@ -764,15 +764,18 @@ bool setAVInfo(retro_system_av_info& avinfo)
 	return true;
 }
 
-bool retro_refresh_av_info(double fps)
+void retro_setfps(double fps)
+{
+	if (fps > 0 && fps < 100)
+		fps_spg = fps;
+}
+
+static bool retro_refresh_av_info()
 {
 	retro_system_av_info avinfo;
 
 	if (first_run || game_data.empty())
 		return false;
-
-	if (fps > 0 && fps < 100)
-		fps_spg = fps;
 
 	if (setAVInfo(avinfo))
 	{
@@ -805,7 +808,7 @@ void retro_resize_renderer(int w, int h, float aspectRatio)
 	else
 	{
 		// Check if timing change is needed instead
-		if (retro_refresh_av_info(0))
+		if (retro_refresh_av_info())
 			return;
 
 		retro_game_geometry geometry;
@@ -874,8 +877,9 @@ static void update_variables(bool first_startup)
 		char str[100];
 		snprintf(str, sizeof(str), "%s", var.value);
 
-		char *pch = strtok(str, "x");
-		pch = strtok(NULL, "x");
+		char *saveptr;
+		char *pch = strtok_r(str, "x", &saveptr);
+		pch = strtok_r(NULL, "x", &saveptr);
 		if (pch != nullptr)
 			config::RenderResolution = strtoul(pch, NULL, 0);
 
@@ -2918,7 +2922,7 @@ static void updateLightgunCoordinates(u32 port)
 	lightgun_params[port].y = mo_y_abs[port];
 }
 
-void updateLightgunCoordinatesFromAnalogStick(int port)
+static void updateLightgunCoordinatesFromAnalogStick(int port)
 {
 	int x = input_cb(port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X);
 	mo_x_abs[port] = 320 + x * 320 / 32767;
