@@ -282,6 +282,10 @@ void writeAll(const char *text, size_t length)
 		return;
 	if (logFd < 0 && memoryMode && !memoryDir.empty())
 	{
+		// A crash whose report could not take the memory's lock (keepForCrash): its lines are
+		// dropped rather than waited for.
+		if (crashing)
+			return;
 		memPut(text, length);
 		return;
 	}
@@ -404,9 +408,15 @@ void report(int signal, siginfo_t *info, void *contextPointer)
 	// one line, not a crash, and a log kept in memory stays there.
 	if (signal == SIGTERM)
 	{
-		writef("[%s] the console ended PSFlyCast (SIGTERM)\n", lastMark);
-		if (logFd >= 0 && !writerUp)
+		// Straight to the file, as the crash report writes (a lock this thread may hold is never
+		// waited for); kept in memory, nothing.
+		if (!memoryMode && logFd >= 0)
+		{
+			crashing = true;
+			drainForCrash();
+			writef("[%s] the console ended PSFlyCast (SIGTERM)\n", lastMark);
 			fsync(logFd);
+		}
 		std::signal(signal, SIG_DFL);
 		std::raise(signal);
 		return;
