@@ -42,11 +42,11 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.8** (build 97). It is built
+Latest release: **v1.3.9** (build 98). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.8, v1.3.7, v1.3.6 and v1.3.5 have not been run on a console:
-[New in v1.3.8](#new-in-v138), [New in v1.3.7](#new-in-v137),
+v1.3.9, v1.3.8, v1.3.7, v1.3.6 and v1.3.5 have not been run on a console:
+[New in v1.3.9](#new-in-v139), [New in v1.3.8](#new-in-v138), [New in v1.3.7](#new-in-v137),
 [New in v1.3.6](#new-in-v136) and [New in v1.3.5](#new-in-v135) list their changes. A test build of v1.3.4 (build 91, the same changes as v1.3.4 but for
 the widescreen game patches' default) ran games on a console, with Mesa 27's
 driver; its changes, in [New in v1.3.4](#new-in-v134), have not been checked
@@ -133,6 +133,50 @@ right.
 
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
+
+## New in v1.3.9
+
+Added:
+
+- **HDR** (Settings > Video, off; from OGBox): the picture goes to an HDR TV as
+  HDR10 (BT.2020 colours, the PQ curve), the game's brightest parts raised
+  toward **HDR highlights** (1000 nits by default) and white at the **HDR
+  white level** (203 nits); the menus stay at the white level. **Adjust HDR
+  brightness** is a test screen for the TV's peak and the white level. It
+  needs the console's own HDR setting on and a TV that takes HDR; PSFlyCast
+  now declares HDR to the console, so an HDR TV is in HDR mode while PSFlyCast
+  runs, with HDR on or off.
+- **Memory cards kept in sync with the network share, both ways** (Crux2's
+  sync): when PSFlyCast starts and when a game is quit, a card changed on one
+  side goes to the other; one changed on both keeps the newer, and the other
+  is put in an "older" folder on its side. In place of the one-way backup, in
+  the same folder.
+- **Delete a save state** (Game details > Load state): Triangle twice.
+- **Vibration in the menus** and **Circle confirms** (Settings > Controls,
+  from OGBox).
+- **The quick menu in your own order** (Triangle in it): entries moved and
+  hidden.
+- **Internal resolution 4.5x (2160p)**, a 4K screen's own lines: a 4:3
+  picture is shown there without being scaled up or down.
+- **Save logs to the drive: Kept in memory**: no boot log is written until
+  something goes wrong (a crash, a game that does not start) or **Write the
+  log now** (Settings > System > Logs) is chosen.
+
+Changed:
+
+- **Flycast** is its `dev` branch at 63e7d91 (14 November 2026): fixes to the
+  Vulkan renderer's synchronisation, the sound chip's DMA rate and reset, and
+  arcade fixes.
+- **The graphics driver** has two more PS5 Mesa fixes: a cached pipeline that
+  lost a stage is compiled again instead of used broken, and the mesh shaders'
+  scratch memory is 128 MiB, not 320.
+- **The payload SDK** is at `3345cde` (the SDK's v0.45 release): memory a
+  burst of allocations left behind is given back to the console every 10
+  seconds.
+- **libsmb2** is at `177a9de`.
+- **The crash report** names the thread it happened on, and reports the
+  console's processor time limit; the console ending PSFlyCast is one line in
+  the log, not a crash.
 
 ## New in v1.3.8
 
@@ -1519,7 +1563,7 @@ make -C PS5_Vulkan        # it may stop at its own sample afterwards; the tool a
 # The graphics driver: PS5_Mesa at 1ba9874 with Crux2's ps5/patches/mesa-27
 # (among them Mesa main, 27.0-devel, and this repository's two display patches,
 # shell/ps5/mesa, as 0015 and 0016), then four PS5 Mesa fixes (shell/ps5/mesa 0003
-# to 0006), built by PS5_Vulkan's build-radv.sh into
+# to 0006) and OGBox's HDR10 framebuffers (0007), built by PS5_Vulkan's build-radv.sh into
 # PS5_Vulkan/.deps/native/radv-psflycast. A long build.
 PSFlyCast/shell/ps5/build-radv-psflycast.sh
 
@@ -1552,7 +1596,8 @@ a title that imports a function no module a title loads exports.
 
 v1.3.9 is made with Flycast `dev` at `63e7d91`, PS5_Vulkan `7f492b4` (its changes since
 `f410e67` are its Windows-game broker and a test; nothing a title links), two more PS5
-Mesa commits, `7bd4aac55d8` and `0f86253f674` (`shell/ps5/mesa/0005` and `0006`), the
+Mesa commits, `7bd4aac55d8` and `0f86253f674` (`shell/ps5/mesa/0005` and `0006`), OGBox's
+HDR10 framebuffers on request (`0007`, OGBox's `ps5/patches/mesa-27/0019`), the
 payload SDK fork at `3345cde` and libsmb2 `177a9de`.
 v1.3.8 and v1.3.7 are made as v1.3.6 is, with two more driver commits, PS5 Mesa `53cc83ff82b`
 and `249fe49d2d8` (`shell/ps5/mesa/0003` and `0004`; the first had one conflict with
