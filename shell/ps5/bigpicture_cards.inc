@@ -477,6 +477,7 @@ struct CardBackup
 	std::thread thread;
 	std::atomic<bool> running{ false };
 	std::atomic<bool> stop{ false };		// a game is starting: no more changes here
+	std::mutex writing;						// held while a card here is written, and to set stop
 	std::string result;						// the last run, for the Settings
 };
 
@@ -495,25 +496,25 @@ std::string cardBackupResult()
 	return b.result.empty() ? "Not yet" : b.result;
 }
 
-// A game is about to open its cards: a sync under way stops before its next change here, and
-// this waits for the one it is making. (In the file's unnamed namespace, where launch() is.)
+// A game is about to open its cards: a sync under way makes no more changes here. Only a card
+// being written here at that moment is waited for (a local file, a moment), never the share, which
+// can take a minute to wake: the sync goes on with it in the background, sending only.
+// (In the file's unnamed namespace, where launch() is.)
 namespace
 {
 void stopCardSync()
 {
 	CardBackup& b = cardBackup();
-	if (!b.running)
-		return;
-	b.stop = true;
-	if (b.thread.joinable())
-		b.thread.join();
+	std::lock_guard<std::mutex> lock(b.writing);
+	if (b.running)
+		b.stop = true;
 }
 } // namespace
 
 namespace cardsync
 {
 // The file access for both sides: smb:// paths are the share's, the rest the console's.
-PS5CardSync::Io io(const CardBackup& b)
+PS5CardSync::Io io(CardBackup& b)
 {
 	using PS5CardSync::FileInfo;
 	PS5CardSync::Io io;
@@ -581,7 +582,7 @@ PS5CardSync::Io io(const CardBackup& b)
 		fclose(f);
 		return ok;
 	};
-	io.write = [split](const std::string& path, const std::string& data) {
+	io.write = [split, &b](const std::string& path, const std::string& data) {
 		std::string folder, name;
 		split(path, folder, name);
 		if (ps5::smb::isNetworkPath(path))
@@ -589,7 +590,11 @@ PS5CardSync::Io io(const CardBackup& b)
 			std::string why;
 			return ps5::smb::storeFile(folder, name, data.data(), data.size(), why);
 		}
-		// Beside it, then in its place: a cut-off write leaves the card as it was.
+		// Beside it, then in its place: a cut-off write leaves the card as it was. Not once a game
+		// is starting (stopCardSync): it opens the cards.
+		std::lock_guard<std::mutex> lock(b.writing);
+		if (b.stop)
+			return false;
 		const std::string part = path + ".part";
 		FILE *f = fopen(part.c_str(), "wb");
 		if (f == nullptr)
@@ -649,7 +654,10 @@ void startCardBackup(bool manual)
 		return;
 	if (b.thread.joinable())
 		b.thread.join();
-	b.stop = false;
+	{
+		std::lock_guard<std::mutex> lock(b.writing);
+		b.stop = false;
+	}
 	std::string folder = get_writable_data_path("");
 	while (!folder.empty() && folder.back() == '/')
 		folder.pop_back();
@@ -696,7 +704,10 @@ void startCardBackup(bool manual)
 			b.running = false;
 		}
 		// A share that is off is said in the Settings and the log; on the screen only when asked.
-		if ((!result.listed && manual) || result.failed)
+		// A run a game stopped says nothing on the screen (the game is on it).
+		if (result.stopped)
+			;
+		else if ((!result.listed && manual) || result.failed)
 			os_notify("Memory cards not synced", 6000, summary.c_str());
 		else if (manual || result.brought || result.both_changed)
 			os_notify("Memory cards synced", 3000, summary.c_str());
