@@ -139,6 +139,12 @@ void loadOptions(const std::string& dir)
 			currentOptions.menuSounds = value != 0;
 		else if (!strcmp(key, "light_bar"))
 			currentOptions.lightBar = value != 0;
+		else if (!strncmp(key, "quick_", 6) && key[6] >= '0' && key[6] <= '9')
+		{
+			const int kind = atoi(key + 6);
+			if (kind >= 0 && kind < Options::QuickKinds)
+				currentOptions.quickPlace[kind] = std::clamp(value, -1, 2 * Options::QuickKinds);
+		}
 		else if (!strcmp(key, "menu_vibration"))
 			currentOptions.menuVibration = value != 0;
 		else if (!strcmp(key, "circle_confirms"))
@@ -180,7 +186,7 @@ void saveOptions()
 	if (optionsFile.empty())
 		return;
 	char text[2048];
-	const int length = snprintf(text, sizeof(text), "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
+	int length = snprintf(text, sizeof(text), "view = %d\ncovers = %d\nusb = %d\nram_cache = %d\nsource = %d\ndefaults = %d\nhz120 = %d\n"
 			"group_discs = %d\nskin = %d\naccent = %d\nbackdrop = %d\nmotion = %d\nsplash = %d\nsplash_sound = %d\n"
 			"update_check = %d\nmenu_sounds = %d\nlight_bar = %d\nusb_input = %d\nvrr = %d\nnotifications = %d\n"
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
@@ -199,6 +205,12 @@ void saveOptions()
 			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers,
 			(int)currentOptions.logs, currentOptions.logPlace, currentOptions.logSync,
 			(int)currentOptions.menuVibration, (int)currentOptions.circleConfirms);
+	// The quick menu's arrangement: only the kinds that were moved or hidden.
+	int used = length;
+	for (int kind = 0; kind < Options::QuickKinds && used > 0 && used < (int)sizeof(text); kind++)
+		if (currentOptions.quickPlace[kind] >= 0)
+			used += snprintf(text + used, sizeof(text) - used, "quick_%d = %d\n", kind, currentOptions.quickPlace[kind]);
+	length = used;
 	// Not written again when it reads as it did at the last write (a toggle back, a setting
 	// chosen twice): the drive's writes are not spent on a file that stays as it is.
 	static std::string lastSaved;

@@ -8121,6 +8121,7 @@ struct QuickItem
 struct QuickState
 {
 	int focus = 0;
+	bool arranging = false;			// Triangle: the entries moved and hidden (from OGBox)
 	float open = 0;
 	float focusAnim = 0;
 	// The Cheats page.
@@ -10032,6 +10033,7 @@ void quickMenu()
 		const int frame = ImGui::GetFrameCount();
 		if (frame != lastFrame + 1)
 		{
+			qm.arranging = false;
 			if (qm.optionsDirty)
 			{
 				SaveSettings();
@@ -10288,6 +10290,46 @@ void quickMenu()
 			startCardBackup(false);
 	} });
 
+	// ---- the entries as arranged (Triangle, from OGBox 0.7): each kind by its icon, its place and
+	// whether it is hidden kept in frontend.cfg. Resume and Quit game are always there.
+	static const char *const QuickKinds[ps5::Options::QuickKinds] = { ICON_FA_PLAY, ICON_FA_DOWNLOAD,
+			ICON_FA_CLOCK_ROTATE_LEFT, ICON_FA_LAYER_GROUP, ICON_FA_BACKWARD, ICON_FA_FORWARD, ICON_FA_COMPACT_DISC,
+			ICON_FA_FOLDER_OPEN, ICON_FA_SD_CARD, ICON_FA_BOLT, ICON_FA_STOPWATCH, ICON_FA_MAGNIFYING_GLASS,
+			ICON_FA_TROPHY, ICON_FA_SLIDERS, ICON_FA_GAMEPAD, ICON_FA_POWER_OFF, ICON_FA_RIGHT_FROM_BRACKET };
+	auto kindOf = [](const QuickItem& it) {
+		for (int k = 0; k < ps5::Options::QuickKinds; k++)
+			if (std::strcmp(it.icon, QuickKinds[k]) == 0)
+				return k;
+		return -1;
+	};
+	auto fixed = [](int kind) { return kind == 0 || kind == ps5::Options::QuickKinds - 1; };
+	int (&place)[ps5::Options::QuickKinds] = ps5::options().quickPlace;
+	{
+		// The order: a kind that was moved at its place, the others where they come, ties as built.
+		std::vector<std::pair<int, size_t>> order;
+		for (size_t i = 0; i < items.size(); i++)
+		{
+			const int k = kindOf(items[i]);
+			order.push_back({ k >= 0 && place[k] >= 0 ? place[k] / 2 : (int)i, i });
+		}
+		std::stable_sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+		std::vector<QuickItem> arranged;
+		for (const auto& [at, i] : order)
+		{
+			const int k = kindOf(items[i]);
+			const bool hidden = k >= 0 && !fixed(k) && place[k] >= 0 && (place[k] & 1);
+			if (hidden && !qm.arranging)
+				continue;
+			arranged.push_back(items[i]);
+			if (hidden)
+			{
+				arranged.back().detail = "Hidden";
+				arranged.back().enabled = false;
+			}
+		}
+		items.swap(arranged);
+	}
+
 	// ---- input
 	const int n = (int)items.size();
 	QuickItem& cur = items[std::clamp(qm.focus, 0, n - 1)];
@@ -10298,8 +10340,49 @@ void quickMenu()
 	const bool onTrophies = qm.trophies;
 	const bool onTools = qm.tool != 0;
 	const bool onPage = onCheats || onControls || onRewind || onTrophies || onTools;
-	if (!onPage)
+	if (!onPage && qm.arranging)
 	{
+		// Up and down move the focused entry, Square shows or hides it, Triangle or Circle ends.
+		auto keep = [&] {
+			for (int i = 0; i < n; i++)
+			{
+				const int k = kindOf(items[i]);
+				if (k >= 0)
+					place[k] = i * 2 + (items[i].detail == "Hidden" ? 1 : 0);
+			}
+		};
+		const int step = in.up ? -1 : in.down ? 1 : 0;
+		const int to = qm.focus + step;
+		if (step != 0 && to >= 0 && to < n)
+		{
+			std::swap(items[qm.focus], items[to]);
+			qm.focus = to;
+			keep();
+		}
+		if (in.square)
+		{
+			const int k = kindOf(items[qm.focus]);
+			if (k < 0 || fixed(k))
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+			else
+			{
+				items[qm.focus].detail = items[qm.focus].detail == "Hidden" ? "" : "Hidden";
+				keep();
+			}
+		}
+		if (in.triangle || in.back)
+		{
+			qm.arranging = false;
+			ps5::saveOptions();
+		}
+	}
+	else if (!onPage)
+	{
+		if (in.triangle)
+		{
+			qm.arranging = true;
+			qm.focus = std::clamp(qm.focus, 0, n - 1);
+		}
 		if (in.up) qm.focus = (qm.focus + n - 1) % n;
 		if (in.down) qm.focus = (qm.focus + 1) % n;
 		QuickItem& now = items[std::clamp(qm.focus, 0, n - 1)];
@@ -10490,11 +10573,18 @@ void quickMenu()
 				hint(Glyph::Square, qm.controlSquare.c_str());
 			hint(Glyph::Circle, "Back");
 		}
+		else if (qm.arranging)
+		{
+			hint(Glyph::DPadUD, "Move");
+			hint(Glyph::Square, cur.detail == "Hidden" ? "Show" : "Hide");
+			hint(Glyph::Triangle, "Done");
+		}
 		else
 		{
 			hint(Glyph::Cross, "Select");
 			if (cur.side)
 				hint(Glyph::DPadLR, cur.sideHint);
+			hint(Glyph::Triangle, "Arrange");
 			hint(Glyph::Circle, "Resume");
 		}
 	}

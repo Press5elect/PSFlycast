@@ -127,6 +127,10 @@ struct Options
 	// when a game starts, and Circle to choose with Cross to go back (the games' own buttons stay).
 	bool menuVibration = true;
 	bool circleConfirms = false;
+	// The quick menu's entries as arranged with Triangle (from OGBox 0.0.7): for each of its kinds
+	// (bigpicture.cpp's QuickKinds), its place * 2 + 1 when hidden; -1 where it has not been moved.
+	static constexpr int QuickKinds = 17;
+	int quickPlace[QuickKinds] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
 	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
 	bool vrr = true;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts

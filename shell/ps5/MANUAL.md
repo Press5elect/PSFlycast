@@ -294,6 +294,12 @@ Fast forward can be put on a button of the controller: see
 **Screenshots** are the console's own: its Create button takes them, of a
 game here as of anything else.
 
+**Your own order (Triangle).** Triangle in the menu arranges it: Up and Down
+move the focused entry, Square hides it or shows it again, and Triangle or
+Circle ends. Hidden entries are listed dimmed while you arrange and are gone
+from the menu after. Resume and Quit game cannot be hidden. The order is kept
+in `frontend.cfg` for every game. Not tested on a console yet.
+
 ## 8. Saving
 
 There are two kinds of save, and they are separate.
