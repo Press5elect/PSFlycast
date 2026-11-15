@@ -986,9 +986,13 @@ bool present(vk::CommandBuffer commandBuffer, vk::ImageView view, const vk::Exte
 			return drawLook(commandBuffer, 0, 0, state->nisTarget->GetImageView(), region.extent, renderPass, region, shiftX, shiftY);
 		return drawLook(commandBuffer, 0, 0, view, extent, renderPass, region, shiftX, shiftY);
 	}
-	if (!state || !state->ready || failed || ps5::Upscaling == UpscalingOff || state->source != view
-			|| !state->target || state->target->getExtent() != region.extent)
+	if (ps5::Upscaling == UpscalingOff)
 		return false;
+	if (!state || !state->ready || failed || state->source != view
+			|| !state->target || state->target->getExtent() != region.extent)
+		// FSR has nothing to enlarge (the picture is already its place's size): Film grain and the
+		// colours still apply, as they do with Off and CAS.
+		return lookWanted() && drawLook(commandBuffer, 0, 0, view, extent, renderPass, region, shiftX, shiftY);
 	State& s = *state;
 	vk::DescriptorSet set;
 	try {
