@@ -31,12 +31,26 @@ Move Management does not receive it yet (its PROTOCOL.md).
 
 ## Asked for, not done yet
 
-- **SMAA, debanding, Lanczos down-sampling** (OGBox's; asked for v1.3.9, not started). They go in
-  `ps5_fsr.cpp`'s picture chain, off by default; SMAA needs its area and search tables (MIT).
-  Crux2's SMAA needed two black-screen fixes (Crux2 `eca7923`, `d01f2cd`): read them first.
-- **NFS shares** (asked for v1.3.9, not started): libnfs cross-built for the title, a backend
-  beside libsmb2 in `ps5_smb.cpp` (Crux2's and OGBox's `vfs/ps5_vfs_nfs.cpp` are the model), its
-  licence in `release/components.json`.
+- **NFS shares** (asked for v1.3.9, not started). The size of it: libnfs cross-built for the title
+  (Crux2's and OGBox's pin is `7613236`, its 8.0.0 release and four fixes; OGBox's
+  `ps5/tools/build-deps.sh` builds it), a backend like Crux2's and OGBox's
+  `vfs/ps5_vfs_nfs.cpp` (about 1,050 lines), and `ps5_smb.cpp` made to serve both: it calls
+  libsmb2 directly 71 times (listing, the streamed file, the in-memory image, `putFile`, the card
+  sync's functions, finding servers), so the first step is a small file-access layer under those,
+  tested against Samba as the README's verification did, before NFS goes in beside it. Then
+  `nfs://` folders in `network.cfg` and in Settings > Library > Network, and libnfs's licence
+  (LGPL-2.1) in `release/components.json`.
+- **Debanding** (OGBox's): not asked for in the end; SSAA and SMAA are in (build after 99).
+- **FSR's picture zoomed about its middle** (Press5elect, 2026-11-15, the same as GitHub issue 4's
+  "stretched"): with FSR the picture shows its middle, larger (about 1.12 across and 1.5 down at
+  4x on a 4K screen), at every internal resolution; CAS shows it right. Not found yet. Checked: the
+  title's EASU and RCAS shaders, composed as `ps5_fsr.cpp` composes them, with
+  `ps5_fsr_constants.h`'s constants, stretch a 2560x1920 line pattern to 2880x2160 and draw it
+  at x 480 on a 3840x2160 screen on lavapipe with every line within a pixel of where it belongs;
+  the push-constant layouts match the shaders; the setting's values match the enum; nothing else
+  in the title reads the setting. So what the console gives `upscale()` and `present()` (the
+  picture's size, its image, the rectangle) is the next thing to see: the boot log's
+  `fsr: W x H to W x H` line and its `settings:` lines from a run with FSR.
 - **Covers three at a time** (OGBox's, asked for v1.3.9, left out): PSFlyCast's one HTTPS client
   (`ps5_covers.cpp`, `httpMutex`) shares its error code, its one-time setup and the switch to the
   title's own TLS across requests. Concurrent requests need those made per request first, and a
