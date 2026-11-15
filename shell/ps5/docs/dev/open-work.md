@@ -15,6 +15,20 @@ Builds 94 to 98 (v1.3.5 to v1.3.9) have not been run on a console. What each nee
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
 | 98, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line |
 
+## PlayStation Move (v1.3.9, build 99)
+
+Through Move Management (a separate payload; `ps5_pad.cpp`'s Move section, its client vendored in
+`third_party/move_management`). Checked: the title builds and links (the sockets pass the import
+check); Move Management's own producer-to-client test passes on the PC. Not checked: anything
+with a real Move. On the console, look for the `move:` lines (the ports opened, a player's
+controllers arriving and going quiet, the screen calibration read), then: the buttons and T in
+Controls, the Navigation's stick, aiming in a light-gun game (direction: Motion aiming direction;
+speed with and without Move Management's screen calibration), SELECT recentring, a DualSense on
+the same port not aiming at the same time, and a controller turned off mid-game releasing its
+buttons. Move Management's packet axes are taken as the DualSense's (yaw from the gyro's second
+axis, pitch from its first); if the aim turns the wrong way, that is where to look. No rumble:
+Move Management does not receive it yet (its PROTOCOL.md).
+
 ## Asked for, not done yet
 
 - **SMAA, debanding, Lanczos down-sampling** (OGBox's; asked for v1.3.9, not started). They go in

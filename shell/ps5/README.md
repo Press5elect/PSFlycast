@@ -74,6 +74,10 @@ Added:
   side goes to the other; one changed on both keeps the newer, and the other
   is put in an "older" folder on its side. In place of the one-way backup, in
   the same folder.
+- **PlayStation Move and Navigation controllers** (Settings > Controls,
+  off; experimental), through Move Management, a separate payload by
+  REXCRAFT88: each player's are a controller of their own, and in a
+  light-gun game the Move aims by turning it.
 - **Delete a save state** (Game details > Load state): Triangle twice.
 - **Vibration in the menus** and **Circle confirms** (Settings > Controls,
   from OGBox).

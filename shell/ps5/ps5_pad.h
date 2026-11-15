@@ -112,6 +112,9 @@ extern config::Option<int> MotionAimDirection;
 // 0 off, 1 low, 2 medium, 3 high. Settings, and a game can have its own.
 extern config::Option<int> MotionAimSpeed;
 extern config::Option<int> MotionAimSmoothing;
+// PlayStation Move and Navigation controllers through Move Management (off): ps5_pad.cpp's Move
+// section.
+extern config::Option<bool> PSMove;
 
 // Turbo: the buttons (libScePad bits) that are pressed again and again while
 // held, and how fast: 0 slow (7 a second), 1 normal (10), 2 fast (15).

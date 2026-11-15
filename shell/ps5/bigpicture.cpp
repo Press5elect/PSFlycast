@@ -6807,6 +6807,14 @@ std::vector<Category> buildCategories()
 		controls.rows.push_back(r);
 	}
 	{
+		// PlayStation Move and Navigation controllers through Move Management (ps5_pad.cpp).
+		Row r{ Row::Toggle, "PlayStation Move",
+				"Use PS Move and Navigation controllers that Move Management (a separate payload, by REXCRAFT88) has connected: each player's are a controller of their own on that player's port, and in a light-gun game the Move aims by turning it (SELECT puts the aim back in the middle). Start Move Management first and assign the controllers to players there. Experimental; not tested on a console yet." };
+		r.get = [] { return ps5::pad::PSMove ? 1 : 0; };
+		r.set = [](int v) { ps5::pad::PSMove.set(v != 0); };
+		controls.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Toggle, "Vibration in the menus",
 				"A short buzz when a game starts and when something cannot be done." };
 		r.get = [] { return ps5::options().menuVibration ? 1 : 0; };

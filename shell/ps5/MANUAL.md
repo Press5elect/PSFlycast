@@ -664,6 +664,31 @@ played with a light gun needs the gun plugged in: in that game's options
 (the quick menu > Controls) set **Port A** to
 **Light gun** and start the game again.
 
+**PlayStation Move and Navigation controllers** (Settings > Controls >
+**PlayStation Move**, off by default; experimental). PSFlyCast does not connect
+them itself: [Move Management](https://github.com/REXCRAFT88/Move-Management-PS5),
+a separate payload by REXCRAFT88, does, and sends their buttons and motion to
+the titles that ask. Start it first, connect the controllers and assign them to
+players P1 to P4 in its web page (its README says how), then turn this on. Each
+player's Move, and a Navigation controller beside it, are then a controller of
+their own on that player's port, **PS Move P1** to **P4**, which the quick
+menu's Controls can lay out like any other. By default:
+
+- **T** fires (A), the **Move** button is B, **START** is Start, Square and
+  Triangle are X and Y, **PS** opens the quick menu;
+- the Navigation controller's stick is the analog stick, its D-pad the D-pad,
+  L1 is Z and L2 the left trigger;
+- in an arcade game T and Move are buttons 1 and 2, Square and Triangle 3 and
+  4, and the Navigation's L1 inserts a coin.
+
+In a light-gun game the Move aims the gun by turning it, as Motion aiming does
+with the DualSense (the same direction, speed and smoothing settings), whatever
+Light gun aiming says. **SELECT** puts the gun back in the middle. If Move
+Management's own screen calibration was saved for that player, the gun follows
+the TV's real size instead of Motion aiming speed. While a Move aims, the
+DualSense on the same port does not. Move Management does not take vibration
+back yet, so the Move does not rumble. Not tested on a console yet.
+
 **A USB keyboard and mouse.** Plug them into the console before starting a
 game. For a Dreamcast game the keyboard goes into the first port no
 controller is in and the mouse into the next, so a game that knows them
@@ -701,7 +726,7 @@ Circle goes back.
 |---|---|
 | **Video** | Internal resolution (up to 10x; 4x by default), transparency sorting and its per-pixel layers, widescreen, super widescreen, horizontal stretching, rotating the screen for arcade games on their side, stretch to fill, fog, shadows, the translucent depth mask, edge bleeding in upscaled pictures, texture filtering and upscaling, custom textures, mipmaps, native depth interpolation, frame skipping, the memory card's screen and its size, upscaling (FSR 1) and the Scanlines and CRT filters, frame generation, the software renderer, frame pacing, the frame rate and speed readout, 120 Hz output, variable refresh rate, HDR and its brightness |
 | **Audio** | Volume, the sound chip's effects, the memory card's beeps and where they play (TV, controller or both) |
-| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, a USB keyboard and mouse |
+| **Controls** | Vibration, stick dead zone, left stick as D-pad, the controller's second slot, light gun aiming and crosshair, restore the default layout, which ports have a controller, the light bar, PlayStation Move, a USB keyboard and mouse |
 | **System** | Region, language, TV standard, video cable, built-in BIOS, fast disc loading, the CPU recompiler, CPU clock, auto save and load state, rewind, backing up memory cards to the network share, the memory card manager, and under PlayStation 5 the graphics driver's thread and waits, the short display queue, sound and controls first, and threads on cores of their own (with the driver's thread on a core of its own), and the logs (whether, where, how often saved) |
 | **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
 | **Achievements** | RetroAchievements on or off, and your account on the site |

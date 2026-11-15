@@ -11,6 +11,12 @@
 	(PS5SX2, whose testers found a PS5 title's pad starts in haptics mode).
 */
 #include "ps5_pad.h"
+#include "third_party/move_management/move_management_client.hpp"
+#include "third_party/move_management/aim_screen_profile.hpp"
+
+#include <time.h>
+// The kernel's own clock_gettime (ps5-link.sh wraps it with ps5_clock.c's).
+extern "C" int __real_clock_gettime(clockid_t clock, struct timespec *now);
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
 #include "input/mouse.h"
@@ -69,6 +75,7 @@ config::Option<int> LightGunAim("LightGunAim", AimStick, "ps5");
 config::Option<int> MotionAimDirection("MotionAimDirection", 0, "ps5");
 config::Option<int> MotionAimSpeed("MotionAimSpeed", 100, "ps5");
 config::Option<int> MotionAimSmoothing("MotionAimSmoothing", 1, "ps5");
+config::Option<bool> PSMove("PSMove", false, "ps5");
 config::Option<int> TurboButtons("TurboButtons", 0, "ps5");
 config::Option<int> TurboRate("TurboRate", 1, "ps5");
 config::Option<int> PadProfile("PadProfile", 0, "ps5");
@@ -235,6 +242,11 @@ public:
 		dirty = false;
 	}
 };
+
+// Whether a PlayStation Move aims this port's light gun, and the Move devices let go (the Move
+// section, below).
+bool moveAiming(int port);
+void stopMove();
 
 class DualSenseGamepad : public GamepadDevice
 {
@@ -530,7 +542,7 @@ public:
 		const int port = maple_port();
 		const bool gunGame = ::settings.input.lightgunGame
 				|| (::settings.platform.isConsole() && port >= 0 && port < 4 && config::MapleMainDevices[port] == MDT_LightGun);
-		if (LightGunAim == AimStick || port < 0 || port >= 4 || !gunGame)
+		if (LightGunAim == AimStick || port < 0 || port >= 4 || !gunGame || moveAiming(port))
 		{
 			aiming = false;
 			return;
@@ -882,6 +894,7 @@ void term()
 		seat = Seat();
 	}
 	portsPresent = 0;
+	stopMove();
 	initialized = false;
 }
 
@@ -1221,6 +1234,392 @@ void shapeRight(int pad, State& s)
 	s.py = PadAxisY == AxisOff ? 0.f : PadAxisY == AxisInverted ? -y : y;
 }
 
+// ---- PlayStation Move and Navigation controllers, through Move Management
+//
+// Move Management (github.com/REXCRAFT88/Move-Management-PS5) is a payload of its own: it owns
+// Bluetooth, the controllers' registration and their calibration, and sends each player's
+// controllers to the console's loopback as UDP (its docs/PROTOCOL.md): player p's Move on port
+// 9976 + p, a Navigation controller on 9980 + p. With Settings > Controls > PlayStation Move on,
+// each player whose stream arrives gets a device of its own on that player's port, "PS Move P1"
+// to "P4": the Move's buttons and T, and a Navigation controller's buttons and stick, each with
+// codes of their own, so Controls remaps them like any controller. In a light-gun game the
+// Move aims the gun by turning it, as the DualSense's Motion aiming does (the same filter and
+// speed), or at the TV's own size when Move Management's screen calibration saved one
+// (/data/move-studio/aim-player-N.ini: the angles to the screen's edges). Select puts the aim
+// back in the middle. While a Move aims a port, the DualSense's motion aim there stands down.
+// The stream's orientation is not a measured pose (identity, its docs say), so only the gyro is
+// used. Move Management does not take rumble back yet: none is sent.
+
+namespace
+{
+using move_management::Client;
+
+// The kernel's clock, which the producer stamps its packets with: the title's own CLOCK_MONOTONIC
+// (ps5_clock.c) can trail it by microseconds, and the client refuses a packet from the future.
+uint64_t kernelMicros()
+{
+	timespec t{};
+	__real_clock_gettime(CLOCK_MONOTONIC, &t);
+	return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
+}
+
+// The wire's button bits (Move Management's PROTOCOL.md).
+enum : u32 {
+	MvSelect = 0x1, MvL3 = 0x2, MvR3 = 0x4, MvStart = 0x8, MvUp = 0x10, MvRight = 0x20, MvDown = 0x40,
+	MvLeft = 0x80, MvL2 = 0x100, MvR2 = 0x200, MvL1 = 0x400, MvR1 = 0x800, MvTriangle = 0x1000,
+	MvCircle = 0x2000, MvCross = 0x4000, MvSquare = 0x8000, MvPS = 0x10000, MvMove = 0x20000,
+};
+// The device's codes: the Move's bits as they are (0 to 17), T as a button (18), the Navigation
+// controller's bits from 32. Axes: the Navigation stick's X and Y, T, the Navigation's L2.
+constexpr u32 MoveT = 18, NavBase = 32;
+enum { MoveAxisNavX, MoveAxisNavY, MoveAxisT, MoveAxisNavL2 };
+
+const struct { u32 bit; const char *name; } moveButtonNames[] = {
+	{ MvCross, "Cross" }, { MvCircle, "Circle" }, { MvSquare, "Square" }, { MvTriangle, "Triangle" },
+	{ MvMove, "Move" }, { MvStart, "START" }, { MvSelect, "SELECT" }, { MvPS, "PS" },
+};
+const struct { u32 bit; const char *name; } navButtonNames[] = {
+	{ MvCross, "Nav Cross" }, { MvCircle, "Nav Circle" }, { MvL1, "Nav L1" }, { MvL2, "Nav L2" },
+	{ MvL3, "Nav L3" }, { MvUp, "Nav Up" }, { MvDown, "Nav Down" }, { MvLeft, "Nav Left" }, { MvRight, "Nav Right" },
+	{ MvPS, "Nav PS" },
+};
+const char *moveAxisNames[] = { "Nav Stick X", "Nav Stick Y", "T", "Nav L2" };
+
+// The default layout. A light gun (and the console's controller): T fires (A), the Move button
+// is B, Start is Start, Square and Triangle X and Y. The Navigation controller: its stick the
+// analog stick, its D-pad the D-pad, L1 Z, L2 the left trigger. Arcade: T button 1, Move button
+// 2, Square and Triangle buttons 3 and 4, a coin on the Navigation's L1. PS opens the quick menu.
+// Cross, Circle and the Navigation's Cross and Circle are free for a layout of your own.
+template<bool Arcade>
+class MoveMapping : public InputMapping
+{
+public:
+	MoveMapping()
+	{
+		name = Arcade ? "PS Move (arcade)" : "PS Move";
+		auto bit = [](u32 b) { return (u32)__builtin_ctz(b); };
+		set_button(DC_BTN_A, MoveT);
+		set_button(DC_BTN_B, bit(MvMove));
+		set_button(DC_BTN_START, bit(MvStart));
+		set_button(EMU_BTN_MENU, bit(MvPS));
+		set_button(DC_DPAD_UP, NavBase + bit(MvUp));
+		set_button(DC_DPAD_DOWN, NavBase + bit(MvDown));
+		set_button(DC_DPAD_LEFT, NavBase + bit(MvLeft));
+		set_button(DC_DPAD_RIGHT, NavBase + bit(MvRight));
+		if constexpr (Arcade)
+		{
+			set_button(DC_BTN_C, bit(MvSquare));
+			set_button(DC_BTN_X, bit(MvTriangle));
+			set_button(DC_BTN_D, NavBase + bit(MvL1));		// coin
+		}
+		else
+		{
+			set_button(DC_BTN_X, bit(MvSquare));
+			set_button(DC_BTN_Y, bit(MvTriangle));
+			set_button(DC_BTN_Z, NavBase + bit(MvL1));
+		}
+		set_axis(DC_AXIS_LEFT, MoveAxisNavX, false);
+		set_axis(DC_AXIS_RIGHT, MoveAxisNavX, true);
+		set_axis(DC_AXIS_UP, MoveAxisNavY, false);
+		set_axis(DC_AXIS_DOWN, MoveAxisNavY, true);
+		set_axis(DC_AXIS_LT, MoveAxisNavL2, true);
+		addTrigger(MoveAxisT, false);
+		addTrigger(MoveAxisNavL2, false);
+		dirty = false;
+	}
+};
+
+class MoveGamepad : public GamepadDevice
+{
+public:
+	explicit MoveGamepad(int player) : GamepadDevice(player, "PS5 Move")
+	{
+		_name = "PS Move P" + std::to_string(player + 1);
+		_unique_id = "ps5_move_" + std::to_string(player);
+		hasAnalogStick = true;
+		loadMapping();
+	}
+
+	const char *get_button_name(u32 code) override
+	{
+		if (code == MoveT)
+			return "T";
+		for (const auto& b : moveButtonNames)
+			if ((u32)__builtin_ctz(b.bit) == code)
+				return b.name;
+		for (const auto& b : navButtonNames)
+			if (NavBase + (u32)__builtin_ctz(b.bit) == code)
+				return b.name;
+		return nullptr;
+	}
+	const char *get_axis_name(u32 code) override {
+		return code < std::size(moveAxisNames) ? moveAxisNames[code] : nullptr;
+	}
+	void resetMappingToDefault(bool arcade, bool gamepad) override
+	{
+		if (arcade)
+			input_mapper = std::make_shared<MoveMapping<true>>();
+		else
+			input_mapper = std::make_shared<MoveMapping<false>>();
+	}
+
+	// What changed since the last packet, to Flycast.
+	void buttons(u32 move, bool t, u32 nav)
+	{
+		for (u32 i = 0; i < 18; i++)
+			if (((move ^ lastMove) >> i) & 1)
+				gamepad_btn_input(i, (move >> i) & 1);
+		if (t != lastT)
+			gamepad_btn_input(MoveT, t);
+		for (u32 i = 0; i < 18; i++)
+			if (((nav ^ lastNav) >> i) & 1)
+				gamepad_btn_input(NavBase + i, (nav >> i) & 1);
+		lastMove = move;
+		lastT = t;
+		lastNav = nav;
+	}
+	void axis(u32 code, int value)
+	{
+		if (code < lastAxes.size() && lastAxes[code] != value)
+		{
+			gamepad_axis_input(code, value);
+			lastAxes[code] = value;
+		}
+	}
+	void releaseAll()
+	{
+		buttons(0, false, 0);
+		axis(MoveAxisNavX, 0);
+		axis(MoveAxisNavY, 0);
+		axis(MoveAxisT, -32768);
+		axis(MoveAxisNavL2, -32768);
+	}
+
+protected:
+	std::shared_ptr<InputMapping> getDefaultMapping() override {
+		return std::make_shared<MoveMapping<false>>();
+	}
+
+private:
+	u32 lastMove = 0, lastNav = 0;
+	bool lastT = false;
+	std::array<int, 4> lastAxes{ 0, 0, -32768, -32768 };
+};
+
+struct MoveSeat
+{
+	Client move, nav;
+	bool opened = false;
+	std::shared_ptr<MoveGamepad> device;
+	uint64_t lastFresh = 0;		// kernelMicros() of the last fresh packet of either
+	// Aiming.
+	bool aiming = false;
+	float aimX = 320, aimY = 240;
+	uint64_t motionAt = 0;		// the last sample's time
+	MotionFilter filter;
+	float turnedX = 0, turnedY = 0;
+	bool tHeld = false;
+	bool selectHeld = false;
+	float perRadianX = 0, perRadianY = 0;	// from the screen calibration, 0 without one
+};
+std::array<MoveSeat, 4> moveSeats;
+bool moveOn = false;
+
+// Move Management's saved screen for a player: the angles from the middle to the screen's edges.
+void readScreen(MoveSeat& seat, int player)
+{
+	const std::string file = "/data/move-studio/aim-player-" + std::to_string(player + 1) + ".ini";
+	const move_studio::ScreenProfile profile = move_studio::read_screen_profile(file.c_str());
+	seat.perRadianX = profile.valid ? 320.f / profile.half_x : 0.f;
+	seat.perRadianY = profile.valid ? 240.f / profile.half_y : 0.f;
+	ps5::diag::mark("move: player %d's screen calibration %s", player + 1,
+			profile.valid ? "read (the TV's own size)" : "not there: Motion aiming speed");
+}
+
+float f32At(const uint8_t *p)
+{
+	return move_management::detail::f32(p);
+}
+
+// The Move's turn since its last sample, aiming player's gun as the DualSense's Motion aiming
+// does (the same still threshold, filter and settings).
+void moveAim(MoveSeat& seat, int port, const uint8_t *pad)
+{
+	const bool gunGame = ::settings.input.lightgunGame
+			|| (::settings.platform.isConsole() && config::MapleMainDevices[port] == MDT_LightGun);
+	if (!gunGame)
+	{
+		seat.aiming = false;
+		return;
+	}
+	const bool select = (move_management::detail::u32(pad) & MvSelect) != 0;
+	if (!seat.aiming || (select && !seat.selectHeld))
+	{
+		seat.aiming = true;
+		seat.aimX = 320;
+		seat.aimY = 240;
+		seat.turnedX = seat.turnedY = 0;
+		seat.filter.reset();
+	}
+	seat.selectHeld = select;
+	const uint64_t at = move_management::detail::u64(pad + 80);
+	float dt = 0.f;
+	if (seat.motionAt != 0 && at > seat.motionAt)
+		dt = std::min((float)((double)(at - seat.motionAt) / 1e6), 0.05f);
+	seat.motionAt = at;
+	if (dt > 0.f)
+	{
+		const float sideways = (MotionAimDirection & 1) != 0 ? 1.f : -1.f;
+		const float upward = (MotionAimDirection & 2) != 0 ? 1.f : -1.f;
+		float vx = sideways * f32At(pad + 44);
+		float vy = upward * f32At(pad + 40);
+		if (!std::isfinite(vx) || !std::isfinite(vy))
+			vx = vy = 0.f;
+		constexpr float Still = 0.02f, Moving = 0.06f;
+		const float rate = std::hypot(vx, vy);
+		const float kept = rate <= Still ? 0.f : rate >= Moving ? 1.f : (rate - Still) / (Moving - Still);
+		seat.turnedX += vx * kept * dt;
+		seat.turnedY += vy * kept * dt;
+		static const float minCutoff[4] = { 0.f, 2.f, 1.f, 0.5f };
+		static const float beta[4] = { 0.f, 10.f, 6.f, 3.f };
+		const int level = std::clamp((int)MotionAimSmoothing, 0, 3);
+		float x = seat.turnedX, y = seat.turnedY;
+		if (level > 0)
+			seat.filter.apply(x, y, dt, minCutoff[level], beta[level]);
+		else
+			seat.filter.reset();
+		seat.turnedX -= x;
+		seat.turnedY -= y;
+		seat.filter.shift(x, y);
+		const float speed = 917.f * std::clamp((int)MotionAimSpeed, 20, 300) / 100.f;
+		seat.aimX += x * (seat.perRadianX > 0 ? seat.perRadianX : speed);
+		seat.aimY += y * (seat.perRadianY > 0 ? seat.perRadianY : speed);
+	}
+	seat.aimX = std::clamp(seat.aimX, -24.f, 663.f);
+	seat.aimY = std::clamp(seat.aimY, -18.f, 497.f);
+	mo_x_abs[port] = (s32)std::lround(seat.aimX);
+	mo_y_abs[port] = (s32)std::lround(seat.aimY);
+}
+
+int stickAxis(uint8_t v)
+{
+	return std::clamp(((int)v - 128) * 256, -32768, 32767);
+}
+
+int triggerAxis(uint8_t v)
+{
+	return (int)std::lround(v / 255.f * 65535.f) - 32768;
+}
+
+void closeMove()
+{
+	for (MoveSeat& seat : moveSeats)
+	{
+		if (seat.device)
+		{
+			seat.device->releaseAll();
+			GamepadDevice::Unregister(seat.device);
+			seat.device.reset();
+		}
+		seat.move.close();
+		seat.nav.close();
+		seat.opened = false;
+		seat.aiming = false;
+	}
+}
+
+void pollMove()
+{
+	if (!PSMove)
+	{
+		if (moveOn)
+		{
+			closeMove();
+			moveOn = false;
+			ps5::diag::mark("move: off");
+		}
+		return;
+	}
+	const uint64_t now = kernelMicros();
+	if (!moveOn)
+	{
+		moveOn = true;
+		for (int p = 0; p < 4; p++)
+		{
+			MoveSeat& seat = moveSeats[p];
+			const bool move = seat.move.open((uint16_t)(9976 + p));
+			const bool nav = seat.nav.open((uint16_t)(9980 + p));
+			seat.opened = move || nav;
+			if (p == 0 || !move || !nav)
+				ps5::diag::mark("move: player %d listens for Move Management on %s%s%s", p + 1,
+						move ? "9976+" : "", nav ? "9980+" : "", seat.opened ? "" : "no port (another program has them?)");
+		}
+	}
+	for (int p = 0; p < 4; p++)
+	{
+		MoveSeat& seat = moveSeats[p];
+		if (!seat.opened)
+			continue;
+		seat.move.poll(now);
+		seat.nav.poll(now);
+		const bool move = seat.move.fresh(now), nav = seat.nav.fresh(now);
+		if (move || nav)
+		{
+			seat.lastFresh = now;
+			if (!seat.device)
+			{
+				seat.device = std::make_shared<MoveGamepad>(p);
+				GamepadDevice::Register(seat.device);
+				readScreen(seat, p);
+				ps5::diag::mark("move: player %d's %s%s%s arrived", p + 1, move ? "Move" : "", move && nav ? " and " : "",
+						nav ? "Navigation controller" : "");
+			}
+		}
+		else if (seat.device && now - seat.lastFresh > 1000000)
+		{
+			// Gone for a second: nothing stays held, and the port is the DualSense's alone again.
+			ps5::diag::mark("move: player %d's controllers went quiet", p + 1);
+			seat.device->releaseAll();
+			GamepadDevice::Unregister(seat.device);
+			seat.device.reset();
+			seat.aiming = false;
+			seat.motionAt = 0;
+			continue;
+		}
+		if (!seat.device)
+			continue;
+		const uint8_t *mp = seat.move.packet().pad, *np = seat.nav.packet().pad;
+		const u32 moveButtons = move ? move_management::detail::u32(mp) : 0;
+		const u32 navButtons = nav ? move_management::detail::u32(np) : 0;
+		// T: its own button past half way (a little hysteresis), and its axis.
+		const uint8_t t = move ? mp[8] : 0;
+		seat.tHeld = seat.tHeld ? t > 96 : t > 160;
+		seat.device->buttons(moveButtons, seat.tHeld, navButtons);
+		seat.device->axis(MoveAxisT, triggerAxis(t));
+		seat.device->axis(MoveAxisNavX, nav ? stickAxis(np[4]) : 0);
+		seat.device->axis(MoveAxisNavY, nav ? stickAxis(np[5]) : 0);
+		seat.device->axis(MoveAxisNavL2, triggerAxis(nav ? np[8] : 0));
+		if (move)
+			moveAim(seat, p, mp);
+		else
+		{
+			seat.aiming = false;
+			seat.motionAt = 0;
+		}
+	}
+}
+void stopMove()
+{
+	closeMove();
+	moveOn = false;
+}
+
+bool moveAiming(int port)
+{
+	return moveOn && port >= 0 && port < 4 && moveSeats[port].aiming;
+}
+} // namespace
+
 void poll()
 {
 	ps5::usb::poll();
@@ -1267,6 +1666,8 @@ void poll()
 	// The first pad is also a mouse and a keyboard, when the game asks for it.
 	ps5::usb::padInput(player1());
 	twinStickLayout();
+	// PlayStation Move controllers through Move Management (off unless turned on).
+	pollMove();
 }
 
 void menuBuzz(float strength, u32 durationMs)

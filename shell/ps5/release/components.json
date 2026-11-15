@@ -1207,6 +1207,28 @@
    ]
   },
   {
+   "id": "move-management-client",
+   "name": "Move Management's input client (PlayStation Move and Navigation controllers through Move Management)",
+   "kind": "code",
+   "licence": "GPL-3.0-or-later",
+   "copyright": [
+    "Copyright the Move Management for PS5 authors (REXCRAFT88), from Project Porpoise (copyright 2026 Ruben) and AnyPad PS5"
+   ],
+   "texts": [
+    {
+     "from": "shell/ps5/third_party/move_management/LICENSE",
+     "to": "move-management-GPL-3.0.txt"
+    }
+   ],
+   "source": {
+    "kind": "in-tree"
+   },
+   "modifications": "Unmodified: github.com/REXCRAFT88/Move-Management-PS5 at 4d8851b6809756906a9c029ba11baaecda7ceb49, its integrations/move_management_client.hpp and aim_screen_profile.hpp, in shell/ps5/third_party/move_management. Move Management itself is a separate payload and is not included.",
+   "files": [
+    "eboot.bin"
+   ]
+  },
+  {
    "id": "cheats",
    "name": "The Dreamcast cheat files (libretro-database, cht/Sega - Dreamcast)",
    "kind": "data",
