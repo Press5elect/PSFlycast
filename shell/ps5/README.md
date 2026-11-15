@@ -1508,8 +1508,8 @@ git clone --depth 1 --branch v3.6.7 https://github.com/Mbed-TLS/mbedtls deps-src
 
 # The revisions this version is built with.
 git -C crux2 checkout 08c3507a3ac3f3f904cb36f02cef1f36335a67bc
-git -C PS5_Vulkan checkout f410e67a0241b3e8edcdbcd2a9b285dfc4a412ed
-git -C libsmb2 checkout 7e4ff97cf00edb288b6b763888e4326842afdc76
+git -C PS5_Vulkan checkout 7f492b4c6f67a4e8c8c67a4272cfeef22abea9cc
+git -C libsmb2 checkout 177a9dec5545d16591076a524e0a68c8a7051749
 
 # PS5_Vulkan's own payload SDK (b83202b, which the driver is compiled with),
 # its host tool and libc.prx.
@@ -1518,14 +1518,15 @@ make -C PS5_Vulkan        # it may stop at its own sample afterwards; the tool a
 
 # The graphics driver: PS5_Mesa at 1ba9874 with Crux2's ps5/patches/mesa-27
 # (among them Mesa main, 27.0-devel, and this repository's two display patches,
-# shell/ps5/mesa, as 0015 and 0016), then two PS5 Mesa fixes (shell/ps5/mesa 0003
-# and 0004), built by PS5_Vulkan's build-radv.sh into
+# shell/ps5/mesa, as 0015 and 0016), then four PS5 Mesa fixes (shell/ps5/mesa 0003
+# to 0006), built by PS5_Vulkan's build-radv.sh into
 # PS5_Vulkan/.deps/native/radv-psflycast. A long build.
 PSFlyCast/shell/ps5/build-radv-psflycast.sh
 
-# The title is compiled with the payload SDK fork at e105cf6, installed the way
-# the fork's own script does it, in a folder that PS5_PAYLOAD_SDK names.
-sdk=e105cf6f25801d9e9981812a89a3b74021d2d2a2
+# The title is compiled with the payload SDK fork at 3345cde (over the SDK's
+# v0.45 release), installed the way the fork's own script does it, in a folder
+# that PS5_PAYLOAD_SDK names.
+sdk=3345cde7441f2d5f5432dd6d4f494cacbc974e28
 mkdir -p sdk-psflycast sdk-tree
 git -C PS5_PayloadSDK archive $sdk | tar -x -C sdk-tree
 bash sdk-tree/platform/tools/setup-sdk.sh "$PWD/sdk-psflycast/ps5-payload-sdk" $sdk "$PWD/sdk-psflycast"
@@ -1549,6 +1550,10 @@ SDK is older than the pin (it looks for the platform layer's
 `ps5_localeconv` and `ps5_readlink`). The link (`ps5-link.sh`) then refuses
 a title that imports a function no module a title loads exports.
 
+v1.3.9 is made with Flycast `dev` at `63e7d91`, PS5_Vulkan `7f492b4` (its changes since
+`f410e67` are its Windows-game broker and a test; nothing a title links), two more PS5
+Mesa commits, `7bd4aac55d8` and `0f86253f674` (`shell/ps5/mesa/0005` and `0006`), the
+payload SDK fork at `3345cde` and libsmb2 `177a9de`.
 v1.3.8 and v1.3.7 are made as v1.3.6 is, with two more driver commits, PS5 Mesa `53cc83ff82b`
 and `249fe49d2d8` (`shell/ps5/mesa/0003` and `0004`; the first had one conflict with
 Crux2's patches, resolved by hand and said in its message), and the payload SDK fork

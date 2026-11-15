@@ -1,0 +1,75 @@
+From 7bd4aac55d8c235626028b08b2c76509098f2be7 Mon Sep 17 00:00:00 2001
+From: Mihawk <163614687+mihawk-99@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 18:33:31 -0500
+Subject: [PATCH] radv: a cached graphics pipeline that lost a stage is a
+ miss
+
+A cached pipeline object names its shaders by hash and files each by the
+stage it was compiled for, a vertex shader after the first being taken
+for a geometry copy shader. On the PS5 a cached task+mesh pipeline came
+back without its mesh shader (Ocarina of Time at 2x), and creating it
+then read the input-assembly state a mesh pipeline doesn't have: a crash
+on every start until the cache was deleted.
+
+- radv_graphics_pipeline_cache_search: an object without the mesh shader
+  the pipeline asks for, or with a copy shader and no geometry shader, is
+  dropped and the pipeline is compiled again.
+- radv_pipeline_needed_dynamic_state: without input-assembly state, no
+  topology or primitive restart is read.
+---
+ src/amd/vulkan/radv_pipeline_cache.c    | 22 ++++++++++++++++++++++
+ src/amd/vulkan/radv_pipeline_graphics.c |  5 +++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/src/amd/vulkan/radv_pipeline_cache.c b/src/amd/vulkan/radv_pipeline_cache.c
+index 3daf51153e7..35f06ae52de 100644
+--- a/src/amd/vulkan/radv_pipeline_cache.c
++++ b/src/amd/vulkan/radv_pipeline_cache.c
+@@ -424,6 +424,28 @@ radv_graphics_pipeline_cache_search(struct radv_device *device, struct vk_pipeli
+       }
+    }
+ 
++   /* PS5: an object whose shaders don't fit the stages asked for is a miss (a cached task+mesh
++    * pipeline came back without its mesh shader, and creating it then read input-assembly state
++    * it does not have): the pipeline is compiled again. */
++   const bool lost_mesh = (pipeline->active_stages & VK_SHADER_STAGE_MESH_BIT_EXT) &&
++                          !pipeline->base.shaders[MESA_SHADER_MESH];
++   const bool stray_copy = pipeline->base.gs_copy_shader && !pipeline->base.shaders[MESA_SHADER_GEOMETRY];
++   if (lost_mesh || stray_copy) {
++      for (unsigned s = 0; s < MESA_VULKAN_SHADER_STAGES; s++) {
++         if (pipeline->base.shaders[s]) {
++            radv_shader_unref(device, pipeline->base.shaders[s]);
++            pipeline->base.shaders[s] = NULL;
++         }
++      }
++      if (pipeline->base.gs_copy_shader) {
++         radv_shader_unref(device, pipeline->base.gs_copy_shader);
++         pipeline->base.gs_copy_shader = NULL;
++      }
++      vk_pipeline_cache_object_unref(&device->vk, &pipeline_obj->base);
++      *found_in_application_cache = false;
++      return false;
++   }
++
+    pipeline->base.cache_object = &pipeline_obj->base;
+    return true;
+ }
+diff --git a/src/amd/vulkan/radv_pipeline_graphics.c b/src/amd/vulkan/radv_pipeline_graphics.c
+index c3aaf4d4b30..0478601fe6e 100644
+--- a/src/amd/vulkan/radv_pipeline_graphics.c
++++ b/src/amd/vulkan/radv_pipeline_graphics.c
+@@ -384,6 +384,11 @@ radv_pipeline_needed_dynamic_state(const struct radv_device *device, const struc
+                   RADV_DYNAMIC_PRIMITIVE_RESTART_ENABLE | RADV_DYNAMIC_PRIMITIVE_TOPOLOGY);
+    }
+ 
++   /* PS5: no input-assembly state, no topology to read (a mesh pipeline whose mesh shader went
++    * missing from a cached object). */
++   if (!state->ia)
++      states &= ~(RADV_DYNAMIC_PRIMITIVE_TOPOLOGY | RADV_DYNAMIC_PRIMITIVE_RESTART_ENABLE);
++
+    /* Disable dynamic states that are useless when rasterization is disabled. */
+    if (!raster_enabled) {
+       states = RADV_DYNAMIC_RASTERIZER_DISCARD_ENABLE;
+-- 
+2.43.0
+

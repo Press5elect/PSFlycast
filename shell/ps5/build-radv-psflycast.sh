@@ -21,10 +21,15 @@
 #         sceVideoOutVrrUnpegFromFixedRate, which not every firmware exports.
 # 0015 and 0016 are this repository's shell/ps5/mesa/0001 and 0002, as they are; Crux2 carries them.
 # PSFlyCast's own copies are applied only when the Crux2 set does not already hold them.
-# After them, two commits of PS5 Mesa's main that the Crux2 set does not have yet
-# (shell/ps5/mesa/0003 and 0004, PS5 Mesa 53cc83ff82b and 249fe49d2d8): a large buffer is backed by
-# several direct-memory ranges when no single one is free, each placed only where nothing else is.
-# 0003 had one conflict with Crux2's patches, resolved by hand (said in its message). PS5 Mesa's
+# After them, four commits of PS5 Mesa's main that the Crux2 set does not have yet:
+#   0003, 0004  PS5 Mesa 53cc83ff82b and 249fe49d2d8: a large buffer is backed by several
+#               direct-memory ranges when no single one is free, each placed only where nothing
+#               else is (0003 had one conflict with Crux2's patches, resolved by hand and said in
+#               its message);
+#   0005        PS5 Mesa 7bd4aac55d8: a cached graphics pipeline that lost a stage is compiled
+#               again instead of created from the broken entry;
+#   0006        PS5 Mesa 0f86253f674: the mesh shaders' scratch ring is 128 MiB, not 320.
+# PS5 Mesa's
 # f5610fe2709 (a freed buffer's memory kept until the GPU has run what was submitted before it) is
 # not applied: the Crux2 set already keeps a freed buffer's memory that way (its zombie list), and
 # f5610fe also covers sparse ranges and a retry after a failed allocation, which this title does not use.
@@ -111,7 +116,8 @@ fi
 git -C "$mesa" merge-base --is-ancestor "$pin" "$branch" ||
 	{ echo "build-radv-psflycast: $branch is not built on ${pin:0:11}" >&2; exit 1; }
 for wanted in "119.88 Hz on a VRR display" "leave its fixed rate" "variable refresh found while the title runs" \
-	"back a large buffer with several direct-memory" "a buffer piece is mapped only where nothing else is"; do
+	"back a large buffer with several direct-memory" "a buffer piece is mapped only where nothing else is" \
+	"a cached graphics pipeline that lost a stage is a miss" "scratch ring is 128 MiB"; do
 	git -C "$mesa" log --format=%s "$pin..$branch" | grep -q "$wanted" ||
 		{ echo "build-radv-psflycast: $branch lacks \"$wanted\"" >&2; exit 1; }
 done

@@ -38,6 +38,7 @@
 #include "ps5_thread_layout.h"
 #include "bigpicture.h"
 #include "cfg/option.h"
+#include <ps5platform/heap.h>
 
 #include <algorithm>
 #include <cctype>
@@ -346,6 +347,32 @@ void redirectLogs(const std::string& dir)
 			fflush(stderr);
 		}
 	}).detach();
+}
+
+// The title heap (the payload SDK's ps5platform/heap.h, where every allocation of the title and
+// the driver goes) hands a segment back to the console only whole, and only when 32 MiB lie
+// free at an arena's top: what a burst took (shaders compiled at a game's start, a disc read
+// into memory, a save state) stays mapped, out of the direct memory the GPU and the emulator
+// share. ps5_heap_trim, every 10 s as the SDK asks, gives it back. A line in the boot log when
+// a trim gave back 16 MiB or more, so a console run shows whether it does anything here.
+void startHeapTrim()
+{
+#ifdef PS5_HEAP_TRIM
+	std::thread([] {
+		for (;;)
+		{
+			sleep(10);
+			struct ps5_heap_stats before{};
+			ps5_heap_stats(&before);
+			ps5_heap_trim();
+			struct ps5_heap_stats after{};
+			ps5_heap_stats(&after);
+			if (before.mapped_bytes >= after.mapped_bytes + (16u << 20))
+				ps5::diag::mark("heap: trimmed %zu MiB to %zu MiB mapped (%zu MiB in use)",
+						before.mapped_bytes >> 20, after.mapped_bytes >> 20, after.in_use_bytes >> 20);
+		}
+	}).detach();
+#endif
 }
 
 // The console's defaults, as Press5elect chose them: transparency sorted per
@@ -888,6 +915,7 @@ int main(int argc, char *argv[])
 	// Where the threads run (ps5_thread_layout.h): the main thread to its core now, the others
 	// as they start.
 	PS5ThreadLayout::init();
+	startHeapTrim();
 	ps5::diag::mark("main loop");
 	try {
 		mainui_loop();

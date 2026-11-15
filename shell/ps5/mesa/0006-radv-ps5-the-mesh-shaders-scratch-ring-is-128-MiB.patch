@@ -1,0 +1,141 @@
+From 0f86253f674c425052948eb3cb116c81e646a734 Mon Sep 17 00:00:00 2001
+From: Mihawk <163614687+mihawk-99@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 18:13:41 -0500
+Subject: [PATCH] radv/ps5: the mesh shaders' scratch ring is 128 MiB, not
+ 320
+
+The ring had an entry of 160 KiB, the most a mesh shader could ever keep outside LDS, for each of
+the 2,048 wave IDs: 320 MiB of the console's one memory pool from the first draw with a mesh shader
+whose outputs do not fit in LDS, for as long as the device lives. A title that draws its scenery
+with mesh shaders ran out of memory with that much standing idle: of its 2,446 pipelines the most a
+wave kept in the ring was 20,160 bytes (10 slots of 126 vertices).
+
+An entry is now 64 KiB (25 slots of 160 vertices), and the ring ends with room for one maximal
+entry, so a shader that keeps more writes into the next wave's entry and never past the ring; the
+lowering says so on stderr when it compiles one.
+---
+ src/amd/common/ac_gpu_info.h                  | 24 ++++++++++++++++---
+ src/amd/common/nir/ac_nir_lower_ngg_mesh.c    |  7 ++++++
+ src/amd/vulkan/radv_queue.c                   |  6 ++---
+ .../drivers/radeonsi/gfx/si_mesh_shader.c     |  2 +-
+ .../drivers/radeonsi/gfx/si_nir_lower_abi.c   |  2 +-
+ 5 files changed, 33 insertions(+), 8 deletions(-)
+
+diff --git a/src/amd/common/ac_gpu_info.h b/src/amd/common/ac_gpu_info.h
+index 1a8224861e3..316d2c9d764 100644
+--- a/src/amd/common/ac_gpu_info.h
++++ b/src/amd/common/ac_gpu_info.h
+@@ -619,8 +619,7 @@ uint32_t ac_gfx103_get_cu_mask_ps(const struct radeon_info *info);
+  */
+ #define AC_MESH_SCRATCH_NUM_ENTRIES 2048
+ 
+-/* Size of each entry in the mesh shader scratch ring.
+- * We must ensure that the absolute maximum mesh shader output fits here.
++/* The most a mesh shader can keep in the scratch ring for one wave.
+  *
+  * Mesh shaders can create up to 256 vertices/primitives per workgroup,
+  * and up to the following amount of outputs:
+@@ -630,7 +629,26 @@ uint32_t ac_gfx103_get_cu_mask_ps(const struct radeon_info *info);
+  * - primitive indices which are always kept in LDS
+  * That is a total of 32+4+4=40 output slots x 16 bytes per slot x 256 = 160K bytes.
+  */
+-#define AC_MESH_SCRATCH_ENTRY_BYTES (160 * 1024)
++#define AC_MESH_SCRATCH_MAX_ENTRY_BYTES (160 * 1024)
++
++/* Size of each entry in the mesh shader scratch ring: 64K, not the 160K a
++ * shader could ask for at most. Only the outputs that do not fit in 30K of
++ * LDS go to the ring, and at the maximum the ring is 320 MiB of the console's
++ * one memory pool for every title that draws with a mesh shader. Of 2,446
++ * pipelines of a title that draws its scenery with mesh shaders the most a
++ * wave kept was 20,160 bytes (10 slots of 126 vertices); 64K holds 25 slots
++ * of 160 vertices.
++ *
++ * shortcut: a shader that keeps more than this writes into the next wave's
++ * entry (its outputs wrong, said once on stderr by ac_nir_lower_ngg_mesh); the
++ * ring ends with room for a whole maximal entry, so nothing is written past
++ * it. Raise this when a title needs it.
++ */
++#define AC_MESH_SCRATCH_ENTRY_BYTES (64 * 1024)
++
++/* The ring: an entry for each wave ID, the last one of the maximal size. */
++#define AC_MESH_SCRATCH_RING_BYTES \
++   ((AC_MESH_SCRATCH_NUM_ENTRIES - 1) * AC_MESH_SCRATCH_ENTRY_BYTES + AC_MESH_SCRATCH_MAX_ENTRY_BYTES)
+ 
+ /* The ring a mesh shader exporting its primitives in parts publishes its
+  * outputs in (ac_nir_lower_ngg_options.ms_publish): a header dword per slot,
+diff --git a/src/amd/common/nir/ac_nir_lower_ngg_mesh.c b/src/amd/common/nir/ac_nir_lower_ngg_mesh.c
+index 1809ccb1538..5733b07ad65 100644
+--- a/src/amd/common/nir/ac_nir_lower_ngg_mesh.c
++++ b/src/amd/common/nir/ac_nir_lower_ngg_mesh.c
+@@ -1793,6 +1793,13 @@ ac_nir_lower_ngg_mesh(nir_shader *shader, const ac_nir_lower_ngg_options *option
+ 
+    shader->info.shared_size = layout.lds.total_size;
+    *out_needs_scratch_ring = !publish && (layout.scratch_ring.vtx_attr.mask || layout.scratch_ring.prm_attr.mask);
++   if (*out_needs_scratch_ring) {
++      const unsigned bytes = layout.scratch_ring.prm_attr.addr +
++                             util_bitcount64(layout.scratch_ring.prm_attr.mask) * max_primitives * 16;
++      if (bytes > AC_MESH_SCRATCH_ENTRY_BYTES)
++         fprintf(stderr, "ac: a mesh shader keeps %u bytes a wave in the scratch ring, whose entries are %u: its outputs "
++                 "will be wrong (AC_MESH_SCRATCH_ENTRY_BYTES)\n", bytes, AC_MESH_SCRATCH_ENTRY_BYTES);
++   }
+ 
+    /* The workgroup size that is specified by the API shader may be different
+     * from the size of the workgroup that actually runs on the HW, due to the
+diff --git a/src/amd/vulkan/radv_queue.c b/src/amd/vulkan/radv_queue.c
+index 8f200a4a89a..d068eeec534 100644
+--- a/src/amd/vulkan/radv_queue.c
++++ b/src/amd/vulkan/radv_queue.c
+@@ -336,7 +336,7 @@ radv_fill_shader_rings(struct radv_device *device, uint32_t *desc, struct radeon
+    desc += 8;
+ 
+    if (mesh_scratch_ring_bo) {
+-      radv_set_ring_buffer(pdev, mesh_scratch_ring_bo, 0, AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES,
++      radv_set_ring_buffer(pdev, mesh_scratch_ring_bo, 0, AC_MESH_SCRATCH_RING_BYTES,
+                            false, false, false, 0, 0, &desc[0]);
+    }
+ 
+@@ -945,13 +945,13 @@ radv_update_preamble_cs(struct radv_queue_state *queue, struct radv_device *devi
+    if (!queue->ring_info.mesh_scratch_ring && needs->mesh_scratch_ring) {
+       assert(pdev->info.gfx_level >= GFX10_3);
+       result =
+-         radv_bo_create(device, NULL, AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES, 256,
++         radv_bo_create(device, NULL, AC_MESH_SCRATCH_RING_BYTES, 256,
+                         RADEON_DOMAIN_VRAM, ring_bo_flags, RADV_BO_PRIORITY_SCRATCH, 0, true, &mesh_scratch_ring_bo);
+ 
+       if (result != VK_SUCCESS)
+          goto fail;
+       radv_rmv_log_command_buffer_bo_create(device, mesh_scratch_ring_bo, 0, 0,
+-                                            AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES);
++                                            AC_MESH_SCRATCH_RING_BYTES);
+    }
+ 
+    if (!queue->ring_info.ge_rings && needs->ge_rings) {
+diff --git a/src/gallium/drivers/radeonsi/gfx/si_mesh_shader.c b/src/gallium/drivers/radeonsi/gfx/si_mesh_shader.c
+index 8d3f79edb07..c102468c205 100644
+--- a/src/gallium/drivers/radeonsi/gfx/si_mesh_shader.c
++++ b/src/gallium/drivers/radeonsi/gfx/si_mesh_shader.c
+@@ -61,7 +61,7 @@ static bool si_init_mesh_scratch_ring(struct si_context *sctx)
+    if (!sctx->mesh_scratch_ring) {
+       sctx->mesh_scratch_ring = si_aligned_buffer_create(
+          &sctx->screen->b, SI_RESOURCE_FLAG_DRIVER_INTERNAL | SI_RESOURCE_FLAG_32BIT,
+-         PIPE_USAGE_DEFAULT, AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES,
++         PIPE_USAGE_DEFAULT, AC_MESH_SCRATCH_RING_BYTES,
+          256);
+ 
+       if (!sctx->mesh_scratch_ring) {
+diff --git a/src/gallium/drivers/radeonsi/gfx/si_nir_lower_abi.c b/src/gallium/drivers/radeonsi/gfx/si_nir_lower_abi.c
+index 75cf403e6dd..16c58b1c91b 100644
+--- a/src/gallium/drivers/radeonsi/gfx/si_nir_lower_abi.c
++++ b/src/gallium/drivers/radeonsi/gfx/si_nir_lower_abi.c
+@@ -227,7 +227,7 @@ static nir_def *build_mesh_scratch_ring_desc(nir_builder *b, struct lower_abi_st
+ 
+    const struct ac_buffer_state ac_state = {
+       .va = (uint64_t)screen->info.address32_hi << 32,
+-      .size = AC_MESH_SCRATCH_NUM_ENTRIES * AC_MESH_SCRATCH_ENTRY_BYTES,
++      .size = AC_MESH_SCRATCH_RING_BYTES,
+       .format = PIPE_FORMAT_R32_FLOAT,
+       .swizzle = { PIPE_SWIZZLE_X, PIPE_SWIZZLE_Y, PIPE_SWIZZLE_Z, PIPE_SWIZZLE_W },
+       .gfx10_oob_select = V_008F0C_OOB_SELECT_DISABLED,
+-- 
+2.43.0
+
