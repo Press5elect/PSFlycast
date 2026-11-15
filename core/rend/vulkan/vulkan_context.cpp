@@ -1556,11 +1556,6 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	static const float scopeColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	CommandBufferDebugScope _(commandBuffer, "DrawFrame", scopeColor);
 
-	if (config::Rotate90)
-		quadRotatePipeline->BindPipeline(commandBuffer);
-	else
-		quadPipeline->BindPipeline(commandBuffer);
-
 	int dx = 0;
 	int dy = 0;
 	getWindowboxDimensions(width, height, aspectRatio, dx, dy, config::Rotate90);
@@ -1593,7 +1588,13 @@ void VulkanContext::DrawFrame(vk::ImageView imageView, const vk::Extent2D& exten
 	if (byFsr)
 		return;
 #endif
-	
+	// Bound here, after the bars beside the picture and the upscaling, which bind pipelines of their own:
+	// bound before them, the picture was drawn with the bars' pipeline, out of shape (2026-11-15).
+	if (config::Rotate90)
+		quadRotatePipeline->BindPipeline(commandBuffer);
+	else
+		quadPipeline->BindPipeline(commandBuffer);
+
 	vk::Viewport viewport(dx, dy, width - dx * 2, height - dy * 2);
 	commandBuffer.setViewport(0, viewport);
 	commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(dx, dy), vk::Extent2D(width - dx * 2, height - dy * 2)));
