@@ -1003,5 +1003,10 @@
   "Z (six-button pad)",
   "Z / C"
  ],
- "acknowledged": {}
+ "acknowledged": {
+  "Disc Drive": "the top bar's Disc place (the disc drive's games are still there, under it)",
+  "Internal": "the library's storage filter is called Console (top bar, under Library)",
+  "Source": "the hint of L1 / R1 is Place now: the places are Home, the Library's filters and Disc",
+  "Tab": "the hint of L1 / R1 is Place now"
+ }
 }

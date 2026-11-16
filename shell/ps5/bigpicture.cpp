@@ -982,7 +982,7 @@ void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 // The pad is the keyboard's meanwhile.
 enum KeyboardFor { KeyboardNone, KeyboardSearch, KeyboardAddress, KeyboardName, KeyboardRaUser, KeyboardRaPassword,
 		KeyboardMemValue, KeyboardSplitName, KeyboardStartWhen, KeyboardSplitWhen,
-		KeyboardNetPath, KeyboardNetUser, KeyboardNetPassword };
+		KeyboardNetPath, KeyboardNetUser, KeyboardNetPassword, KeyboardSettings };
 int keyboardFor = KeyboardNone;
 
 struct Input
@@ -1122,10 +1122,14 @@ void endScreen() {
 
 // Where a game comes from: each is a tab of the library. Settings is the tab
 // after them.
-enum Source { Internal, Usb, Network, Disc };
-constexpr int SourceCount = 4;
+enum Source { Internal, Usb, Network, Disc, All };
+constexpr int SourceCount = 5;
 constexpr int SettingsTab = SourceCount;
+// The Home place of the top bar (a library tab is its Source).
+constexpr int HomeId = 10;
 
+// The places of the top bar are Home, Library and Disc; where a library's games are stored is a
+// filter of the Library (the chips under it): All, Console, USB, Share.
 struct TopTab
 {
 	int id;
@@ -1133,17 +1137,33 @@ struct TopTab
 	const char *name;
 };
 
-// The tabs, left to right; USB only while USB drives are on in the settings.
-std::vector<TopTab> topTabs()
+// Every stop of L1 / R1, left to right: Home, the Library's filters, the disc drive. Home is not
+// there while a disc is chosen for a running game. USB only while USB drives are on in the settings.
+std::vector<int> placeOrder(bool selectDisk)
 {
-	std::vector<TopTab> tabs{ { Internal, ICON_FA_HARD_DRIVE, "Internal" } };
+	std::vector<int> order;
+	if (!selectDisk)
+		order.push_back(HomeId);
+	order.push_back(All);
+	order.push_back(Internal);
 	if (ps5::options().usb)
-		tabs.push_back({ Usb, ICON_FA_PLUG, "USB" });
-	tabs.push_back({ Network, ICON_FA_NETWORK_WIRED, "Network" });
+		order.push_back(Usb);
+	order.push_back(Network);
 	if (ps5::options().discDrive)
-		tabs.push_back({ Disc, ICON_FA_COMPACT_DISC, "Disc Drive" });
-	// Settings is not a tab: OPTIONS opens it from the library.
-	return tabs;
+		order.push_back(Disc);
+	return order;
+}
+
+const char *filterName(int source)
+{
+	switch (source)
+	{
+	case All: return "All";
+	case Internal: return "Console";
+	case Usb: return "USB";
+	case Network: return "Share";
+	default: return "";
+	}
 }
 
 // Which other tabs L1 / R1 go to from a screen; the rest are fainter. Not
@@ -1163,46 +1183,75 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 		text(dl, bold(), 34, 112, 28, col::text, "PSFlyCast");
 	}
 
-	// Tabs, switched with L1 / R1.
-	const std::vector<TopTab> tabs = topTabs();
+	// The places, switched with L1 / R1: Home, Library and Disc. Under Library, its filters: where
+	// the games are stored.
+	const bool inLibrary = active == All || active == Internal || active == Usb || active == Network;
+	std::vector<TopTab> tabs{ { HomeId, ICON_FA_HOUSE, "Home" }, { All, ICON_FA_LAYER_GROUP, "Library" } };
+	if (ps5::options().discDrive)
+		tabs.push_back({ Disc, ICON_FA_COMPACT_DISC, "Disc" });
+	const auto litTab = [&](const TopTab& tab) {
+		return tab.id == HomeId ? active == HomeId : tab.id == Disc ? active == Disc : inLibrary;
+	};
 	float total = 0;
 	std::vector<float> widths;
 	for (const TopTab& tab : tabs)
 	{
 		const std::string label = std::string(tab.icon) + "   " + tab.name;
-		widths.push_back(textSize(bold(), 26, label.c_str()).x + 56);
-		total += widths.back() + 12;
+		widths.push_back(textSize(bold(), 24, label.c_str()).x + 52);
+		total += widths.back() + 10;
 	}
-	float x = (W - total) / 2 + 6;
-	glyph(dl, Glyph::L1, x - 64, 48, 30);
-	// The pill under the open tab slides to the next one.
+	float x = (W - total) / 2 + 5;
+	glyph(dl, Glyph::L1, x - 60, 30, 28);
+	// The pill under the open place slides to the next one.
 	static float pillX = -1, pillW = 0;
 	static int pillFrame = -10;
 	{
 		float at = x;
 		for (size_t i = 0; i < tabs.size(); i++)
 		{
-			if (active == tabs[i].id)
+			if (litTab(tabs[i]))
 			{
 				const bool fresh = pillX < 0 || ImGui::GetFrameCount() > pillFrame + 2 || motion() == MotionOff;
 				pillX = fresh ? at : approach(pillX, at, 20);
 				pillW = fresh ? widths[i] : approach(pillW, widths[i], 20);
 				pillFrame = ImGui::GetFrameCount();
-				glow(dl, pillX, 24, pillW, 48, 24, alpha(col::accent, 0.5f), 10);
-				rect(dl, pillX, 24, pillW, 48, col::accent, 24);
+				glow(dl, pillX, 8, pillW, 44, 22, alpha(col::accent, 0.5f), 10);
+				rect(dl, pillX, 8, pillW, 44, col::accent, 22);
 			}
-			at += widths[i] + 12;
+			at += widths[i] + 10;
 		}
 	}
 	for (size_t i = 0; i < tabs.size(); i++)
 	{
-		const bool on = active == tabs[i].id;
-		const bool reachable = on || reach == Reach::All || (reach == Reach::Sources && tabs[i].id != SettingsTab);
+		const bool on = litTab(tabs[i]);
+		const bool reachable = on || (tabs[i].id == HomeId ? reach == Reach::All : reach != Reach::None);
 		const std::string label = std::string(tabs[i].icon) + "   " + tabs[i].name;
-		text(dl, bold(), 26, x + 28, 33, on ? col::text : reachable ? col::dim : col::faint, label.c_str());
-		x += widths[i] + 12;
+		text(dl, bold(), 24, x + 26, 14, on ? col::text : reachable ? col::dim : col::faint, label.c_str());
+		x += widths[i] + 10;
 	}
-	glyph(dl, Glyph::R1, x + 10, 48, 30);
+	glyph(dl, Glyph::R1, x + 8, 30, 28);
+	if (inLibrary)
+	{
+		// The Library's filters, small, under the places.
+		std::vector<int> filters{ All, Internal };
+		if (ps5::options().usb)
+			filters.push_back(Usb);
+		filters.push_back(Network);
+		float cw = 0;
+		for (const int f : filters)
+			cw += textSize(bold(), 19, filterName(f)).x + 30 + 8;
+		float cx = (W - cw) / 2 + 4;
+		for (const int f : filters)
+		{
+			const float w = textSize(bold(), 19, filterName(f)).x + 30;
+			const bool on = active == f;
+			if (on)
+				rect(dl, cx, 58, w, 30, alpha(col::accent, 0.30f), 15);
+			outline(dl, cx, 58, w, 30, on ? col::accent : col::line, 15, on ? 2.f : 1.f);
+			text(dl, bold(), 19, cx + 15, 62, on ? col::text : reach == Reach::None ? col::faint : col::dim, filterName(f));
+			cx += w + 8;
+		}
+	}
 
 	// The clock, and the pads.
 	char clock[16] = "";
@@ -2045,6 +2094,24 @@ struct LibraryState
 } lib;
 LibraryState otherTabs[SourceCount];
 bool sourceChosen;
+// The Home place is showing in place of the library (the top bar's first place).
+bool homeActive = false;
+// A game's page asked for from Home: opened once the library has it in focus.
+std::string openDetailsFor;
+int openDetailsTries = 0;
+
+// Whether a game of this source is in what the library shows: All shows every place the games are
+// stored but the disc drive, which has a place of its own.
+bool inSource(int source)
+{
+	return lib.source == All ? source != Disc : source == lib.source;
+}
+
+// The place the top bar lights: Home, or the library's filter.
+int activePlace()
+{
+	return homeActive ? HomeId : lib.source;
+}
 
 // What the library is searched for (R3 and the console's keyboard): the games
 // whose title has every word of it, in any tab. Empty: every game.
@@ -2105,7 +2172,11 @@ void switchSource(int source)
 {
 	if (source == lib.source)
 		return;
-	entrance.next = source > lib.source ? 1.f : -1.f;
+	{
+		const std::vector<int> order = placeOrder(false);
+		const auto at = [&](int id) { return (int)(std::find(order.begin(), order.end(), id) - order.begin()); };
+		entrance.next = at(source) > at(lib.source) ? 1.f : -1.f;
+	}
 	otherTabs[lib.source] = lib;
 	lib = otherTabs[source];
 	lib.source = source;
@@ -2123,6 +2194,8 @@ void chooseSource()
 	{
 		sourceChosen = true;
 		lib.source = std::clamp(ps5::options().source, 0, SourceCount - 1);
+		// The library opens on Home unless it is chosen to open on itself.
+		homeActive = ps5::options().startPage == 0;
 	}
 	if (lib.source == Usb && !ps5::options().usb)
 		switchSource(Internal);
@@ -2172,7 +2245,7 @@ void buildFlat(bool selectDisk)
 	lib.flatKey = key;
 	lib.flat.clear();
 	for (size_t i = 0; i < games.size(); i++)
-		if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
+		if (inSource(games[i].source) && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
 				&& matchesSearch(games[i]))
 			lib.flat.push_back(i);
 	std::sort(lib.flat.begin(), lib.flat.end(), [](size_t a, size_t b) {
@@ -2309,7 +2382,7 @@ void buildShelves(bool selectDisk)
 		// One shelf: what was found, by title.
 		Shelf found{ searchShelfName() };
 		for (size_t i = 0; i < games.size(); i++)
-			if (games[i].source == lib.source && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
+			if (inSource(games[i].source) && (!selectDisk || games[i].disc) && !leftOut(games[i], selectDisk)
 					&& matchesSearch(games[i]))
 				found.items.push_back(i);
 		std::sort(found.items.begin(), found.items.end(), [](size_t a, size_t b) {
@@ -2333,7 +2406,7 @@ void buildShelves(bool selectDisk)
 		Shelf recent{ "Recently played" };
 		for (const auto& path : recentPaths)
 			for (size_t i = 0; i < games.size(); i++)
-				if (games[i].media.path == path && games[i].source == lib.source)
+				if (games[i].media.path == path && inSource(games[i].source))
 				{
 					// A set is there once, by the disc that stands for it.
 					size_t shown = i;
@@ -2350,7 +2423,7 @@ void buildShelves(bool selectDisk)
 		// The favourites, by title: the tab's Dreamcast and arcade games alike.
 		Shelf favourites{ "Favourites" };
 		for (size_t i = 0; i < games.size(); i++)
-			if (games[i].favourite && games[i].source == lib.source && !leftOut(games[i], selectDisk))
+			if (games[i].favourite && inSource(games[i].source) && !leftOut(games[i], selectDisk))
 				favourites.items.push_back(i);
 		std::sort(favourites.items.begin(), favourites.items.end(), [](size_t a, size_t b) {
 			return strcasecmp(games[a].title.c_str(), games[b].title.c_str()) < 0;
@@ -2363,7 +2436,7 @@ void buildShelves(bool selectDisk)
 		// The running game's own discs first, in their order.
 		Shelf own{ "This game's discs" };
 		for (const Game& g : games)
-			if (g.media.path == insertedPath && !g.set.empty() && g.source == lib.source)
+			if (g.media.path == insertedPath && !g.set.empty() && inSource(g.source))
 				own.items = discSets[g.set];
 		if (!own.items.empty())
 			shelves.push_back(own);
@@ -2372,7 +2445,7 @@ void buildShelves(bool selectDisk)
 	Shelf arcade{ "Arcade" };
 	for (size_t i = 0; i < games.size(); i++)
 	{
-		if (games[i].source != lib.source || (selectDisk && !games[i].disc) || leftOut(games[i], selectDisk))
+		if (!inSource(games[i].source) || (selectDisk && !games[i].disc) || leftOut(games[i], selectDisk))
 			continue;
 		if (!selectDisk && games[i].media.arcade)
 			arcade.items.push_back(i);
@@ -2688,7 +2761,8 @@ void emptyLibrary(ImDrawList *dl, bool selectDisk)
 	else
 	{
 		title = selectDisk ? "No disc images found" : "Your library is empty";
-		body = "Copy your games to\n" + root + "games/\n\n"
+		body = "Copy your games to\n" + root + "games/\n"
+				"or add a folder in Settings > Games and saves > Folders.\n\n"
 				"Disc images: .chd  .gdi  .cdi  .cue     Arcade: .zip  .7z\n"
 				"BIOS files (optional, recommended): " + root + "bios/\n"
 				"Covers (optional): " + root + "covers/<game file name>.png";
@@ -5879,6 +5953,259 @@ void drawSplashStill(ImDrawList *dl)
 	text(dl, bold(), NameSize, W / 2 - textSize(bold(), NameSize, name).x / 2, NameTop, col::text, name);
 }
 
+// ---- Home: the game played last, what is true now, and the games played lately
+//
+// Only what PSFlyCast really knows is shown: no card appears without something to say.
+
+// L1 / R1: the next place, round and round (Home, the Library's filters, the disc drive).
+void stepPlace(bool forward, bool selectDisk)
+{
+	const std::vector<int> order = placeOrder(selectDisk);
+	const int n = (int)order.size();
+	const int now = homeActive ? HomeId : lib.source;
+	const int at = std::max(0, (int)(std::find(order.begin(), order.end(), now) - order.begin()));
+	const int next = order[(at + (forward ? 1 : -1) + n) % n];
+	if (next == HomeId)
+	{
+		homeActive = true;
+		entrance.next = forward ? 1.f : -1.f;
+	}
+	else
+	{
+		homeActive = false;
+		switchSource(next);
+		// It comes in from the side the button points to, also when it went round.
+		entrance.next = forward ? 1.f : -1.f;
+	}
+}
+
+// A game's page, from Home: the Library, on the game, with its page open.
+void showGamePage(const Game& g)
+{
+	homeActive = false;
+	if (lib.source != All)
+		switchSource(All);
+	focusPath(g.media.path);
+	openDetailsFor = g.media.path;
+	openDetailsTries = 0;
+}
+
+std::string sinceText(int64_t then)
+{
+	if (then <= 0)
+		return "";
+	const int64_t seconds = std::max<int64_t>(0, (int64_t)time(nullptr) - then);
+	const int64_t days = seconds / 86400;
+	if (days >= 2)
+		return std::to_string(days) + " days ago";
+	if (days == 1)
+		return "yesterday";
+	if (seconds >= 3600)
+		return std::to_string(seconds / 3600) + (seconds / 3600 == 1 ? " hour ago" : " hours ago");
+	return "just now";
+}
+
+std::string playedText(uint64_t seconds)
+{
+	if (seconds < 60)
+		return "";
+	const uint64_t hours = seconds / 3600, minutes = (seconds % 3600) / 60;
+	return hours > 0 ? std::to_string(hours) + " h " + std::to_string(minutes) + " min played" : std::to_string(minutes) + " min played";
+}
+
+struct HomeState
+{
+	int focus = 0;		// 0 and 1 the hero's buttons, 2 and up the games played lately
+} home;
+
+void homeScreen(ImDrawList *dl)
+{
+	// The games last played that the library has, the latest first.
+	std::vector<Game *> recent;
+	for (const std::string& path : recentPaths)
+		for (Game& g : games)
+			if (g.media.path == path && !g.hidden && g.source != Disc)
+			{
+				recent.push_back(&g);
+				break;
+			}
+	Game *hero = recent.empty() ? nullptr : recent[0];
+	const int lately = (int)std::min<size_t>(7, recent.size() > 0 ? recent.size() - 1 : 0);
+	home.focus = std::clamp(home.focus, 0, 1 + lately);
+
+	// ---- input
+	if (in.left && home.focus > 2) home.focus--;
+	else if (in.left && home.focus == 1) home.focus = 0;
+	if (in.right && home.focus == 0) home.focus = 1;
+	else if (in.right && home.focus >= 2 && home.focus < 1 + lately) home.focus++;
+	if (in.down && home.focus < 2 && lately > 0) home.focus = 2;
+	if (in.up && home.focus >= 2) home.focus = 0;
+	if (in.accept)
+	{
+		if (hero == nullptr)
+		{
+			if (home.focus == 0)
+			{
+				homeActive = false;
+				entrance.next = 1.f;
+			}
+			else
+				gui_setState(GuiState::Settings);
+		}
+		else if (home.focus == 0)
+			playGame(*hero, false);
+		else if (home.focus == 1)
+			showGamePage(*hero);
+		else
+			playGame(*recent[(size_t)(home.focus - 1)], false);
+	}
+	if (in.triangle && hero != nullptr && home.focus >= 2)
+		showGamePage(*recent[(size_t)(home.focus - 1)]);
+	if (in.options)
+		gui_setState(GuiState::Settings);
+	if (in.l1 || in.r1)
+		stepPlace(in.r1, false);
+	if (in.back)
+		quitUi.open = true;
+
+	// ---- the picture
+	const float e = entered(400);
+	const Layer content = beginLayer(dl);
+	const float x0 = 96, top = 136, heroW = 1100, heroH = 500;
+	if (hero != nullptr)
+	{
+		ensureArt(*hero);
+		const ps5::library::Entry kept = ps5::library::entry(hero->media.path);
+		const bool on = home.focus < 2;
+		glow(dl, x0, top, heroW, heroH, 24, alpha(col::accent, on ? 0.30f : 0.12f), 16);
+		rect(dl, x0, top, heroW, heroH, col::card, 24);
+		const ImTextureID id = coverTexture(*hero);
+		if (id != ImTextureID())
+			imageFill(dl, id, x0, top, heroW, heroH, 24, col::rgba(255, 255, 255, 255));
+		gradientV(dl, x0, top + heroH * 0.35f, heroW, heroH * 0.65f, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, 215));
+		text(dl, bold(), 20, x0 + 44, top + heroH - 214, col::accent, "CONTINUE");
+		text(dl, bold(), 52, x0 + 44, top + heroH - 184, col::text, fit(bold(), 52, hero->fullTitle, heroW - 88).c_str());
+		std::string line = sinceText(kept.lastPlayed);
+		const std::string played = playedText(kept.seconds);
+		if (!played.empty())
+			line += (line.empty() ? "" : "  \xC2\xB7  ") + played;
+		int slot = 0;
+		time_t saved = 0;
+		if (leftState(*hero, slot, saved))
+			line += (line.empty() ? "" : "  \xC2\xB7  ") + std::string("a saved state from ") + sinceText((int64_t)saved);
+		text(dl, regular(), 24, x0 + 44, top + heroH - 112, col::rgba(255, 255, 255, 215), fit(regular(), 24, line, heroW - 88).c_str());
+		float bx = x0 + 44;
+		const float by = top + heroH - 84;
+		const auto button = [&](int index, Glyph g, const char *label) {
+			const bool lit = home.focus == index;
+			const float w = 30 + glyph(dl, g, 0, -1000) + 12 + textSize(bold(), 24, label).x + 30;
+			if (lit)
+				glow(dl, bx, by, w, 56, 28, alpha(col::accent, 0.5f), 12);
+			rect(dl, bx, by, w, 56, lit ? col::accent : col::rgba(0, 0, 0, 150), 28);
+			if (!lit)
+				outline(dl, bx, by, w, 56, col::rgba(255, 255, 255, 60), 28, 1.5f);
+			glyph(dl, g, bx + 30, by + 28);
+			text(dl, bold(), 24, bx + 30 + glyph(dl, g, 0, -1000) + 12, by + 14, col::text, label);
+			bx += w + 16;
+		};
+		button(0, Glyph::Cross, "Resume");
+		button(1, Glyph::Cross, "Game Page");
+	}
+	else
+	{
+		rect(dl, x0, top, heroW, heroH, col::panel, 24);
+		spinMark(dl, x0 + 130, top + 130, 56);
+		text(dl, bold(), 46, x0 + 240, top + 84, col::text, games.empty() ? "No games yet" : "Nothing played yet");
+		text(dl, regular(), 26, x0 + 240, top + 156, col::dim, games.empty()
+				? "Add a folder with your games, or copy them to games/ in PSFlyCast's folder."
+				: "A game you start shows up here, to continue in one press.", heroW - 300);
+		float bx = x0 + 240;
+		const float by = top + 270;
+		const char *labels[] = { games.empty() ? "Library" : "Open the Library", "Add Game Folder" };
+		for (int i = 0; i < 2; i++)
+		{
+			const bool lit = home.focus == i;
+			const float w = 30 + glyph(dl, Glyph::Cross, 0, -1000) + 12 + textSize(bold(), 24, labels[i]).x + 30;
+			if (lit)
+				glow(dl, bx, by, w, 56, 28, alpha(col::accent, 0.5f), 12);
+			rect(dl, bx, by, w, 56, lit ? col::accent : col::panelHi, 28);
+			glyph(dl, Glyph::Cross, bx + 30, by + 28);
+			text(dl, bold(), 24, bx + 30 + glyph(dl, Glyph::Cross, 0, -1000) + 12, by + 14, col::text, labels[i]);
+			bx += w + 16;
+		}
+	}
+
+	// What is true now: a card only where there is something to say.
+	{
+		const float cx = x0 + heroW + 40, cw = W - 96 - cx;
+		float cy = top;
+		text(dl, bold(), 20, cx, cy, col::faint, "RIGHT NOW");
+		cy += 40;
+		const auto card = [&](const char *icon, const std::string& title, const std::string& body) {
+			if (cy + 112 > top + heroH)
+				return;
+			rect(dl, cx, cy, cw, 104, col::panel, 18);
+			text(dl, bold(), 30, cx + 24, cy + 28, col::accent, icon);
+			text(dl, bold(), 26, cx + 84, cy + 18, col::text, fit(bold(), 26, title, cw - 108).c_str());
+			text(dl, regular(), 21, cx + 84, cy + 56, col::dim, fit(regular(), 21, body, cw - 108).c_str());
+			cy += 120;
+		};
+		size_t shared = 0;
+		for (const Game& g : games)
+			shared += g.source == Network;
+		if (!ps5::smb::gameFolders().empty())
+		{
+			const ps5::smb::Status doing = ps5::smb::status();
+			card(ICON_FA_NETWORK_WIRED, net.unreachable ? "The share did not answer" : "Network share",
+					!doing.text.empty() ? doing.text : std::to_string(ps5::smb::gameFolders().size())
+					+ (ps5::smb::gameFolders().size() == 1 ? " folder" : " folders") + "  \xC2\xB7  " + std::to_string(shared) + " games");
+		}
+		if (ps5::options().usb && ps5::elevated && !ps5::usbDirs.empty())
+			card(ICON_FA_PLUG, "USB drive", std::to_string(ps5::usbDirs.size()) + (ps5::usbDirs.size() == 1 ? " game folder" : " game folders"));
+		const std::string covers = ps5::covers::status();
+		if (!covers.empty())
+			card(ICON_FA_DOWNLOAD, "Covers", covers);
+		if (cy == top + 40)
+			text(dl, regular(), 22, cx, cy, col::faint, "Nothing to report.");
+	}
+
+	// The games played lately.
+	if (lately > 0)
+	{
+		const float ly = top + heroH + 44;
+		text(dl, bold(), 20, x0, ly, col::faint, "PLAYED LATELY");
+		const float gap = 24, cw = (W - 192 - gap * 6) / 7, cy = ly + 40;
+		const float ch = std::min(cw, H - 72 - cy - 24);
+		for (int k = 0; k < lately; k++)
+		{
+			Game& g = *recent[(size_t)(k + 1)];
+			const bool on = home.focus == 2 + k;
+			const float x = x0 + k * (cw + gap);
+			drawCover(dl, g, x, cy, cw, ch, 14, on ? 1.f : 0.f);
+			if (on)
+			{
+				outline(dl, x - 4, cy - 4, cw + 8, ch + 8, col::accent, 16, 3.f);
+				const ImVec2 ts = textSize(bold(), 22, g.fullTitle.c_str());
+				(void)ts;
+			}
+		}
+		if (home.focus >= 2)
+			text(dl, bold(), 24, x0 + 300, ly - 4, col::text, fit(bold(), 24, recent[(size_t)(home.focus - 1)]->fullTitle, W - 96 - x0 - 300).c_str());
+	}
+	endEntrance(content, e);
+
+	topBar(dl, HomeId, false, Reach::All);
+	std::vector<Hint> hints = { { Glyph::L1R1, "Place" } };
+	if (hero != nullptr)
+		hints.push_back({ Glyph::DPadLR, "Choose" });
+	hints.push_back({ Glyph::Options, "Settings" });
+	hints.push_back({ Glyph::Circle, "Quit" });
+	if (hero != nullptr && home.focus >= 2)
+		hints.push_back({ Glyph::Triangle, "Game Page" });
+	hints.push_back({ Glyph::Cross, hero == nullptr ? "Choose" : home.focus == 1 ? "Game Page" : "Play" });
+	hintBar(dl, hints);
+}
+
 void libraryScreen(bool selectDisk);
 
 void showSplash()
@@ -6047,6 +6374,12 @@ void libraryScreen(bool selectDisk)
 	chooseSource();
 	refreshGames(lib.source == Network);
 	forwarderTick(selectDisk);
+	if (homeActive && !selectDisk)
+	{
+		homeScreen(dl);
+		endScreen();
+		return;
+	}
 	// A disc is to be chosen for the running game: its own tab, and the disc
 	// after the one in the drive, if the game has several.
 	static bool choosing = false;
@@ -6091,6 +6424,21 @@ void libraryScreen(bool selectDisk)
 		return lib.flat.empty() ? nullptr : &games[lib.flat[std::clamp(lib.flatFocus, 0, (int)lib.flat.size() - 1)]];
 	};
 	Game *focused = focusedGame();
+	// A game's page asked for from Home opens once the Library has the game in focus.
+	if (!openDetailsFor.empty() && !selectDisk)
+	{
+		if (focused != nullptr && focused->media.path == openDetailsFor)
+		{
+			openDetails(*focused);
+			openDetailsFor.clear();
+		}
+		else
+		{
+			focusPath(openDetailsFor);
+			if (++openDetailsTries > 8)
+				openDetailsFor.clear();
+		}
+	}
 
 	// ---- input
 	if (lib.details && focused == nullptr)
@@ -6141,13 +6489,13 @@ void libraryScreen(bool selectDisk)
 		}
 		else if (in.square)
 		{
-			// The open tab's games are looked for again.
-			if (lib.source == Network)
+			// The open filter's games are looked for again (All: every place, the share too).
+			if (lib.source == Network || lib.source == All)
 				scanNetwork();
-			else
+			if (lib.source != Network)
 			{
 				scanner().refresh();
-				if (lib.source == Usb)
+				if (lib.source == Usb || lib.source == All)
 					ps5::rescanUsb();
 				scannedCount = (size_t)-1;
 			}
@@ -6171,18 +6519,7 @@ void libraryScreen(bool selectDisk)
 				quitUi.open = true;
 		}
 		if (in.l1 || in.r1)
-		{
-			// The next tab, round and round.
-			std::vector<int> sources;
-			for (const TopTab& tab : topTabs())
-				sources.push_back(tab.id);
-			const int n = (int)sources.size();
-			const int at = (int)(std::find(sources.begin(), sources.end(), lib.source) - sources.begin()) + (in.r1 ? 1 : -1);
-			const int next = sources[(at + n) % n];
-			switchSource(next);
-			// It comes in from the side the button points to, also when it went round.
-			entrance.next = in.r1 ? 1.f : -1.f;
-		}
+			stepPlace(in.r1, selectDisk);
 	}
 	// The tab may have changed: its own shelves and list.
 	buildShelves(selectDisk);
@@ -6317,21 +6654,21 @@ void libraryScreen(bool selectDisk)
 	else if (lib.details)
 		hintBar(dl, { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } });
 	else if (selectDisk && empty && searching)
-		hintBar(dl, { { Glyph::L1R1, "Source" }, { Glyph::R3, "Search" }, { Glyph::Circle, "Clear search" } });
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { Glyph::R3, "Search" }, { Glyph::Circle, "Clear search" } });
 	else if (selectDisk)
-		hintBar(dl, { { Glyph::L1R1, "Source" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
 				{ Glyph::Cross, "Insert disc" }, { Glyph::Triangle, "Details" }, { Glyph::Circle, leave } });
 	else if (empty && searching)
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::R3, "Search" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { Glyph::R3, "Search" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty && lib.source == Network && (ps5::smb::gameFolders().empty() || net.scanning || net.wanted))
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty && lib.source == Disc)
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave } });
 	else if (empty)
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { Glyph::Square, scanHint }, { Glyph::Options, "Settings" },
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { Glyph::Square, scanHint }, { Glyph::Options, "Settings" },
 				{ Glyph::Circle, leave } });
 	else
-		hintBar(dl, { { Glyph::L1R1, "Tab" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
+		hintBar(dl, { { Glyph::L1R1, "Place" }, { browse, "Browse" }, { Glyph::L2R2, "Letter" }, { Glyph::R3, "Search" },
 				{ Glyph::Square, scanHint }, { Glyph::Options, "Settings" }, { Glyph::Circle, leave },
 				{ Glyph::Triangle, "Details" }, { Glyph::Cross, "Play" } });
 	endScreen();
@@ -6555,6 +6892,7 @@ struct Row
 	// the row stands for, whose value in the Settings tells whether the game
 	// has one of its own. Null in the Settings for every game.
 	std::shared_ptr<const GameOption> game;
+	std::string from;					// the category it is in (set when the categories are built: pins, search)
 };
 
 struct Category
@@ -7293,6 +7631,13 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	{
+		Row r{ Row::Choice, "Open on", "The place PSFlyCast starts in: Home, with the game played last, or the Library.",
+			{ "Home", "Library" }, { 0, 1 } };
+		r.get = [] { return ps5::options().startPage; };
+		r.set = [](int v) { ps5::options().startPage = v; ps5::saveOptions(); };
+		storage.rows.push_back(r);
+	}
+	{
 		Row r{ Row::Choice, "Library view", "Show the games as shelves, a compact grid or a list.",
 			{ "Shelves", "Grid", "List" }, { 0, 1, 2 } };
 		r.get = [] { return ps5::options().view; };
@@ -7634,6 +7979,9 @@ std::vector<Category> buildCategories()
 		about.rows.push_back(r);
 	}
 	cats.push_back(about);
+	for (Category& c : cats)
+		for (Row& r : c.rows)
+			r.from = c.name;
 	return cats;
 }
 
@@ -7657,6 +8005,12 @@ struct SettingsState
 	bool forGame = false;
 	int keptCat = 0, keptRow = 0;
 	double allAsked = -10;			// Triangle was pressed once: pressed again, every option is as in Settings
+	// The Settings home: the areas, which hold whole categories (nothing moves between them), the
+	// search over every row, and the rows pinned. cats is what the area shows; all is everything.
+	std::vector<Category> all;
+	int area = -1;					// -1 the home, 0.. an area, 100 the pinned rows, 101 the search's results
+	int homeFocus = 0;				// -1 the search bar, 0..6 the areas, 7 the pinned rows
+	std::string query;
 } st;
 
 // The option of a row of the running game's Settings has a value of the
@@ -7731,6 +8085,211 @@ int settle(const Category& cat, int row, int dir)
 	return 0;
 }
 
+// ---- the Settings home: areas, search and pinned rows
+//
+// An area is a few of the categories as they were, shown together: no row moves into another
+// category, so nothing can be lost between them (interface-inventory.py checks the labels). Any
+// category an area does not name falls into the last, System.
+
+constexpr int AreaHome = -1, AreaPinned = 100, AreaSearch = 101;
+
+struct AreaDef
+{
+	const char *icon;
+	const char *name;
+	std::vector<const char *> categories;
+	std::vector<const char *> summary;		// rows whose value the card shows, by label
+};
+
+const std::vector<AreaDef>& areaDefs()
+{
+	static const std::vector<AreaDef> defs = {
+		{ ICON_FA_DISPLAY, "Picture", { "Video" }, { "Internal resolution", "Upscaling" } },
+		{ ICON_FA_VOLUME_HIGH, "Sound", { "Audio" }, { "Volume", "Menu sounds" } },
+		{ ICON_FA_GAMEPAD, "Controls", { "Controls" }, { "Vibration", "PlayStation Move" } },
+		{ ICON_FA_FOLDER_OPEN, "Games and saves", { "Library", "Folders" }, { "Open on", "Library view" } },
+		{ ICON_FA_GLOBE, "Network", { "Online", "Achievements" }, { "Netplay", "RetroAchievements" } },
+		{ ICON_FA_PALETTE, "Interface", { "Interface" }, { "Interface size", "OLED care" } },
+		{ ICON_FA_MICROCHIP, "System", { "System", "About" }, { "Rewind", "Write logs" } },
+	};
+	return defs;
+}
+
+int areaOf(const std::string& category)
+{
+	const auto& defs = areaDefs();
+	for (size_t i = 0; i < defs.size(); i++)
+		for (const char *name : defs[i].categories)
+			if (category == name)
+				return (int)i;
+	return (int)defs.size() - 1;
+}
+
+// A pinned row is known by its category and its label.
+int pinId(const std::string& category, const std::string& label)
+{
+	unsigned hash = 2166136261u;
+	for (const char c : category + "\x1f" + label)
+		hash = (hash ^ (unsigned char)c) * 16777619u;
+	return (int)(hash == 0 ? 1u : hash);
+}
+
+bool isPinned(const Row& r)
+{
+	if (r.from.empty())
+		return false;
+	const int id = pinId(r.from, r.label);
+	for (const int pin : ps5::options().pins)
+		if (pin == id)
+			return true;
+	return false;
+}
+
+// Pins the row, or takes it off; false when all the places are taken.
+bool togglePin(const Row& r)
+{
+	if (r.from.empty())
+		return true;
+	const int id = pinId(r.from, r.label);
+	int *pins = ps5::options().pins;
+	for (int i = 0; i < ps5::Options::Pins; i++)
+		if (pins[i] == id)
+		{
+			pins[i] = 0;
+			ps5::saveOptions();
+			return true;
+		}
+	for (int i = 0; i < ps5::Options::Pins; i++)
+		if (pins[i] == 0)
+		{
+			pins[i] = id;
+			ps5::saveOptions();
+			return true;
+		}
+	return false;
+}
+
+std::string lowerText(std::string text)
+{
+	for (char& c : text)
+		c = (char)tolower((unsigned char)c);
+	return text;
+}
+
+// What st.cats is for the area: its categories, the pinned rows, or the rows a search found. At
+// the home it is everything, so that nothing indexes an empty list.
+void refilter()
+{
+	if (st.forGame)
+		return;
+	st.cats.clear();
+	if (st.area >= 0 && st.area < (int)areaDefs().size())
+	{
+		for (const Category& c : st.all)
+			if (areaOf(c.name) == st.area)
+				st.cats.push_back(c);
+	}
+	else if (st.area == AreaPinned)
+	{
+		Category pinned{ ICON_FA_THUMBTACK, "Pinned" };
+		for (const Category& c : st.all)
+			for (const Row& r : c.rows)
+				if (r.kind != Row::Heading && isPinned(r))
+					pinned.rows.push_back(r);
+		if (pinned.rows.empty())
+			pinned.rows.push_back(Row{ Row::Info, "Nothing is pinned", "Press Triangle on a setting to pin it here, and on a pinned one to take it off." });
+		st.cats.push_back(pinned);
+	}
+	else if (st.area == AreaSearch)
+	{
+		Category found{ ICON_FA_MAGNIFYING_GLASS, "Search" };
+		std::vector<std::string> words;
+		std::string word;
+		for (const char c : lowerText(st.query) + " ")
+			if (c == ' ')
+			{
+				if (!word.empty())
+					words.push_back(word);
+				word.clear();
+			}
+			else
+				word += c;
+		int shown = 0;
+		for (const Category& c : st.all)
+		{
+			bool headed = false;
+			for (const Row& r : c.rows)
+			{
+				if (r.kind == Row::Heading || shown >= 80)
+					continue;
+				const std::string hay = lowerText(r.label + " " + r.desc + " " + c.name);
+				bool all = !words.empty();
+				for (const std::string& w : words)
+					all = all && hay.find(w) != std::string::npos;
+				if (!all)
+					continue;
+				if (!headed)
+				{
+					found.rows.push_back(heading(c.name));
+					headed = true;
+				}
+				found.rows.push_back(r);
+				shown++;
+			}
+		}
+		if (found.rows.empty())
+			found.rows.push_back(Row{ Row::Info, "Nothing found", "No setting has all of those words in its name or its description." });
+		st.cats.push_back(found);
+	}
+	else
+		st.cats = st.all;
+	st.cat = std::clamp(st.cat, 0, std::max(0, (int)st.cats.size() - 1));
+	if (!st.cats.empty())
+		st.row = std::clamp(st.row, 0, std::max(0, (int)st.cats[st.cat].rows.size() - 1));
+}
+
+void goHome()
+{
+	st.area = AreaHome;
+	st.query.clear();
+	st.inRows = false;
+	refilter();
+	st.cat = 0;
+	st.row = 0;
+	st.shownCat = -1;
+}
+
+void enterArea(int area)
+{
+	st.area = area;
+	st.cat = 0;
+	st.row = 0;
+	st.scroll = 0;
+	st.shownCat = -1;
+	refilter();
+	st.row = st.cats.empty() ? 0 : settle(st.cats[0], 0, 1);
+	// An area of one category goes straight to its rows.
+	st.inRows = st.cats.size() == 1;
+}
+
+const Row *rowByLabel(const std::string& label)
+{
+	for (const Category& c : st.all)
+		for (const Row& r : c.rows)
+			if (r.kind != Row::Heading && r.label == label)
+				return &r;
+	return nullptr;
+}
+
+std::string summaryValue(const Row& r)
+{
+	if (r.kind == Row::Toggle)
+		return r.get() ? "On" : "Off";
+	if (r.kind == Row::Action)
+		return r.info ? r.info() : "";
+	return valueText(r);
+}
+
 void leaveSettings()
 {
 	// What was changed is saved: for the running game's Settings, to its
@@ -7750,6 +8309,9 @@ void leaveSettings()
 		st.row = st.keptRow;
 		st.shownCat = -1;
 	}
+	// They open at the home again.
+	st.area = AreaHome;
+	st.query.clear();
 	gui_setState(game_started ? GuiState::Commands : GuiState::Main);
 }
 
@@ -7778,12 +8340,141 @@ void openGameSettings()
 	gui_setState(GuiState::Settings);
 }
 
+// The Settings home: a search bar, a card for each area with two of its values, and the pinned rows.
+void settingsHome(ImDrawList *dl)
+{
+	const auto& defs = areaDefs();
+	const int areas = (int)defs.size();
+	const int cards = areas + 1;		// the last is the pinned rows
+	const int cols = 4;
+	int& f = st.homeFocus;
+	f = std::clamp(f, -1, cards - 1);
+	if (in.left && f > 0 && f % cols > 0) f--;
+	if (in.right && f >= 0 && f % cols < cols - 1 && f < cards - 1) f++;
+	if (in.down) f = f < 0 ? 0 : (f + cols < cards ? f + cols : f);
+	if (in.up) f = f >= cols ? f - cols : -1;
+	if (in.triangle || (in.accept && f < 0))
+		openKeyboard(KeyboardSettings, "Search the settings", "A setting's name, or what it does", st.query, 40);
+	else if (in.accept)
+		enterArea(f == areas ? AreaPinned : f);
+	if (in.back)
+		leaveSettings();
+	if (in.square && !st.restartFor.empty())
+	{
+		ps5::restartOnExit = true;
+		dc_exit();
+	}
+	// OPTIONS, which opened the Settings, closes them from anywhere in them.
+	if (in.options && gui_state == GuiState::Settings)
+		leaveSettings();
+	if (gui_state != GuiState::Settings)
+	{
+		endScreen();
+		return;
+	}
+
+	const float e = entered(200);
+	const Layer content = beginLayer(dl);
+	text(dl, bold(), 54, 96, 140, col::text, "Settings");
+	// The search bar.
+	const float sx = 96, sy = 222, sw = W - 192, sh = 68;
+	if (f < 0)
+		glow(dl, sx, sy, sw, sh, sh / 2, alpha(col::accent, 0.35f), 12);
+	rect(dl, sx, sy, sw, sh, f < 0 ? col::panelHi : col::panel, sh / 2);
+	if (f < 0)
+		outline(dl, sx, sy, sw, sh, col::accent, sh / 2, 3.f);
+	text(dl, regular(), 26, sx + 32, sy + sh / 2 - 17, col::faint, ICON_FA_MAGNIFYING_GLASS "    Search the settings");
+	glyph(dl, Glyph::Triangle, sx + sw - 44, sy + sh / 2, 30);
+
+	const float gap = 24, top = 326;
+	const float cw = (W - 192 - gap * (cols - 1)) / cols;
+	const float ch = std::min(300.f, (H - 72 - top - 56 - gap) / 2);
+	for (int i = 0; i < cards; i++)
+	{
+		const float x = 96 + (i % cols) * (cw + gap), y = top + (i / cols) * (ch + gap);
+		const bool on = f == i;
+		if (on)
+			glow(dl, x, y, cw, ch, 20, alpha(col::accent, 0.35f), 14);
+		rect(dl, x, y, cw, ch, on ? col::panelHi : col::panel, 20);
+		if (on)
+			outline(dl, x, y, cw, ch, col::accent, 20, 3.f);
+		const float tw = cw - 56;
+		if (i < areas)
+		{
+			int rows = 0;
+			for (const Category& c : st.all)
+				if (areaOf(c.name) == i)
+					for (const Row& r : c.rows)
+						rows += r.kind != Row::Heading;
+			text(dl, bold(), 40, x + 28, y + 22, col::accent, defs[i].icon);
+			text(dl, bold(), 32, x + 28, y + 80, col::text, defs[i].name);
+			text(dl, regular(), 20, x + 28, y + 122, col::faint, (std::to_string(rows) + " settings").c_str());
+			float ly = y + 160;
+			for (const char *label : defs[i].summary)
+			{
+				const Row *r = rowByLabel(label);
+				if (r == nullptr || ly + 50 > y + ch)
+					continue;
+				text(dl, regular(), 20, x + 28, ly, col::faint, label);
+				text(dl, bold(), 24, x + 28, ly + 24, on ? col::text : col::dim, fit(bold(), 24, summaryValue(*r), tw).c_str());
+				ly += 54;
+			}
+		}
+		else
+		{
+			int pinned = 0;
+			float ly = y + 160;
+			text(dl, bold(), 40, x + 28, y + 22, col::accent, ICON_FA_THUMBTACK);
+			text(dl, bold(), 32, x + 28, y + 80, col::text, "Pinned");
+			for (const Category& c : st.all)
+				for (const Row& r : c.rows)
+					if (r.kind != Row::Heading && isPinned(r))
+					{
+						if (pinned < 3 && ly + 30 <= y + ch)
+						{
+							text(dl, regular(), 22, x + 28, ly, on ? col::text : col::dim,
+									fit(regular(), 22, r.label + "  \xC2\xB7  " + summaryValue(r), tw).c_str());
+							ly += 34;
+						}
+						pinned++;
+					}
+			text(dl, regular(), 20, x + 28, y + 122, col::faint, (std::to_string(pinned) + " pinned").c_str());
+			if (pinned == 0)
+				text(dl, regular(), 20, x + 28, y + 160, col::faint, "Press Triangle on a setting to pin it here.", tw);
+		}
+	}
+	endEntrance(content, e);
+
+	if (!st.restartFor.empty())
+	{
+		std::string names;
+		for (const std::string& n : st.restartFor)
+			names += (names.empty() ? "" : ", ") + n;
+		text(dl, bold(), 24, 96, H - 72 - 44, col::warm, fit(bold(), 24, "Start PSFlyCast again to apply: " + names, W - 192).c_str());
+	}
+	topBar(dl, activePlace(), game_started, Reach::None);
+	std::vector<Hint> hints = { { Glyph::DPadUD, "Move" }, { Glyph::Cross, "Open" }, { Glyph::Triangle, "Search" },
+			{ Glyph::Options, "Close" }, { Glyph::Circle, "Back" } };
+	if (!st.restartFor.empty())
+		hints.push_back({ Glyph::Square, "Restart now" });
+	hintBar(dl, hints);
+	endScreen();
+}
+
 } // namespace
 
 void settings()
 {
 	if (st.cats.empty())
-		st.cats = st.forGame ? buildGameCategories() : buildCategories();
+	{
+		if (st.forGame)
+			st.cats = buildGameCategories();
+		else
+		{
+			st.all = buildCategories();
+			refilter();
+		}
+	}
 	if (st.cats.empty())
 	{
 		// A game with no options of its own to offer: nothing to show.
@@ -7794,7 +8485,13 @@ void settings()
 	{
 		rebuildCategories = false;
 		const int keepCat = st.cat, keepRow = st.row;
-		st.cats = st.forGame ? buildGameCategories() : buildCategories();
+		if (st.forGame)
+			st.cats = buildGameCategories();
+		else
+		{
+			st.all = buildCategories();
+			refilter();
+		}
 		st.cat = std::min(keepCat, (int)st.cats.size() - 1);
 		st.row = std::min(keepRow, std::max(0, (int)st.cats[st.cat].rows.size() - 1));
 	}
@@ -7841,6 +8538,23 @@ void settings()
 			std::fill(typed.begin(), typed.end(), '\0');
 			os_notify("Network password set", 2500);
 		}
+		else if (keyboard == KeyboardSettings)
+		{
+			st.query = trimmed(typed);
+			if (st.query.empty())
+				goHome();
+			else
+			{
+				st.area = AreaSearch;
+				st.cat = 0;
+				st.row = 0;
+				st.scroll = 0;
+				st.shownCat = -1;
+				refilter();
+				st.row = settle(st.cats[0], 0, 1);
+				st.inRows = true;
+			}
+		}
 		else if (keyboard == KeyboardRaUser || keyboard == KeyboardRaPassword)
 		{
 			accountTyped(keyboard, typed);
@@ -7879,6 +8593,11 @@ void settings()
 		st.dirty = true;
 	}
 
+	if (!st.forGame && st.area == AreaHome)
+	{
+		settingsHome(dl);
+		return;
+	}
 	Category& cat = st.cats[st.cat];
 	// ---- input
 	if (!st.inRows)
@@ -7887,7 +8606,12 @@ void settings()
 		if (in.down && st.cat < (int)st.cats.size() - 1) { st.cat++; st.row = settle(st.cats[st.cat], 0, 1); }
 		if (in.accept || in.right) st.inRows = true;
 		if (in.back)
-			leaveSettings();
+		{
+			if (st.forGame)
+				leaveSettings();
+			else
+				goHome();
+		}
 	}
 	else
 	{
@@ -7899,6 +8623,8 @@ void settings()
 		{
 			if (r.kind == Row::Choice || r.kind == Row::Slider || r.kind == Row::Toggle)
 				change(r, -1);
+			else if (!st.forGame && st.cats.size() == 1)
+				goHome();
 			else
 				st.inRows = false;
 		}
@@ -7918,8 +8644,27 @@ void settings()
 			r.set(settingsValue(*r.game));
 			st.dirty = true;
 		}
+		// Triangle pins a row to the Settings home, or takes it off.
+		if (in.triangle && !st.forGame && !r.from.empty())
+		{
+			if (!togglePin(r))
+			{
+				ps5::sound::cue(ps5::sound::Cue::Refuse);
+				os_notify("Eight settings are pinned", 3500, "Take one off first (Triangle on it)");
+			}
+			else if (st.area == AreaPinned)
+			{
+				refilter();
+				st.row = settle(st.cats[0], st.row, 1);
+			}
+		}
 		if (in.back)
-			st.inRows = false;
+		{
+			if (!st.forGame && st.cats.size() == 1)
+				goHome();
+			else
+				st.inRows = false;
+		}
 	}
 	if (st.forGame && in.triangle)
 	{
@@ -8062,6 +8807,8 @@ void settings()
 		const bool follows = r.game != nullptr && !own && r.game->category != GameOption::Patch;
 		if (own)
 			dl->AddCircleFilled(V(px + 32, y + 34), 6 * S, col::accent);
+		else if (!st.forGame && isPinned(r))
+			text(dl, regular(), 20, px + 22, y + 24, col::accent, ICON_FA_THUMBTACK);
 		auto followNote = [&](float valueX) {
 			if (!follows)
 				return;
@@ -8157,7 +8904,7 @@ void settings()
 	}
 
 	// Over the library's tab, which stays lit: the Settings are not a tab.
-	topBar(dl, lib.source, game_started, Reach::None);
+	topBar(dl, activePlace(), game_started, Reach::None);
 	std::vector<Hint> hints;
 	if (st.forGame)
 	{
@@ -8186,6 +8933,8 @@ void settings()
 			hints = { { Glyph::DPadUD, "Move" }, { Glyph::Circle, "Back" } };
 		else
 			hints = { { Glyph::DPadUD, "Move" }, { Glyph::DPadLR, "Change" }, { Glyph::Circle, "Back" } };
+		if (!r.from.empty() && r.kind != Row::Heading)
+			hints.push_back({ Glyph::Triangle, isPinned(r) ? "Unpin" : "Pin" });
 	}
 	if (!st.forGame && !st.restartFor.empty())
 		hints.push_back({ Glyph::Square, "Restart now" });
