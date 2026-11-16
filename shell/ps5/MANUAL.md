@@ -94,29 +94,41 @@ or a [USB drive](#19-games-on-a-usb-drive).
 
 ## 4. The library
 
-The library is what you see when PSFlyCast starts.
+The top bar has three places: **Home**, **Library** and, with the USB disc drive turned on,
+**Disc**. L1 and R1 move between them. Under Library are its filters, which say where the games
+are kept: **All**, **Console** (the `games/` folder and the folders you added), **USB** and
+**Share**; L1 and R1 step through them too. PSFlyCast opens on Home unless Settings > Library >
+**Open on** says Library.
+
+**Home** shows the game you played last, with **Resume** and **Game Page**; what is true now (the
+network share, a USB drive, covers being downloaded; a card appears only when there is something to
+say); and the games played lately. Cross on one starts it, Triangle opens its page.
+
+The library is the games themselves.
 
 | Button | Does |
 |---|---|
 | D-pad or left stick | Move between games |
 | Cross | Play the game |
 | Triangle | Game details |
-| Square | Scan the open tab for games again |
-| L1 / R1 | Previous / next tab: Internal, USB, Network |
+| Square | Scan the open filter for games again (All also scans the share) |
+| L1 / R1 | Previous / next place: Home, the Library's filters, Disc |
 | L2 / R2 | Jump by letter: R2 to the first game of the next letter, L2 back |
 | R3 (press the right stick) | Search |
 | Circle | Leave PSFlyCast (it asks first). With a search: show every game again |
 | OPTIONS | Open or close the Settings |
 
-- **Tabs.** Internal is the `games/` folder. The USB tab is there only when
-  USB drives are turned on, and the Disc Drive tab only when USB disc drive is. Each tab remembers where you were, and PSFlyCast
-  opens on the tab you used last.
+- **Filters.** All shows every game but those on a disc in the drive. Console is the `games/`
+  folder and the folders you added on the console; USB is there only when USB drives are turned
+  on; Share is the network folders (All shows what the last scan of the share found; Square, or
+  the Share filter, asks the share again). Each filter remembers where you were, and PSFlyCast
+  opens on the one you used last.
 - **Views.** Shelves (with a Recently played row and, once you have made
   some, a Favourites row), a compact grid, or a list.
   Change it in Settings > Library > Library view.
 - **Search.** R3 opens the console's keyboard. Type a title or part of it
-  and the tab shows only the games whose title has every word you typed;
-  L1 and R1 look in the other tabs. Circle shows every game again.
+  and the filter shows only the games whose title has every word you typed;
+  L1 and R1 look in the other filters. Circle shows every game again.
 - **Leaving.** Circle in the library asks **Quit PSFlyCast?**: Cross quits,
   Circle stays. (Settings > About > Quit PSFlyCast is still there.)
 - **Covers and descriptions** are downloaded by the game's file name. Names
@@ -719,8 +731,18 @@ When a player signs out, their port is free again. Settings > Controls >
 
 ## 16. Settings
 
-Press **OPTIONS** in the library. D-pad moves, left and right change a value,
-Circle goes back.
+Press **OPTIONS**. The Settings open at a home: a search bar and a card for each of seven areas,
+each showing two of its values, and a card with the settings you pinned.
+
+- **Search** (Triangle, or Cross on the bar) takes a word or two and lists every setting whose name
+  or description has them all; you change them right there.
+- **Pin** a setting with Triangle on it (Triangle again takes it off): up to eight go on the
+  Pinned card, where they are changed in place.
+- Circle goes back to the home, and OPTIONS closes the Settings from anywhere.
+
+The areas hold the categories below as they were: Picture (Video), Sound (Audio), Controls,
+Games and saves (Library and Folders), Network (Online and Achievements), Interface, and System
+(System and About). D-pad moves, left and right change a value, Circle goes back.
 
 | Category | What is in it |
 |---|---|
@@ -731,6 +753,7 @@ Circle goes back.
 | **Online** | Netplay, the other player's address, input delay, this console's address, the router's port, your name online, how a game's own online mode connects |
 | **Achievements** | RetroAchievements on or off, and your account on the site |
 | **Interface** | Skin, accent colour, background, motion, game videos, the start-up animation and its sound, menu sounds |
+| **Folders** | Add a game folder anywhere (a USB drive, a share, the console); choose where BIOS files, save states, covers, texture packs, cheats and game videos are kept; and **Look For My Files**: see [Your own folders](#your-own-folders) |
 | **Library** | In sections: games (scan, view, disc grouping, hidden games), covers, USB drives, the USB CD or DVD drive, the network, the folders, and Free up space (unpacked archives, shader cache, log files) |
 | **About** | The version and build, check for updates, the display mode in use, which BIOS is in use, where the files are, credits, Quit PSFlyCast |
 
@@ -1174,6 +1197,30 @@ with every other title's.
 and on the loading screen. Take it away to see PSFlyCast's own.
 
 ## 23. Where your files are
+
+### Your own folders
+
+Settings > Games and saves > **Folders** lets the files stay where you keep them. **Nothing is
+moved or copied**; PSFlyCast only looks in the folders you choose, and writes only what it keeps
+(save states, covers) in a folder it can write in.
+
+- **Add Game Folder.** Choose a USB drive, a share or the console's storage, then folders inside
+  it, then "Choose this folder". Its games, and those in the folders below it, join the library
+  where they are. A folder on a share is the same as adding it in Library > Network.
+- **BIOS, Savestate, Box Art, Texture Pack, Cheat and Game Video Folders.** Add a folder, take one
+  off, or use the default again. More than one folder can be listed (the first is where a save
+  state is written; all are searched), except covers, which have one. **Covers already downloaded
+  stay in the old folder.** A change takes effect for the next game started.
+- **Look For My Files.** Choose a drive, a share or a folder: PSFlyCast looks through it, four
+  levels down, and lists the games, BIOS files, save states, covers, texture packs, cheats and
+  videos it recognises. Switch on what to use (Cross), then **Use These Folders** (Triangle).
+- Save states and covers are written, so a share (read only here) is refused for them, and so is a
+  folder that cannot be written in.
+- If the drive holding your save states is not in when a game starts, PSFlyCast asks before it
+  starts the game on its own folder, so that your states do not look gone.
+- Memory cards are not moved: they stay in `data/`, where the sync to the share covers them.
+
+The choices are kept in `folders.cfg` in PSFlyCast's folder.
 
 Everything is in `/data/homebrew/PPSA99247/`:
 

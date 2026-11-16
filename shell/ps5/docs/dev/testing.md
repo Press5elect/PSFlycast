@@ -11,6 +11,8 @@ runs the real code on a PC, and a build that links. Say which one a claim rests 
 | Test | What it runs | Notes |
 | --- | --- | --- |
 | `tests/cardsync` | the memory cards' sync engine (`ps5_card_sync.cpp`) on folders in memory, ASan and UBSan | Crux2's test plus a check of `is_card` |
+| `tests/folders` | the folders engine (`ps5_folders.cpp`) on folders made in a temporary directory, ASan and UBSan (70 checks) | the browser's walk, the writable probe, `lookFor`, `folders.cfg`, which folders are in use when a drive is gone |
+| `tools/interface-inventory.py check` | that no label of the interface at v1.3.9 is gone from the code | acknowledged changes are in `interface-inventory.json` |
 | `tests/hdr` | HDR output's shaders and copy (`ps5_hdr.cpp`'s own text) on lavapipe, with the validation layer | OGBox's test; says NOT RUN without lavapipe |
 
 Run them with CI's compilers before a release (`CXX=g++` and `CXX=clang++`).

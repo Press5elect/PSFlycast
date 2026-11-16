@@ -15,6 +15,32 @@ Builds 94 to 101 (v1.3.5 to v1.3.9) have not been run on a console. What each ne
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
 | 98 to 100, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line; build 100: Down-sampling (Soft, Sharp) and SMAA (`aa:` lines) |
 
+## The interface revamp (build 104): nothing of it has been seen
+
+Written without a console and without a picture of any screen ([interface-revamp.md](interface-revamp.md)).
+What to look at first, in the order a person meets it:
+
+- Start-up: Home as the first place (the game played last, "Right now" cards, played lately);
+  Open on (Settings > Library) set to Library. A fresh `frontend.cfg` opens the Library on All.
+- The top bar: three places and the filters under Library; L1 and R1 through Home, All, Console,
+  USB (when on), Share, Disc (when on); the pill and the chips with Interface size 70 % and Text
+  size at their ends; a screen with Reach::None (loading, in-game settings).
+- The Library on All: games of every place once, discs sets, Square (also asks the share), the
+  Share filter's scan; choosing a disc for a running game (no Home, no All surprises).
+- Game Page from Home (focus has to arrive on the game: up to 8 frames are tried).
+- Settings: the home, an area of one category (straight into its rows, Circle to the home), an
+  area of two, Pinned (Triangle on a row; eight at most), Search (the console's keyboard), a
+  setting changed from Search or Pinned (it must be the same setting), Restart now.
+- Folders: Add Game Folder on a USB drive and on a share (the share's listing blocks nothing but
+  shows "Looking..."); Look For My Files on a drive with a Flycast data folder; the BIOS, state,
+  cheat and video folders; a covers folder (old covers stay in the old one); pulling the drive
+  holding the save states out and starting a game (the question), and putting it back.
+- Not checked anywhere: a share's listing time with a NAS asleep; a folder with thousands of
+  entries (the browser caps a listing at 1000 names).
+
+Left out on purpose (see the revamp page): light skins, levels, a "Changed lately" card, the
+game page and quick menu redesign, the memory cards' folder, a Flycast-words text file.
+
 ## PlayStation Move (v1.3.9, build 99)
 
 Through Move Management (a separate payload; `ps5_pad.cpp`'s Move section, its client vendored in

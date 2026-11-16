@@ -1,6 +1,7 @@
 // PSFlyCast - the folders engine (ps5_folders.cpp) on folders made in a temporary directory.
 // SPDX-FileCopyrightText: 2026 Press5elect
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Additional term (GPL-3.0 section 7(b)): keep the attribution "Crux2 by Press5elect".
 
 #include "ps5_folders.h"
 

@@ -11,6 +11,7 @@ for whoever works on the port.
 | [dev/testing.md](dev/testing.md) | The PC tests and CI; what was checked off the console |
 | [dev/releasing.md](dev/releasing.md) | Making a test build or a release |
 | [dev/open-work.md](dev/open-work.md) | What is untested, unfinished or decided |
+| [dev/interface-revamp.md](dev/interface-revamp.md) | How the interface was changed (Home, filters, Settings home, folders), the no-loss check, what is left |
 | [history/console-testing.md](history/console-testing.md) | What ran on a console, version by version |
 | [history/changelog.md](history/changelog.md) | The notes of v1.3.4 and earlier |
 

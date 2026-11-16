@@ -60,6 +60,24 @@ What was run on a console, version by version, and what was not, is in
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
+## Next version (in test)
+
+Added:
+
+- **Home**, the first place on start: the game played last with Resume and its page, what is true
+  now, and the games played lately. **Open on** (Settings > Library) chooses Home or the Library.
+- **Your own folders** (Settings > Games and saves > Folders): add game folders anywhere, choose
+  where BIOS files, save states, covers, texture packs, cheats and game videos are kept, and
+  **Look For My Files**, which looks through a drive, a share or a folder and lists what it
+  recognises. Nothing is moved or copied.
+- **Settings home**: seven areas, a search over every setting, and settings pinned with Triangle.
+
+Changed:
+
+- **The top bar** holds places only: Home, Library and Disc. Where the games are kept (All, Console,
+  USB, Share) is a filter of the Library. The Library opens on All.
+- **A game asks before it starts** when the drive holding the save states you chose is not in.
+
 ## New in v1.3.9
 
 Added:

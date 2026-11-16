@@ -58,6 +58,18 @@ its machine and are never committed.
 
 ## Lessons
 
+- **A change to the interface is checked for lost labels.** `python3 shell/ps5/tools/interface-inventory.py check`
+  (it runs with the PC tests) fails when a string of the interface at the last release is gone from
+  the code; acknowledge a deliberate change with its reason. It catches a removed row, not an
+  unreachable one: look at the screens too.
+- **`using namespace ps5::folders;` is ambiguous in bigpicture.cpp.** `settings()` (the Settings
+  screen), `::settings` (Flycast's global) and `Games` all exist there; qualify them
+  (`ps5::folders::settings()`, `ps5::folders::Games`).
+- **The covers folder is one folder.** PSFlyCast keeps notes about its covers beside them
+  (`.choices`, `.yours`, `not-found-2.txt`), so a chosen folder replaces the default rather than
+  adding to it (`ps5_folders.cpp`, `add()` for `Covers`).
+- **Never write on a default folder in place of a chosen one that is missing.** A game would start
+  with its saves looking gone. `folders::resolve` reports `askFirst`; `launch()` asks.
 - **The console does not give a title every function the SDK declares.** `pthread_get_name_np`
   links against the SDK's stubs but no module exports it to a title; the link's import check
   refused it (v1.3.9's crash report keeps its own thread names instead). Look a function up by its

@@ -3,7 +3,8 @@
 
 	Copyright 2026 Press5elect and the PSFlyCast contributors
 	SPDX-License-Identifier: GPL-3.0-or-later
-	Additional terms (GPL-3.0 section 7(b)): keep the attribution "OGBox by Press5elect".
+	Additional terms (GPL-3.0 section 7(b)): keep the attribution "Crux2 by Press5elect" (the folder
+	browser, the writable test and Look For My Files follow Crux2's).
 */
 #include "ps5_folders.h"
 
