@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include "ui/ui.h"
+#include "ui/IconsFontAwesome6.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -119,12 +121,23 @@ void rasterise(ImDrawData *dd)
 				for (int y = y0; y < y1; y++)
 					for (int x = x0; x < x1; x++)
 					{
-						const float px = x + 0.5f, py = y + 0.5f;
-						const float w0 = ((b.pos.x - px) * (c.pos.y - py) - (b.pos.y - py) * (c.pos.x - px)) / area;
-						const float w1 = ((c.pos.x - px) * (a.pos.y - py) - (c.pos.y - py) * (a.pos.x - px)) / area;
-						const float w2 = 1 - w0 - w1;
-						if (w0 < -1e-5f || w1 < -1e-5f || w2 < -1e-5f)
+						const double px = x + 0.5, py = y + 0.5;
+						// The edges, positive inside whatever the winding. A pixel on an edge is
+						// the triangle's on one side of it only, so that two triangles that share
+						// it do not both blend it (no seams along the diagonals of a box).
+						const double sg = area > 0 ? 1 : -1;
+						const auto edge = [&](const ImVec2& p, const ImVec2& q) {
+							const double e = sg * (((double)p.x - px) * ((double)q.y - py) - ((double)p.y - py) * ((double)q.x - px));
+							if (e != 0)
+								return e > 0;
+							const double dx = sg * ((double)q.x - p.x), dy = sg * ((double)q.y - p.y);
+							return dy < 0 || (dy == 0 && dx > 0);
+						};
+						if (!edge(b.pos, c.pos) || !edge(c.pos, a.pos) || !edge(a.pos, b.pos))
 							continue;
+						const float w0 = (float)((((double)b.pos.x - px) * ((double)c.pos.y - py) - ((double)b.pos.y - py) * ((double)c.pos.x - px)) / area);
+						const float w1 = (float)((((double)c.pos.x - px) * ((double)a.pos.y - py) - ((double)c.pos.y - py) * ((double)a.pos.x - px)) / area);
+						const float w2 = 1 - w0 - w1;
 						float col[4];
 						for (int k = 0; k < 4; k++)
 						{
@@ -191,6 +204,15 @@ int main(int argc, char **argv)
 	io.IniFilename = nullptr;
 	ImFont *regular = io.Fonts->AddFontFromFileTTF((fonts + "/Roboto-Medium.ttf").c_str(), 24.f);
 	ImFont *bold = io.Fonts->AddFontFromFileTTF((fonts + "/Roboto-Bold.ttf").c_str(), 24.f);
+	// Font Awesome's symbols, merged into both, as core/ui/gui_font.cpp has them on the console.
+	{
+		ImFontConfig merge;
+		merge.MergeMode = true;
+		merge.DstFont = regular;
+		io.Fonts->AddFontFromFileTTF((fonts + "/fa-solid-900.ttf").c_str(), 24.f, &merge);
+		merge.DstFont = bold;
+		io.Fonts->AddFontFromFileTTF((fonts + "/fa-solid-900.ttf").c_str(), 24.f, &merge);
+	}
 	if (!regular || !bold)
 	{
 		std::fprintf(stderr, "preview: the fonts are not in %s\n", fonts.c_str());
@@ -320,6 +342,133 @@ int main(int argc, char **argv)
 		}
 		save(out + "/" + shot.name + ".png");
 		std::printf("%s\n", shot.name);
+	}
+	// The screens whose logic is the console's: a game's page with a list open, and the quick menu.
+	const auto picture = [&](const char *name, const std::function<void()>& draw, bool gameBehind) {
+		for (int pass = 0; pass < 2; pass++)
+		{
+			io.DeltaTime = 1.f / 60.f;
+			ImGui::NewFrame();
+			if (gameBehind)
+			{
+				ImDrawList *bg = ImGui::GetBackgroundDrawList();
+				bg->AddRectFilled(ImVec2(0, 0), ImVec2(1920, 1080), IM_COL32(16, 32, 43, 255));
+				bg->AddQuadFilled(ImVec2(-120, 640), ImVec2(2040, 480), ImVec2(2040, 1080), ImVec2(-120, 1080), IM_COL32(27, 58, 44, 255));
+				bg->AddCircleFilled(ImVec2(700, 360), 180, IM_COL32(240, 138, 60, 255), 96);
+			}
+			draw();
+			ImGui::Render();
+			ImDrawData *dd = ImGui::GetDrawData();
+			serveTextures(dd);
+			std::fill(frameRgb.begin(), frameRgb.end(), 0.f);
+			rasterise(dd);
+		}
+		save(out + "/" + name + ".png");
+		std::printf("%s\n", name);
+	};
+	picture("13-game-page-states", [&] {
+		pui::PageView p;
+		p.game = host.games[0];
+		p.actions = { { ICON_FA_PLAY, "Play" }, { ICON_FA_CLOCK_ROTATE_LEFT, "Load State" }, { ICON_FA_SLIDERS, "Its Settings" },
+				{ ICON_FA_BOLT, "Cheats" }, { ICON_FA_GEAR, "Manage" } };
+		p.action = 1;
+		p.inList = true;
+		p.listTitle = "Start from a saved state";
+		const char *when[] = { "Yesterday 22:41", "12 Nov 2026 19:03", "9 Nov 2026 21:15" };
+		for (int i = 0; i < 3; i++)
+		{
+			pui::kit::Line l;
+			l.icon = ICON_FA_FLOPPY_DISK;
+			l.label = "Slot " + std::to_string(i + 1);
+			l.value = when[i];
+			p.lines.push_back(l);
+		}
+		p.line = 0;
+		p.hints = { { { "circle" }, "Back" }, { { "triangle" }, "Delete" }, { { "cross" }, "Load" } };
+		pui::drawPage(host, p);
+	}, false);
+	picture("14-game-page-manage", [&] {
+		pui::PageView p;
+		p.game = host.games[1];
+		p.actions = { { ICON_FA_PLAY, "Play" }, { ICON_FA_CLOCK_ROTATE_LEFT, "Load State" }, { ICON_FA_SLIDERS, "Its Settings" },
+				{ ICON_FA_BOLT, "Cheats" }, { ICON_FA_GEAR, "Manage" } };
+		p.action = 4;
+		p.inList = true;
+		p.listTitle = "Manage";
+		const char *labels[] = { "Favourite", "Hide from the library", "Change cover", "Time played" };
+		const char *icons[] = { ICON_FA_STAR, ICON_FA_EYE_SLASH, ICON_FA_IMAGE, ICON_FA_CLOCK };
+		for (int i = 0; i < 4; i++)
+		{
+			pui::kit::Line l;
+			l.icon = icons[i];
+			l.label = labels[i];
+			l.kind = i == 0 ? pui::kit::Line::Toggle : i == 2 ? pui::kit::Line::Opens : pui::kit::Line::Info;
+			l.on = true;
+			l.value = i == 2 ? "Box art" : i == 3 ? "2 h 10 min" : "";
+			p.lines.push_back(l);
+		}
+		p.line = 2;
+		p.hints = { { { "circle" }, "Back" }, { { "cross" }, "Change" } };
+		pui::drawPage(host, p);
+	}, false);
+	host.forGame = host.games[0].title;
+	host.available = [](const pui::Setting& s) { return s.has('g') || s.has('G'); };
+	host.running = 0;
+	picture("15-game-settings", [&] {
+		pui::focusForPicture(0, 0, 0, 0, 0);
+		pui::show(pui::Screen::SettingsHome);
+		pui::frame(host, pui::Input{});
+	}, false);
+	picture("16-game-settings-picture", [&] {
+		pui::focusForPicture(0, 0, 0, 1, 0);
+		pui::show(pui::Screen::SettingsArea);
+		pui::frame(host, pui::Input{});
+	}, false);
+	host.forGame.clear();
+	host.available = nullptr;
+	picture("17-quick-menu-cheats-page", [&] {
+		pui::QuickView q;
+		q.game = host.games[0];
+		q.status = "Paused";
+		q.page = true;
+		q.pageTitle = "Cheats";
+		q.width = 900;
+		q.hints = { { { "circle" }, "Back" }, { { "cross" }, "On / Off" } };
+		const ImVec4 r = pui::drawQuick(host, q);
+		pui::kit::Line l;
+		l.kind = pui::kit::Line::Toggle;
+		const char *names[] = { "Infinite time", "All cars", "All tracks", "Max money" };
+		for (int i = 0; i < 4; i++)
+		{
+			l.label = names[i];
+			l.on = i == 1;
+			pui::kit::line(r.x + 48, r.y + i * 76, r.z - 96, 70, l, i == 0);
+		}
+	}, true);
+	// The skins: Ember and Arcade.
+	host.running = -1;
+	const struct { const char *name; pui::Palette p; } skinsShown[] = {
+		{ "18-skin-ember", { IM_COL32(22, 15, 12, 255), IM_COL32(40, 25, 18, 255), IM_COL32(255, 255, 255, 255), IM_COL32(222, 208, 199, 255),
+				IM_COL32(170, 150, 138, 255), IM_COL32(49, 35, 28, 255), IM_COL32(68, 48, 38, 255), IM_COL32(255, 255, 255, 46),
+				IM_COL32(255, 196, 84, 255), IM_COL32(236, 100, 20, 255), IM_COL32(255, 255, 255, 255) } },
+		{ "19-skin-arcade", { IM_COL32(15, 9, 27, 255), IM_COL32(35, 16, 50, 255), IM_COL32(255, 255, 255, 255), IM_COL32(216, 202, 230, 255),
+				IM_COL32(162, 142, 183, 255), IM_COL32(45, 26, 63, 255), IM_COL32(62, 38, 86, 255), IM_COL32(255, 255, 255, 46),
+				IM_COL32(255, 180, 40, 255), IM_COL32(224, 46, 138, 255), IM_COL32(255, 255, 255, 255) } },
+	};
+	for (const auto& sk : skinsShown)
+	{
+		host.palette = sk.p;
+		picture(sk.name, [&] {
+			pui::focusForPicture(0, 0, 0, 0, 1);
+			pui::show(pui::Screen::SettingsArea);
+			pui::frame(host, pui::Input{});
+		}, false);
+		std::string home = std::string(sk.name) + "-home";
+		picture(home.c_str(), [&] {
+			pui::focusForPicture(0, 0, 0, 0, 0);
+			pui::show(pui::Screen::Home);
+			pui::frame(host, pui::Input{});
+		}, false);
 	}
 	ImGui::DestroyContext();
 	return 0;

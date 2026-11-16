@@ -17,13 +17,13 @@ if ! pkg-config --exists freetype2; then
 	echo "ui: NOT RUN (no FreeType: apt-get install libfreetype-dev)"
 	exit 0
 fi
-for f in Roboto-Medium Roboto-Bold; do
+for f in Roboto-Medium Roboto-Bold fa-solid-900; do
 	[ -f "$work/fonts/$f.ttf" ] || python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" \
 		"$repo/fonts/$f.ttf.zip" "$work/fonts"
 done
 imgui="$repo/core/deps/imgui"
 "${CXX:-clang++}" -std=c++20 -O2 -Wall -Wextra -Wno-unused-parameter \
-	-I "$repo/shell/ps5" -I "$imgui" -I "$repo/core/deps/stb" \
+	-I "$repo/shell/ps5" -I "$repo/core" -I "$imgui" -I "$repo/core/deps/stb" \
 	"$here/preview.cpp" "$repo/shell/ps5/ui/ui.cpp" "$repo/shell/ps5/ui/ui_settings.cpp" \
 	"$imgui/imgui.cpp" "$imgui/imgui_draw.cpp" "$imgui/imgui_tables.cpp" "$imgui/imgui_widgets.cpp" \
 	"$imgui/imgui_cjk.cpp" "$imgui/misc/freetype/imgui_freetype.cpp" $(pkg-config --cflags --libs freetype2) \
