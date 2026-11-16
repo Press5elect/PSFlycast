@@ -42,14 +42,17 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.3.9** (build 103). It is built
+Latest release: **v1.4.0** (build 107). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.3.9's test builds ran games on a console: a game from a network share with
-FSR, CAS and the looks, HDR, SMAA and the memory card sync. Not run on a
-console yet: PlayStation Move, SSAA's down-sampling, the HDR brightness screen,
-a memory card actually copied by the sync, Kept in memory logs, the quick menu
-order, Circle confirms and deleting a save state.
+v1.4.0's new Settings ran on a console in a test build (build 105). Not run on a
+console yet: the one look on every other screen (Home, a game's page, the quick
+menu and its pages, a game's own options in the new Settings, the dialogs, the
+bars), the new cover matching (archives, the loose match, TheGamesDB by the
+disc's ID, "not found" lapsing), and from v1.3.9 PlayStation Move, SSAA's
+down-sampling, the HDR brightness screen, a memory card actually copied by the
+sync, Kept in memory logs, Circle confirms and deleting a save state.
+`classic_ui = 1` in `data/frontend.cfg` brings the Settings of v1.3.9 back.
 What was run on a console, version by version, and what was not, is in
 [docs/history/console-testing.md](https://github.com/Press5elect/PSFlycast/blob/main/shell/ps5/docs/history/console-testing.md).
 
@@ -60,7 +63,7 @@ What was run on a console, version by version, and what was not, is in
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
-## Next version (in test)
+## New in v1.4.0
 
 Added:
 
@@ -89,6 +92,11 @@ Changed:
 - **The top bar** holds places only: Home, Library and Disc. Where the games are kept (All, Console,
   USB, Share) is a filter of the Library. The Library opens on All.
 - **A game asks before it starts** when the drive holding the save states you chose is not in.
+- **Covers are found for more games**: a game in a .zip, .7z or .rar is looked up in the libretro
+  collection as a disc is; a name the collection does not have exactly is matched against its
+  list without case, punctuation and tags, the region and disc closest; TheGamesDB's results are
+  chosen by the disc's product ID, then by the exact title, before its first result; and a game
+  no cover was found for is asked for again after 30 days (those of earlier versions at once).
 
 ## New in v1.3.9
 
@@ -226,37 +234,9 @@ Fixed:
   without counting it), which could crash the console after many sessions.
   The helper, now OGBox's, trades counted references for the title's.
 
-## New in v1.3.5
-
-Added:
-
-- **Threads on cores of their own** (Settings > System, on), as Crux2 has
-  them: the emulator on a processor of its own with its core's second thread
-  left empty, the renderer and the interface on another core, and everything
-  else on the cores left over. With the graphics driver on its own thread,
-  **Graphics driver on a core of its own** (on) gives that thread a third.
-- **The version, the build number and "by Press5elect"** under the clock.
-
-Changed:
-
-- **Flycast** is its `dev` branch at 2c83abc (28 October 2026): the sound chip's DMA at its real rate.
-- **The graphics driver** is built from Crux2's newest driver patches: Mesa
-  main of 31 October 2026, with fixes to the shader compiler and to how
-  pipelines are kept in the shader cache.
-
-Fixed:
-
-- **PSFlyCast could not start on a firmware without variable refresh:** it
-  asked the console for a function (`sceVideoOutVrrUnpegFromFixedRate`) that
-  not every firmware has, and a title asking for one the console lacks does
-  not start. It is now looked for while PSFlyCast runs; without it, variable
-  refresh is simply refused.
-- **A spurious wake-up** between the emulator's and the renderer's threads
-  no longer passes for a frame handed over.
-
 ## Older versions
 
-The notes of v1.3.4 and earlier are in
+The notes of v1.3.5 and earlier are in
 [docs/history/changelog.md](https://github.com/Press5elect/PSFlycast/blob/main/shell/ps5/docs/history/changelog.md).
 
 ## What you need

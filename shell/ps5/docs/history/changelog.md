@@ -4,6 +4,34 @@ The README's notes of v1.3.4 and earlier, as they were released. The newest vers
 in the README (shell/ps5/README.md), which the title's folder carries; move a version here when it
 is no longer one of the last five.
 
+## New in v1.3.5
+
+Added:
+
+- **Threads on cores of their own** (Settings > System, on), as Crux2 has
+  them: the emulator on a processor of its own with its core's second thread
+  left empty, the renderer and the interface on another core, and everything
+  else on the cores left over. With the graphics driver on its own thread,
+  **Graphics driver on a core of its own** (on) gives that thread a third.
+- **The version, the build number and "by Press5elect"** under the clock.
+
+Changed:
+
+- **Flycast** is its `dev` branch at 2c83abc (28 October 2026): the sound chip's DMA at its real rate.
+- **The graphics driver** is built from Crux2's newest driver patches: Mesa
+  main of 31 October 2026, with fixes to the shader compiler and to how
+  pipelines are kept in the shader cache.
+
+Fixed:
+
+- **PSFlyCast could not start on a firmware without variable refresh:** it
+  asked the console for a function (`sceVideoOutVrrUnpegFromFixedRate`) that
+  not every firmware has, and a title asking for one the console lacks does
+  not start. It is now looked for while PSFlyCast runs; without it, variable
+  refresh is simply refused.
+- **A spurious wake-up** between the emulator's and the renderer's threads
+  no longer passes for a frame handed over.
+
 ## New in v1.3.4
 
 Added:
