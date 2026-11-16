@@ -1,0 +1,209 @@
+# Every setting's label in the interface before the revamp (v1.3.9 and build 104), one a line.
+# shell/ps5/tools/settings-table.py check fails when one has no place in the new table.
+60 FPS patch
+Widescreen patch
+Object draw distance
+Transparency sorting
+Per-pixel layers
+Internal resolution
+Widescreen
+Stretch to fill
+Super widescreen
+Horizontal stretching
+Rotate screen 90 degrees
+Fog
+Shadows (modifier volumes)
+Translucent depth mask
+Fix edge bleeding in upscaled pictures
+Widescreen game patches
+Anisotropic filtering
+Texture filtering
+Accurate mipmaps
+Original 16-bit colour
+Flicker filter
+Texture upscaling
+Upscale textures up to
+Custom textures
+Texture dump
+Dump textures to
+Skip changing textures
+Mipmaps
+Automatic frame skipping
+Native depth interpolation
+Full framebuffer emulation
+Copy rendered textures to VRAM
+Delay frame swapping
+Show frame rate
+Memory card screen
+Beside the picture
+Frame skipping
+Memory card screen size
+Integer scaling
+Smooth scaling
+Upscaling
+Sharpening
+Film grain
+Brightness
+Contrast
+Colour
+Gamma
+Frame generation
+Generation method
+Show the movement
+Software renderer
+Frame pacing
+Volume
+DSP emulation
+Audio buffer
+Sound output
+VMU sounds
+VMU sound plays in
+Vibration
+Stick dead zone
+Left stick as D-pad
+Turbo button
+Turbo speed
+Controller slot 2
+Microphone volume
+Controller slot 1
+Peripherals
+Own memory card for each game
+Player 2 memory card
+Player 3 memory card
+Player 4 memory card
+Controller profile
+Mouse speed
+Mouse movement
+Right stick dead zone
+Right stick response
+Right stick smoothing
+Right stick left and right
+Right stick up and down
+Right stick turns like the left stick
+Right stick as the triggers
+Controller type
+Port A
+Light gun aiming
+Motion aiming direction
+Motion aiming speed
+Motion aiming smoothing
+Light gun crosshair
+Region
+Language
+Broadcast
+Video cable
+Built-in BIOS
+Fast disc loading
+CPU recompiler
+CPU clock
+Arcade free play
+32 MB of memory
+Auto save state
+Auto load state
+Textures saved
+120 Hz output
+Variable refresh rate
+Down-sampling
+SMAA
+HDR
+HDR highlights
+HDR white level
+Adjust HDR brightness
+Sound while fast-forwarding
+Controller profiles
+Restore the default layout
+Controllers
+Light bar in the player's colour
+PlayStation Move
+Vibration in the menus
+Circle confirms
+USB keyboard and mouse
+Rewind
+Fast forward speed
+Keep memory cards in sync with the network share
+Sync memory cards now
+Memory cards
+Graphics driver on its own thread
+GPU wait: spin
+GPU wait: sleep
+Short display queue
+Sound and controls first
+Threads on cores of their own
+Graphics driver on a core of its own
+Write logs
+Keep logs
+Save logs to the drive
+Write the log now
+Boot log
+Netplay
+Other player
+Input delay
+Left stick in netplay
+This console
+Both players need
+Open the router's port (UPnP)
+Name online
+Dreamcast online
+RetroAchievements
+Account
+Mode
+In a game
+OLED care
+Scan for games
+Open on
+Library view
+Group the discs of a game
+Show hidden games
+Hidden games
+Download covers and descriptions
+USB drives
+USB game folders
+USB disc drive
+Disc drive speed
+Load network games into memory
+Large network buffers
+Network folders
+Find servers on the network
+Add a network folder
+Network user
+Network password
+Scan the network folders now
+Free space
+Check for updates
+Look for updates at start-up
+Graphics
+Display
+Dreamcast BIOS
+Storage
+Quit PSFlyCast
+PSFlyCast
+Skin
+Accent colour
+Background
+Motion
+Interface size
+High contrast
+Colour-blind safe colours
+Start-up animation
+Start-up sound
+Menu sounds
+Game videos
+Look For My Files
+Add Game Folder
+Folders on shares
+BIOS Folders
+Savestate Folders
+Box Art Folder
+Texture Pack Folders
+Cheat Folders
+Game Video Folders
+Games folder
+BIOS folder
+Covers folder
+Cheats folder
+Saves and states
+Save files in and out
+Unpacked archives
+Shader cache
+Log files
+Credits
