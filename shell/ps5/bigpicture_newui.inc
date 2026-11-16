@@ -295,6 +295,12 @@ void setUpHost()
 	h.close = [] {
 		ns.open = false;
 		leaveSettings();
+		// A game's Settings are gone with st.cats: no setting points into them any more.
+		ns.rows.clear();
+		ns.host.extras.clear();
+		ns.names.clear();
+		ns.boundTo = nullptr;
+		ns.boundSize = 0;
 	};
 }
 

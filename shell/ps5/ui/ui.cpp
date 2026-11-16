@@ -1250,7 +1250,11 @@ void quickMenu(const Input& in)
 	const int n = (int)q.lines.size();
 	if (in.up) st.quick = (st.quick + n - 1) % n;
 	if (in.down) st.quick = (st.quick + 1) % n;
-	if (in.back && H->close) H->close();
+	if (in.back && H->close)
+	{
+		H->close();
+		return;
+	}
 	q.focus = st.quick;
 	q.showState = st.quick >= 1 && st.quick <= 3;
 	q.stateTitle = "Slot 1";
@@ -1326,10 +1330,13 @@ void settingsHome(const Input& in)
 		H->resetAll();
 	if (in.back || in.options)
 	{
+		// Closed: nothing more is asked of the host this frame (what it bound may be gone).
 		if (H->close)
+		{
 			H->close();
-		else
-			st.screen = st.back;
+			return;
+		}
+		st.screen = st.back;
 	}
 
 	backdrop();
@@ -1479,10 +1486,13 @@ void settingsArea(const Input& in)
 	if (in.back) st.screen = Screen::SettingsHome;
 	if (in.options)
 	{
+		// Closed: nothing more is asked of the host this frame (what it bound may be gone).
 		if (H->close)
+		{
 			H->close();
-		else
-			st.screen = st.back;
+			return;
+		}
+		st.screen = st.back;
 	}
 
 	backdrop();
