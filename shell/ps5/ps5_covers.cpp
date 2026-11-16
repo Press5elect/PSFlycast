@@ -169,6 +169,7 @@ bool notFoundLoaded;
 // The collection's names, for the loose match (covers/.boxart-index.txt, from the server's listing).
 std::vector<std::string> collection;
 bool collectionRead;
+int64_t collectionTried;				// when the list was last asked for and could not be had
 // The collection's picture a game's file matched loosely: its title screen and moment of play
 // ("Change cover") are under the same name.
 std::map<std::string, std::string> matched;
@@ -701,9 +702,10 @@ int fetch(const Source& source, const std::string& base, const std::vector<std::
 // had, the copy kept, however old. Read once a run, when a game first matches no name exactly.
 const std::vector<std::string>& collectionNames()
 {
-	if (collectionRead)
+	// Had once, it is kept for the run. Not had (no answer, no copy): asked for again after ten
+	// minutes, not at every game.
+	if (collectionRead || (collectionTried != 0 && (int64_t)time(nullptr) - collectionTried < 600))
 		return collection;
-	collectionRead = true;
 	const std::string file = coversDir() + ".boxart-index.txt";
 	struct stat st;
 	const bool kept = stat(file.c_str(), &st) == 0 && st.st_size > 0;
@@ -721,6 +723,7 @@ const std::vector<std::string>& collectionNames()
 					text += name + "\n";
 				saveFile(file, std::vector<uint8_t>(text.begin(), text.end()));
 				diag::mark("covers: the collection's list read, %zu pictures", collection.size());
+				collectionRead = true;
 				return collection;
 			}
 		}
@@ -742,6 +745,10 @@ const std::vector<std::string>& collectionNames()
 				line += (char)c;
 		}
 	}
+	if (collection.empty())
+		collectionTried = (int64_t)time(nullptr);
+	else
+		collectionRead = true;
 	return collection;
 }
 
@@ -875,10 +882,12 @@ void worker()
 		}
 		// A source that does not answer: the next one, this cover first.
 		int result = offline ? -1 : askSource(source, [&](const Source& from) { return fetch(from, base); });
+		bool listHad = true;
 		if (result == 0)
 		{
 			// No name exactly: the collection's list, matched loosely.
 			const std::string loose = looseMatch(base);
+			listHad = !collectionNames().empty();
 			if (!loose.empty())
 			{
 				{
@@ -906,7 +915,10 @@ void worker()
 					tried += (tried.empty() ? "\"" : ", \"") + name + "\"";
 				diag::mark("covers: none for %s (tried %s)", base.c_str(), tried.c_str());
 			}
-			rememberNotFound(base);
+			// Not found for 30 days only when the loose match could be tried: without the list,
+			// the game is asked for again at the next start.
+			if (listHad)
+				rememberNotFound(base);
 			failures = 0;
 		}
 		else if (++failures >= 3 && !offline)

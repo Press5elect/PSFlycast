@@ -1012,6 +1012,7 @@ struct Input
 {
 	bool up, down, left, right;
 	bool accept, back, triangle, square, l1, r1, l2, r2, r3, options;
+	int repeats;		// how many times in a row a held direction has repeated (Crux2's): lists and ranges speed up
 };
 Input in;
 
@@ -1032,14 +1033,12 @@ void readInput()
 	in.square = pad.pressed & ps5::pad::Square;
 	in.l1 = pad.pressed & ps5::pad::L1;
 	in.r1 = pad.pressed & ps5::pad::R1;
-	in.l2 = pad.pressed & ps5::pad::L2;
-	in.r2 = pad.pressed & ps5::pad::R2;
 	in.r3 = pad.pressed & ps5::pad::R3;
 	in.options = pad.pressed & ps5::pad::Options;
 	if (pad.pressed || pad.buttons || std::fabs(pad.lx) > 0.3f || std::fabs(pad.ly) > 0.3f)
 		lastActivity = timeNow;
 
-	struct Repeat { double next = 0; bool held = false; };
+	struct Repeat { double next = 0; bool held = false; int count = 0; };
 	static Repeat rep[4];
 	const bool held[4] = {
 		(pad.buttons & ps5::pad::Up) || pad.ly < -0.55f,
@@ -1051,17 +1050,43 @@ void readInput()
 	for (int i = 0; i < 4; i++)
 	{
 		if (!held[i])
+		{
 			rep[i].held = false;
+			rep[i].count = 0;
+		}
 		else if (!rep[i].held)
 		{
 			rep[i].held = true;
 			rep[i].next = timeNow + 0.38;
+			rep[i].count = 0;
 			*out[i] = true;
 		}
 		else if (timeNow >= rep[i].next)
 		{
 			rep[i].next = timeNow + 0.075;
+			rep[i].count++;
 			*out[i] = true;
+			in.repeats = std::max(in.repeats, rep[i].count);
+		}
+	}
+	// The triggers step through a list's letters and pages: held, they step on (as Crux2's).
+	static Repeat trig[2];
+	const bool trigHeld[2] = { (pad.buttons & ps5::pad::L2) != 0, (pad.buttons & ps5::pad::R2) != 0 };
+	bool *trigOut[2] = { &in.l2, &in.r2 };
+	for (int i = 0; i < 2; i++)
+	{
+		if (!trigHeld[i])
+			trig[i].held = false;
+		else if (!trig[i].held)
+		{
+			trig[i].held = true;
+			trig[i].next = timeNow + 0.40;
+			*trigOut[i] = true;
+		}
+		else if (timeNow >= trig[i].next)
+		{
+			trig[i].next = timeNow + 0.18;
+			*trigOut[i] = true;
 		}
 	}
 	// The start-up animation takes the pad: any button ends it early, and
@@ -1097,8 +1122,49 @@ void readInput()
 
 // ----------------------------------------------------------- frame set-up
 
+// The menus' pace, for the boot log: a screen whose frames come late (more than 25 ms apart, or
+// more than 8 ms of the interface's own work) is said, with how late, at most once in 5 seconds
+// and 40 times a run. A screen just opened (after more than half a second without one) is not.
+struct ScreenPace
+{
+	const char *id = "";
+	std::chrono::steady_clock::time_point began, lastBegan;
+	bool any = false;
+	double toldAt = -10;
+	int told = 0;
+} pace;
+
+void paceBegin(const char *id)
+{
+	using namespace std::chrono;
+	const steady_clock::time_point now = steady_clock::now();
+	const double gap = pace.any ? duration<double, std::milli>(now - pace.lastBegan).count() : 0;
+	if (pace.any && gap > 25 && gap < 500 && std::strcmp(id, pace.id) == 0 && pace.told < 40 && timeNow > pace.toldAt + 5)
+	{
+		ps5::diag::mark("ui: a frame of %s came %.1f ms after the one before", id, gap);
+		pace.toldAt = timeNow;
+		pace.told++;
+	}
+	pace.id = id;
+	pace.began = pace.lastBegan = now;
+	pace.any = true;
+}
+
+void paceEnd()
+{
+	using namespace std::chrono;
+	const double work = duration<double, std::milli>(steady_clock::now() - pace.began).count();
+	if (work > 8 && pace.told < 40 && timeNow > pace.toldAt + 5)
+	{
+		ps5::diag::mark("ui: a frame of %s took %.1f ms of the interface's own work", pace.id, work);
+		pace.toldAt = timeNow;
+		pace.told++;
+	}
+}
+
 ImDrawList *beginScreen(const char *id, bool opaque)
 {
+	paceBegin(id);
 	const ImGuiIO& io = ImGui::GetIO();
 	H = 1080.f * 100.f / (float)std::clamp(ps5::options().uiScale, 70, 130);
 	S = io.DisplaySize.y / H;
@@ -1139,6 +1205,7 @@ ImDrawList *beginScreen(const char *id, bool opaque)
 
 void endScreen() {
 	ImGui::End();
+	paceEnd();
 }
 
 // --------------------------------------------------------------- top bar
@@ -2347,13 +2414,15 @@ int letterJump(const std::vector<size_t>& items, int focus, int direction)
 // The focus follows the game from one view to the next.
 void focusPath(const std::string& path)
 {
+	// The lists may be older than the games (Home asks while the Library is not drawn, after a
+	// scan changed the games): an index past them is passed over, and they are made again later.
 	lib.flatPath = path;
 	for (size_t i = 0; i < lib.flat.size(); i++)
-		if (games[lib.flat[i]].media.path == path)
+		if (lib.flat[i] < games.size() && games[lib.flat[i]].media.path == path)
 			lib.flatFocus = (int)i;
 	for (size_t si = 0; si < lib.shelves.size(); si++)
 		for (size_t i = 0; i < lib.shelves[si].items.size(); i++)
-			if (games[lib.shelves[si].items[i]].media.path == path
+			if (lib.shelves[si].items[i] < games.size() && games[lib.shelves[si].items[i]].media.path == path
 					&& (lib.shelves[si].name != "Recently played" || lib.shelves.size() == 1))
 			{
 				lib.shelf = (int)si;
@@ -6102,7 +6171,9 @@ void homeScreen(ImDrawList *dl)
 		const pui::Game hg = puiGameOf(*hero);
 		pui::kit::heroArt(hg);
 		pui::kit::caption(x0, 214 * k, "Continue playing", pal.warm);
-		pui::kit::text(true, 88, x0 - 4, 240 * k, pal.text, pui::kit::fit(true, 88, hero->fullTitle, 1150));
+		// The title ends before the cards at the right (closer at a larger UI Scaling).
+		const float titleW = std::max(400.f, std::min(1150.f, W - 84 - 470 - 40 - x0));
+		pui::kit::text(true, 88, x0 - 4, 240 * k, pal.text, pui::kit::fit(true, 88, hero->fullTitle, titleW));
 		std::string line = hg.platform;
 		const std::string since = sinceText(kept.lastPlayed);
 		if (!since.empty())
@@ -6114,7 +6185,7 @@ void homeScreen(ImDrawList *dl)
 		time_t saved = 0;
 		if (leftState(*hero, slot, saved))
 			line += "    " ICON_FA_FLOPPY_DISK "  Saved " + sinceText((int64_t)saved);
-		pui::kit::text(false, 23, x0, 240 * k + 116, pal.sub, pui::kit::fit(false, 23, line, 1150));
+		pui::kit::text(false, 23, x0, 240 * k + 116, pal.sub, pui::kit::fit(false, 23, line, titleW));
 		float bx = x0;
 		bx += pui::kit::button(bx, 240 * k + 184, "Resume", true, home.focus == 0, ICON_FA_PLAY, 24) + 20;
 		pui::kit::button(bx, 240 * k + 184, "Game Page", false, home.focus == 1, ICON_FA_CIRCLE_INFO);
@@ -6166,10 +6237,11 @@ void homeScreen(ImDrawList *dl)
 	// The games played lately.
 	if (lately > 0)
 	{
-		const float ly = H - 438;
+		// Under the buttons (which end at 240k + 248), however high the screen is.
+		const float ly = std::max(240 * k + 248 + 40, H - 438);
 		pui::kit::caption(x0, ly, "Played lately");
 		const float gap = 26, cw = (W - 2 * x0 - gap * 6) / 7, cy = ly + 42;
-		const float ch = std::min(cw, H - 150 - cy);
+		const float ch = std::max(60.f, std::min(cw, H - 150 - cy));
 		for (int k = 0; k < lately; k++)
 		{
 			Game& g = *recent[(size_t)(k + 1)];
@@ -6369,6 +6441,11 @@ void libraryScreen(bool selectDisk)
 	forwarderTick(selectDisk);
 	if (homeActive && !selectDisk)
 	{
+		// What Home shows comes from what the library's lists are made of: the games played last,
+		// the disc sets and the favourite and hidden marks (buildShelves reads them for the Library).
+		loadRecents();
+		updateDiscSets(false);
+		updateMarks();
 		homeScreen(dl);
 		endScreen();
 		return;
@@ -6555,8 +6632,13 @@ void libraryScreen(bool selectDisk)
 		if (focused != nullptr)
 			lib.heroPath = v == Shelves ? lib.heroPath : focused->media.path;
 	}
+	// A game's page covers the whole screen once it is open: the library under it is not drawn
+	// (it was, every frame, for nothing), and its video is let go.
+	const bool pageCovers = lib.details && lib.detailsAnim > 0.98f && focused != nullptr;
 	const Layer content = beginLayer(dl);
-	if (empty)
+	if (pageCovers)
+		heroVideoTexture(nullptr, false);
+	else if (empty)
 		emptyLibrary(dl, selectDisk);
 	else if (view() == Shelves)
 		drawShelves(dl, focused, selectDisk);
@@ -11356,12 +11438,16 @@ void quickMenu()
 	// ---- drawn with the new interface's kit: the panel at the right over the paused game, its
 	// list, the state in the slot beside it, or the page that is open in the list's place.
 	kitBegin(dl);
+	// The entry focused now, after this frame's input moved it (the state card and the hints follow it).
+	const QuickItem& now = items[std::clamp(qm.focus, 0, n - 1)];
 	pui::QuickView q;
 	q.open = t;
 	// The pages are wider; the Rewind page, a short list, is not. The Controls page is wider
 	// still: the controller's picture is beside its list.
+	// (In the panel's units, a screen 1080 high: W is this file's, which UI Scaling changes.)
+	const float screenW = W * 1080.f / H;
 	q.width = std::max(680 + 260 * std::max({ qm.cheatsAnim, qm.trophiesAnim, qm.toolAnim }),
-			680 + (std::min(1700.f, W - 120) - 680) * qm.controlsAnim);
+			680 + (std::min(1700.f, screenW - 120) - 680) * qm.controlsAnim);
 	{
 		// The game.
 		GameMedia media;
@@ -11386,21 +11472,28 @@ void quickMenu()
 		l.label = it.label;
 		l.value = it.detail;
 		l.enabled = it.enabled;
-		// Left and right choose (a slot, a card); a page opens; the rest act at once.
-		l.kind = it.side ? pui::kit::Line::Choice : it.stays && it.run && it.label != "State slot" ? pui::kit::Line::Opens
-				: pui::kit::Line::Plain;
+		// Left and right choose (a slot, a card); an entry that opens a page has its arrow (by its
+		// icon: Rewind, Cheats, the two tools, Achievements, Game options, Controls); the rest act
+		// at once.
+		static const char *const pages[] = { ICON_FA_BACKWARD, ICON_FA_BOLT, ICON_FA_STOPWATCH, ICON_FA_MAGNIFYING_GLASS,
+				ICON_FA_TROPHY, ICON_FA_SLIDERS, ICON_FA_GAMEPAD };
+		bool opens = false;
+		for (const char *icon : pages)
+			opens = opens || std::strcmp(it.icon, icon) == 0;
+		l.kind = it.side ? pui::kit::Line::Choice : opens ? pui::kit::Line::Opens : pui::kit::Line::Plain;
 		if (it.detail == "Hidden")
 			l.valueColour = col::warm;
 		q.lines.push_back(l);
 	}
 	// The state in the slot, beside the panel while a state line is focused.
 	ImguiStateTexture statePicture;
-	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.label == "State slot"))
+	if (!onPage && (now.label == "Save state" || now.label == "Load state" || now.label == "State slot"))
 	{
 		q.showState = true;
 		q.stateTitle = "Slot " + std::to_string((int)config::SavestateSlot + 1);
 		if (stateDate != 0)
 		{
+			q.stateSaved = true;
 			q.statePicture = statePicture.getId();
 			q.stateWhen = timeToShortDateTimeString(stateDate);
 		}
@@ -11445,13 +11538,13 @@ void quickMenu()
 			q.hints.push_back({ { "cross" }, qm.controlCross });
 	}
 	else if (qm.arranging)
-		q.hints = { { { "triangle" }, "Done" }, { { "square" }, cur.detail == "Hidden" ? "Show" : "Hide" }, { { "dpad" }, "Move" } };
+		q.hints = { { { "triangle" }, "Done" }, { { "square" }, now.detail == "Hidden" ? "Show" : "Hide" }, { { "dpad" }, "Move" } };
 	else
 	{
 		q.hints.push_back({ { "circle" }, "Resume" });
 		q.hints.push_back({ { "triangle" }, "Arrange" });
-		if (cur.side)
-			q.hints.push_back({ { "dpad" }, cur.sideHint });
+		if (now.side)
+			q.hints.push_back({ { "dpad" }, now.sideHint });
 		q.hints.push_back({ { "cross" }, "Select" });
 	}
 	// The panel is drawn for the whole screen (1080 high); the pages are drawn here, in this

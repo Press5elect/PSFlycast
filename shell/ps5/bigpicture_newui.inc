@@ -47,13 +47,23 @@ void readPins()
 	ns.pinsRead = true;
 	if (FILE *f = fopen(pinsFile().c_str(), "r"))
 	{
-		char line[256];
-		while (fgets(line, sizeof(line), f))
+		// A line whole, however long (an extra's id holds a share's path).
+		std::string line;
+		int c;
+		while ((c = fgetc(f)) != EOF)
 		{
-			std::string id = trimmed(line);
+			if (c != '\n')
+			{
+				line += (char)c;
+				continue;
+			}
+			const std::string id = trimmed(line);
 			if (!id.empty())
 				ns.host.pins.push_back(id);
+			line.clear();
 		}
+		if (const std::string id = trimmed(line); !id.empty())
+			ns.host.pins.push_back(id);
 		fclose(f);
 	}
 	ns.savedPins = ns.host.pins;
@@ -360,6 +370,9 @@ pui::Game puiGameOf(Game& g)
 	out.line = metaText(g);
 	out.file = g.media.path;
 	out.cover = coverTexture(g);
+	// Its shape, so that it is cropped to fill a box and not stretched (as imageFill does).
+	if (out.cover != ImTextureID() && imguiDriver != nullptr)
+		out.coverAspect = imguiDriver->getAspectRatio(out.cover);
 	out.favourite = g.favourite;
 	// The colour its placeholder has (placeholder()).
 	unsigned hash = 2166136261u;
@@ -401,6 +414,9 @@ void newSettings(ImDrawList *dl)
 		readPins();
 		setUpHost();
 		ns.boundTo = nullptr;
+		// Each opening starts afresh: no search of the other kind of Settings, no "all back" asked.
+		ns.host.query.clear();
+		ns.allAsked = -10;
 		pui::show(pui::Screen::SettingsHome);
 	}
 	if (ns.boundTo != cats.data() || ns.boundSize != cats.size() || ns.boundForGame != st.forGame)
@@ -412,6 +428,7 @@ void newSettings(ImDrawList *dl)
 	pin.up = in.up; pin.down = in.down; pin.left = in.left; pin.right = in.right;
 	pin.accept = in.accept; pin.back = in.back; pin.triangle = in.triangle; pin.square = in.square;
 	pin.l1 = in.l1; pin.r1 = in.r1; pin.l2 = in.l2; pin.r2 = in.r2; pin.r3 = in.r3; pin.options = in.options;
+	pin.repeats = in.repeats;
 	pui::frame(ns.host, pin, dl);
 	savePins();
 	// Settings that need PSFlyCast started again: said at the bottom left, with Square.
@@ -421,7 +438,9 @@ void newSettings(ImDrawList *dl)
 		for (const std::string& n : st.restartFor)
 			names += (names.empty() ? "" : ", ") + n;
 		// A pill at the bottom left, beside the hints (the kit is still on this screen's list).
-		const std::string say = pui::kit::fit(true, 19, "Start PSFlyCast again to apply: " + names, 640);
+		// It ends before the hints, which pui::frame drew on this line.
+		const float room = std::max(200.f, pui::kit::hintsLeft() - 30 - 84 - 64 - 150);
+		const std::string say = pui::kit::fit(true, 19, "Start PSFlyCast again to apply: " + names, std::min(640.f, room));
 		const float w = pui::kit::measure(true, 19, say).x + 64 + 150;
 		pui::kit::fill(84, 1012, w, 48, pui::kit::alpha(col::warm, 0.18f), 24);
 		pui::kit::text(false, 18, 106, 1024, col::warm, ICON_FA_ROTATE_LEFT);

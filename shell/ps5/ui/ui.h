@@ -57,8 +57,9 @@ const std::vector<Area>& areas();
 const Setting *find(const std::string& id);
 // The sections of an area, in the table's order.
 std::vector<std::string> sections(int area);
-// Settings whose label, description, area or section have every word of query (any level).
-std::vector<const Setting *> search(const std::string& query);
+// Settings whose label, description, area or section have every word of query (any level, a
+// game's own too), of the table and of extras: those whose label has them first.
+std::vector<const Setting *> search(const std::string& query, const std::vector<Setting> *extras = nullptr);
 
 // ---- what the host gives
 
@@ -75,6 +76,7 @@ struct Game
 	std::string stateWhen;	// the state it was closed with: "yesterday 22:41", or empty
 	ImU32 colour = IM_COL32(40, 60, 90, 255);
 	ImTextureID cover = ImTextureID();
+	float coverAspect = 0;	// the picture's width over its height (0: square); it is cropped to fill
 	bool favourite = false;
 	bool neverPlayed = false;
 	int discs = 1;
@@ -105,6 +107,7 @@ struct Input
 	bool up = false, down = false, left = false, right = false;
 	bool accept = false, back = false, triangle = false, square = false;
 	bool l1 = false, r1 = false, l2 = false, r2 = false, l3 = false, r3 = false, options = false;
+	int repeats = 0;		// how many times in a row a held direction has repeated (long lists and ranges go faster)
 };
 
 enum class Screen { Home, Library, GamePage, Quick, SettingsHome, SettingsArea, Search, Found };
@@ -231,6 +234,8 @@ void hints(const std::vector<std::pair<std::vector<const char *>, std::string>>&
 // The top line of a screen: its name, where it is, the controllers and the clock.
 void header(const std::string& title, const std::string& over = "", const std::string& note = "");
 void clock(float right, float y);
+// Where the hints drawn last start, at the left: what else goes on the bottom line ends before it.
+float hintsLeft();
 }
 
 // ---- screens whose logic is the host's (bigpicture.cpp): drawn from what it hands over
@@ -274,6 +279,7 @@ struct QuickView
 	float width = 680;
 	// The state in the slot, beside the panel while a state line is focused.
 	bool showState = false;
+	bool stateSaved = false;			// the slot has a state (its picture may still be loading, or be none)
 	ImTextureID statePicture = ImTextureID();
 	std::string stateTitle, stateWhen;
 	HintList hints;

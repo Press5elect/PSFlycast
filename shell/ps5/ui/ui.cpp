@@ -114,7 +114,8 @@ void glow(float cx, float cy, float radius, ImU32 c)
 // A soft shadow (or a light) around a rounded box: rings that fade out over spread.
 void shadow(float x, float y, float w, float h, float r, ImU32 c, float spread)
 {
-	const int steps = 7;
+	// Four rings: soft enough on a TV, and about half the vertices of the seven before.
+	const int steps = 4;
 	for (int i = steps; i >= 1; i--)
 	{
 		const float g = spread * (float)i / steps;
@@ -253,6 +254,9 @@ float key(float x, float cy, const char *k, ImU32 c = 0)
 	return w;
 }
 
+// Where the hints drawn last start (kit::hintsLeft).
+float lastHintsLeft = 0;
+
 // The button hints, right-aligned on the bottom line.
 void hints(const std::vector<std::pair<std::vector<const char *>, std::string>>& list, float right = 0, float cy = 1036)
 {
@@ -269,6 +273,7 @@ void hints(const std::vector<std::pair<std::vector<const char *>, std::string>>&
 		total += w + 30;
 	}
 	float x = right - total + 30;
+	lastHintsLeft = x;
 	for (size_t i = 0; i < list.size(); i++)
 	{
 		float at = x;
@@ -290,6 +295,28 @@ void switchAt(float right, float cy, bool on, bool focus = false)
 	disc(kx, cy, h / 2 - 5, on && focus ? col::focus : IM_COL32(255, 255, 255, 255));
 }
 
+// The part of a picture that fills a box of w x h without stretching it (its middle).
+void cropped(float aspect, float w, float h, ImVec2& uv0, ImVec2& uv1)
+{
+	uv0 = ImVec2(0, 0);
+	uv1 = ImVec2(1, 1);
+	if (aspect <= 0 || w <= 0 || h <= 0)
+		return;
+	const float box = w / h;
+	if (aspect > box)
+	{
+		const float k = box / aspect;
+		uv0.x = (1 - k) / 2;
+		uv1.x = 1 - uv0.x;
+	}
+	else
+	{
+		const float k = aspect / box;
+		uv0.y = (1 - k) / 2;
+		uv1.y = 1 - uv0.y;
+	}
+}
+
 // A game's cover: its picture, or its colour with its title.
 void cover(const Game& g, float x, float y, float w, float h, float r, bool focus)
 {
@@ -302,7 +329,11 @@ void cover(const Game& g, float x, float y, float w, float h, float r, bool focu
 	else
 		shadow(x, y + 8, w, h, r, IM_COL32(0, 0, 0, 90), 16);
 	if (g.cover != ImTextureID())
-		dl->AddImageRounded(g.cover, V(x, y), V(x + w, y + h), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, r * S);
+	{
+		ImVec2 uv0, uv1;
+		cropped(g.coverAspect, w, h, uv0, uv1);
+		dl->AddImageRounded(g.cover, V(x, y), V(x + w, y + h), uv0, uv1, IM_COL32_WHITE, r * S);
+	}
 	else
 	{
 		// Its colour, lit from the top, with a ring of the disc on it.
@@ -401,25 +432,32 @@ float button(float x, float y, const std::string& label, bool primary, bool focu
 // A list's line.
 void listLine(float x, float y, float w, float h, const kit::Line& l, bool focus)
 {
-	if (focus)
+	if (focus && l.enabled)
 	{
 		shadow(x, y + 6, w, h, 18, alpha(col::focus, 0.5f), 18);
 		rect(x, y, w, h, col::focus, 18);
 		// A sheen over its top half.
 		rect(x, y, w, h * 0.5f, alpha(IM_COL32(255, 255, 255, 255), 0.07f), 18, ImDrawFlags_RoundCornersTop);
 	}
-	const ImU32 ink = focus ? col::onFocus : l.enabled ? col::text : col::faint;
-	const ImU32 soft = focus ? alpha(col::onFocus, 0.82f) : col::sub;
+	else if (focus)
+	{
+		// The focus on what cannot be chosen now: ringed, not lit, its words still faint.
+		rect(x, y, w, h, alpha(col::focus, 0.16f), 18);
+		stroke(x, y, w, h, alpha(col::focus, 0.8f), 18, 2.5f);
+	}
+	const bool lit = focus && l.enabled;
+	const ImU32 ink = lit ? col::onFocus : l.enabled ? col::text : col::faint;
+	const ImU32 soft = lit ? alpha(col::onFocus, 0.82f) : col::sub;
 	float lx = x + 26;
 	if (l.icon)
 	{
 		const ImVec2 is = measure(reg(), 22, l.icon);
-		text(reg(), 22, lx + (30 - is.x) / 2, y + (h - is.y) / 2, focus ? col::onFocus : l.enabled ? col::sub : col::faint, l.icon);
+		text(reg(), 22, lx + (30 - is.x) / 2, y + (h - is.y) / 2, lit ? col::onFocus : l.enabled ? col::sub : col::faint, l.icon);
 		lx += 48;
 	}
 	if (l.marked)
 	{
-		disc(lx + 4, y + h / 2, 5, focus ? col::onFocus : col::warm);
+		disc(lx + 4, y + h / 2, 5, lit ? col::onFocus : col::warm);
 		lx += 20;
 	}
 	const float right = x + w - 26;
@@ -429,10 +467,10 @@ void listLine(float x, float y, float w, float h, const kit::Line& l, bool focus
 	else if (!l.value.empty() || l.kind == kit::Line::Opens || l.kind == kit::Line::Choice)
 	{
 		std::string v = l.value;
-		const bool arrows = l.kind == kit::Line::Choice && focus;
+		const bool arrows = l.kind == kit::Line::Choice && lit;
 		const float room = w * 0.42f;
-		v = fit(focus ? bold() : reg(), 21, v, room);
-		float vw = measure(focus ? bold() : reg(), 21, v).x;
+		v = fit(lit ? bold() : reg(), 21, v, room);
+		float vw = measure(lit ? bold() : reg(), 21, v).x;
 		float vx = right - vw;
 		if (l.kind == kit::Line::Opens)
 		{
@@ -445,8 +483,8 @@ void listLine(float x, float y, float w, float h, const kit::Line& l, bool focus
 			vx -= 30;
 			text(reg(), 15, vx - 26, y + h / 2 - 10, ink, ICON_FA_CHEVRON_LEFT);
 		}
-		const ImU32 vc = l.valueColour && !focus ? l.valueColour : focus ? col::onFocus : col::sub;
-		text(focus ? bold() : reg(), 21, vx, y + h / 2 - 13, vc, v);
+		const ImU32 vc = l.valueColour && !lit ? l.valueColour : lit ? col::onFocus : col::sub;
+		text(lit ? bold() : reg(), 21, vx, y + h / 2 - 13, vc, v);
 		valueW = right - vx + (arrows ? 30 : 0);
 	}
 	const float room = right - valueW - 24 - lx;
@@ -458,7 +496,7 @@ void listLine(float x, float y, float w, float h, const kit::Line& l, bool focus
 		text(reg(), 17, lx, y + h / 2 + 4, soft, fit(reg(), 17, l.note, room));
 	}
 	if (l.kind == kit::Line::Toggle)
-		switchAt(right, y + h / 2, l.on, focus);
+		switchAt(right, y + h / 2, l.on, lit);
 }
 
 // A screen's title line: where it is over it, its name, a note after it.
@@ -567,6 +605,29 @@ bool changedOf(const Setting& s)
 	return H->changed && H->changed(s);
 }
 
+// The table's settings, then the host's own (a network folder, a game's patch).
+std::vector<const Setting *> everySetting()
+{
+	std::vector<const Setting *> all;
+	all.reserve(settings().size() + H->extras.size());
+	for (const Setting& s : settings())
+		all.push_back(&s);
+	for (const Setting& s : H->extras)
+		all.push_back(&s);
+	return all;
+}
+
+// Search: the console's keyboard is opened, and the results are shown once something is typed
+// (the host shows them); with no keyboard (the pictures), at once.
+void startSearch()
+{
+	st.result = 0;
+	if (H->typeQuery)
+		H->typeQuery();
+	else
+		st.screen = Screen::Search;
+}
+
 void change(const Setting& s, int dir)
 {
 	if (H->step)
@@ -629,7 +690,11 @@ std::vector<Item> itemsFor()
 	std::vector<Item> items;
 	if (st.virt == 1 || st.virt == 2)
 	{
+		// The table's, then the host's own (a network folder, a game's patch).
 		for (const Setting& s : settings())
+			if (shown(s, 2) && (st.virt == 1 ? pinned(s) : changedOf(s)))
+				items.push_back({ &s, "" });
+		for (const Setting& s : H->extras)
 			if (shown(s, 2) && (st.virt == 1 ? pinned(s) : changedOf(s)))
 				items.push_back({ &s, "" });
 		return items;
@@ -721,7 +786,8 @@ const Setting *settingRows(const std::vector<Item>& items, int& focus, float x, 
 		surface(x, y, w, 120, 22);
 		text(reg(), 22, x + 30, y + 46, col::sub, st.virt == 1 ? "Nothing is pinned. Press Square on a setting to pin it here."
 				: st.virt == 2 ? (forGame() ? "This game has none of its own: it plays with the settings for every game."
-				: "Every setting is at its default.") : "Nothing here at this level: L1 / R1 shows more.", w - 60);
+				: "Every setting is at its default.") : forGame() ? "A game has no settings of its own here."
+				: "Nothing here at this level: L1 / R1 shows more.", w - 60);
 		return nullptr;
 	}
 	focus = std::clamp(focus, 0, (int)stops.size() - 1);
@@ -804,8 +870,12 @@ void heroArt(const Game& g, float from = 560)
 {
 	if (g.cover != ImTextureID())
 	{
-		dl->AddImage(g.cover, V(from, -140), V(W + 40, 1220), ImVec2(0, 0.08f), ImVec2(1, 0.92f), IM_COL32(255, 255, 255, 215));
-		glow(from + (W - from) * 0.5f, 380, 900, alpha(g.colour, 0.30f));
+		// Cropped to the box, which runs past the screen's edges by as much at any UI Scaling.
+		const float top = -0.13f * HH, bottom = HH * 1.13f;
+		ImVec2 uv0, uv1;
+		cropped(g.coverAspect, W + 40 - from, bottom - top, uv0, uv1);
+		dl->AddImage(g.cover, V(from, top), V(W + 40, bottom), uv0, uv1, IM_COL32(255, 255, 255, 215));
+		glow(from + (W - from) * 0.5f, HH * 0.35f, 900, alpha(g.colour, 0.30f));
 	}
 	else
 	{
@@ -814,7 +884,7 @@ void heroArt(const Game& g, float from = 560)
 	}
 	hgradient(0, 0, from + 160, HH, col::bg, alpha(col::bg, 0.88f));
 	hgradient(from + 160, 0, W - from - 160, HH, alpha(col::bg, 0.88f), alpha(col::bg, 0.0f));
-	gradient(0, 520, W, 560, alpha(col::bg2, 0), col::bg2);
+	gradient(0, HH * 0.48f, W, HH * 0.52f + 1, alpha(col::bg2, 0), col::bg2);
 }
 
 void homeScreen(const Input& in)
@@ -1199,6 +1269,9 @@ ImVec4 quickView(const QuickView& q)
 		if (q.statePicture != ImTextureID())
 			dl->AddImageRounded(q.statePicture, V(cx + 18, cy + 18), V(cx + 18 + iw, cy + 18 + ihh), ImVec2(0, 0), ImVec2(1, 1),
 					IM_COL32_WHITE, 16 * S);
+		else if (q.stateSaved)
+			// A state whose picture is still loading, or that has none: a blank card, not "empty".
+			rect(cx + 18, cy + 18, iw, ihh, alpha(col::text, 0.06f), 16);
 		else
 		{
 			rect(cx + 18, cy + 18, iw, ihh, alpha(col::text, 0.06f), 16);
@@ -1310,15 +1383,11 @@ void settingsHome(const Input& in)
 		if (in.up) f = a >= 4 ? f - 4 : (a < 2 ? 0 : 1);
 		if (in.down && a + 4 < areaCount) f += 4;
 	}
-	if (in.l1 && st.level > 0) st.level--;
-	if (in.r1 && st.level < 2) st.level++;
+	// The level: not in a game's Settings, which show all a game can have.
+	if (in.l1 && st.level > 0 && !forGame()) st.level--;
+	if (in.r1 && st.level < 2 && !forGame()) st.level++;
 	if (in.triangle || (in.accept && f < 0))
-	{
-		if (H->typeQuery)
-			H->typeQuery();
-		st.result = 0;
-		st.screen = Screen::Search;
-	}
+		startSearch();
 	else if (in.accept)
 	{
 		st.virt = f == 0 ? 1 : f == 1 ? 2 : 0;
@@ -1343,16 +1412,17 @@ void settingsHome(const Input& in)
 	settingsHeader("");
 	// The search.
 	int all = 0;
-	for (const Setting& s : settings())
-		all += shown(s, 2);
+	for (const Setting *s : everySetting())
+		all += shown(*s, 2);
 	searchField(M, 136, W - 2 * M, 80, forGame() ? "Search this game's " + std::to_string(all) + " settings"
 			: "Search all " + std::to_string(all) + " settings and your games", false, f < 0);
 	key(W - M - 54, 176, "triangle");
 	// Pinned, and changed from the default.
 	int changed = 0, pinnedCount = 0;
 	std::string pinnedNames, pinnedValues;
-	for (const Setting& s : settings())
+	for (const Setting *one : everySetting())
 	{
+		const Setting& s = *one;
 		if (!shown(s, 2))
 			continue;
 		if (changedOf(s))
@@ -1402,6 +1472,16 @@ void settingsHome(const Input& in)
 				if (s.kind != Kind::Action && s.kind != Kind::Info && firsts.size() < 2 && (forGame() || s.level == Level::Essentials))
 					firsts.push_back(&s);
 			}
+		// The host's own rows count where they are shown.
+		for (const Setting& s : H->extras)
+			if (s.area == a && shown(s, st.level))
+			{
+				count++;
+				if (changedOf(s))
+					ch++;
+				if (forGame() && firsts.size() < 2)
+					firsts.push_back(&s);
+			}
 		for (const Setting& s : settings())
 			if (firsts.size() < 2 && s.area == a && shown(s, st.level) && s.kind != Kind::Action && s.kind != Kind::Info
 					&& std::find(firsts.begin(), firsts.end(), &s) == firsts.end())
@@ -1443,16 +1523,37 @@ void settingsHome(const Input& in)
 		hints({ { { "circle" }, "Close" }, { { "L1", "R1" }, "Level" }, { { "triangle" }, "Search" }, { { "cross" }, "Open" } });
 }
 
+// How far a held direction moves in a long list: one row, then more the longer it is held.
+int listStep(const Input& in)
+{
+	return 1 + std::min(in.repeats / 6, 4);
+}
+
+// How far a held direction moves a range: one step, then 5, then 25 (as Crux2's sliders).
+int rangeSpeed(const Input& in)
+{
+	return in.repeats > 60 ? 25 : in.repeats > 25 ? 5 : 1;
+}
+
+// A change by left or right: a range speeds up while held.
+void changeHeld(const Setting& s, int dir, const Input& in)
+{
+	change(s, kindOf(s) == Kind::Range ? dir * rangeSpeed(in) : dir);
+}
+
 void settingsArea(const Input& in)
 {
+	// The level first (not in a game's Settings): the list is of the level shown.
+	if (in.l1 && st.level > 0 && !forGame()) st.level--;
+	if (in.r1 && st.level < 2 && !forGame()) st.level++;
 	const std::vector<Item> items = itemsFor();
 	int stops = 0;
 	for (const Item& it : items)
 		stops += it.s != nullptr;
-	if (in.up && st.row > 0) st.row--;
-	if (in.down && st.row < stops - 1) st.row++;
-	if (in.l1 && st.level > 0) st.level--;
-	if (in.r1 && st.level < 2) st.level++;
+	// A list that got shorter (a level, a reset, an unpin) keeps the focus on its last row.
+	st.row = std::clamp(st.row, 0, std::max(0, stops - 1));
+	if (in.up) st.row = std::max(0, st.row - listStep(in));
+	if (in.down) st.row = std::min(std::max(0, stops - 1), st.row + listStep(in));
 	const Setting *focused = nullptr;
 	{
 		int k = 0;
@@ -1463,12 +1564,13 @@ void settingsArea(const Input& in)
 	if (focused)
 	{
 		if (in.left || in.right)
-			change(*focused, in.right ? 1 : -1);
+			changeHeld(*focused, in.right ? 1 : -1, in);
+		// Cross: opens, switches, or steps a value on (as the Settings before did).
 		if (in.accept)
 		{
 			if (kindOf(*focused) == Kind::Action && H->run)
 				H->run(*focused);
-			else if (kindOf(*focused) == Kind::Toggle)
+			else if (kindOf(*focused) != Kind::Info)
 				change(*focused, 1);
 		}
 		if (in.square && !forGame())
@@ -1482,7 +1584,8 @@ void settingsArea(const Input& in)
 		if (in.r3 && H->reset)
 			H->reset(*focused);
 	}
-	if (in.triangle) { if (H->typeQuery) H->typeQuery(); st.result = 0; st.screen = Screen::Search; }
+	if (in.triangle)
+		startSearch();
 	if (in.back) st.screen = Screen::SettingsHome;
 	if (in.options)
 	{
@@ -1553,7 +1656,7 @@ void settingsArea(const Input& in)
 void searchScreen(const Input& in)
 {
 	std::vector<const Setting *> found;
-	for (const Setting *s : search(H->query))
+	for (const Setting *s : search(H->query, &H->extras))
 		if (shown(*s, 2))
 			found.push_back(s);
 	std::vector<int> games;
@@ -1572,16 +1675,16 @@ void searchScreen(const Input& in)
 		}
 	}
 	const int stops = (int)found.size() + (int)games.size();
-	if (in.up && st.result > 0) st.result--;
-	if (in.down && st.result < stops - 1) st.result++;
 	st.result = std::clamp(st.result, 0, std::max(0, stops - 1));
+	if (in.up) st.result = std::max(0, st.result - listStep(in));
+	if (in.down) st.result = std::min(std::max(0, stops - 1), st.result + listStep(in));
 	const bool onGame = st.result >= (int)found.size();
 	const Setting *focused = !onGame && !found.empty() ? found[(size_t)st.result] : nullptr;
 	if (focused && (in.left || in.right))
-		change(*focused, in.right ? 1 : -1);
+		changeHeld(*focused, in.right ? 1 : -1, in);
 	if (focused && in.accept && kindOf(*focused) == Kind::Action && H->run)
 		H->run(*focused);
-	if (focused && in.accept && kindOf(*focused) == Kind::Toggle)
+	else if (focused && in.accept && kindOf(*focused) != Kind::Info)
 		change(*focused, 1);
 	if (focused && in.square && !forGame())
 	{
@@ -1595,6 +1698,16 @@ void searchScreen(const Input& in)
 		H->game(games[(size_t)(st.result - (int)found.size())], GameAct::Page);
 	if (in.triangle && H->typeQuery) H->typeQuery();
 	if (in.back) st.screen = Screen::SettingsHome;
+	// OPTIONS closes the Settings from here too.
+	if (in.options)
+	{
+		if (H->close)
+		{
+			H->close();
+			return;
+		}
+		st.screen = st.back;
+	}
 
 	backdrop();
 	const float dw = 540, rw = W - M - dw - 30 - M;
@@ -1823,5 +1936,6 @@ void line(float x, float y, float w, float h, const Line& l, bool focus) { listL
 void hints(const std::vector<std::pair<std::vector<const char *>, std::string>>& list, float right, float cy) { pui::hints(list, right, cy); }
 void header(const std::string& title, const std::string& over, const std::string& note) { pui::header(title, over, note); }
 void clock(float right, float y) { clockAt(right, y); }
+float hintsLeft() { return lastHintsLeft; }
 }
 }

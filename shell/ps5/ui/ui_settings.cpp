@@ -74,7 +74,7 @@ std::vector<std::string> sections(int area)
 	return out;
 }
 
-std::vector<const Setting *> search(const std::string& query)
+std::vector<const Setting *> search(const std::string& query, const std::vector<Setting> *extras)
 {
 	std::vector<std::string> words;
 	std::string word;
@@ -92,12 +92,19 @@ std::vector<const Setting *> search(const std::string& query)
 	std::vector<const Setting *> byLabel, byText;
 	if (words.empty())
 		return byLabel;
+	// The table's, then the host's own (a network folder, a game's patch): the caller keeps those
+	// that are shown where it searches (a game's own only in its Settings).
+	std::vector<const Setting *> all;
 	for (const Setting& s : settings())
+		all.push_back(&s);
+	if (extras != nullptr)
+		for (const Setting& s : *extras)
+			all.push_back(&s);
+	for (const Setting *one : all)
 	{
-		if (s.has('G'))
-			continue;
+		const Setting& s = *one;
 		const std::string label = lower(s.label);
-		const std::string all = label + " " + lower(s.desc) + " " + lower(areas()[(size_t)s.area].name) + " " + lower(s.section);
+		const std::string all = label + " " + lower(s.desc) + " " + lower(areas()[(size_t)s.area].name) + " " + lower(s.section ? s.section : "");
 		bool inAll = true, inLabel = true;
 		for (const std::string& w : words)
 		{
