@@ -44,6 +44,7 @@
 #include "rend/soft/soft_renderer.h"
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
+#include "ps5_folders.h"
 #include "ps5_border.h"
 #include "ps5_disc.h"
 #include "ps5_archive.h"
@@ -1820,7 +1821,7 @@ bool refreshGames(bool networkOpen)
 			const std::string base = get_file_basename(g.media.fileName);
 			bool have = false;
 			for (const char *ext : { ".png", ".jpg", ".jpeg" })
-				if (file_exists(ps5::rootDir + "covers/" + base + ext))
+				if (file_exists(ps5::folders::coversPrefix() + base + ext))
 				{
 					have = true;
 					break;
@@ -1861,7 +1862,7 @@ const std::string& userCover(Game& g)
 	const std::string base = get_file_basename(g.media.fileName);
 	for (const char *ext : { ".png", ".jpg", ".jpeg" })
 	{
-		const std::string p = ps5::rootDir + "covers/" + base + ext;
+		const std::string p = ps5::folders::coversPrefix() + base + ext;
 		if (file_exists(p))
 		{
 			g.cover = p;
@@ -2411,8 +2412,32 @@ struct DiscSwap
 // stateSlot: the state the game starts from (0-based), or -1 for a fresh start.
 void stopCardSync();		// bigpicture_cards.inc
 
+// The folder save states are written in (Settings > Games and saves > Folders) is not there: a
+// drive pulled out. A game does not start on PSFlyCast's own folder unasked, or its saves would
+// look gone until the drive is back. Said yes once, it is not asked again until the next start.
+struct FolderAsk
+{
+	bool open = false;
+	bool accepted = false;
+	std::string path;			// the game
+	std::string folder;			// the one that is not there
+	int slot = -1;
+} folderAsk;
+
 void launch(Game& g, bool selectDisk, int stateSlot = -1)
 {
+	if (!selectDisk && !folderAsk.accepted)
+	{
+		const ps5::folders::Resolved folders = ps5::folders::resolveNow(ps5::folders::States);
+		if (folders.askFirst && !folders.missing.empty())
+		{
+			folderAsk.open = true;
+			folderAsk.path = g.media.path;
+			folderAsk.folder = folders.missing[0];
+			folderAsk.slot = stateSlot;
+			return;
+		}
+	}
 	// The memory cards' sync makes no change here once the game has them (bigpicture_cards.inc).
 	stopCardSync();
 	ps5::pad::menuBuzz(0.7f, 180);	// the start's buzz (OGBox's, PSWin's)
@@ -3541,11 +3566,11 @@ void openDetails(Game& g)
 	}
 	det.gameId = gameIdOf(g);
 	// The states saved for this game, by Flycast's own file names.
-	const std::string base = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName);
+	const std::string base = get_file_basename(g.media.fileName);
 	for (int slot = 0; slot < 10; slot++)
 	{
 		struct stat st;
-		if (stat((base + (slot > 0 ? "_" + std::to_string(slot) : "") + ".state").c_str(), &st) == 0)
+		if (stat(ps5::folders::stateFile(base + (slot > 0 ? "_" + std::to_string(slot) : "") + ".state").c_str(), &st) == 0)
 			det.states.emplace_back(slot, st.st_mtime);
 	}
 	// Its cheat file: the one chosen, else the closest name, as the game's start would pick.
@@ -3658,8 +3683,8 @@ void detailsInput(Game& g, bool selectDisk)
 			else
 			{
 				const int slot = det.states[row].first;
-				const std::string file = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName)
-						+ (slot > 0 ? "_" + std::to_string(slot) : "") + ".state";
+				const std::string file = ps5::folders::stateFile(get_file_basename(g.media.fileName)
+						+ (slot > 0 ? "_" + std::to_string(slot) : "") + ".state");
 				const bool gone = ::remove(file.c_str()) == 0 || errno == ENOENT;
 				ps5::diag::mark("states: slot %d of %s %s", slot + 1, get_file_basename(g.media.fileName).c_str(),
 						gone ? "deleted" : "could not be deleted");
@@ -3875,7 +3900,7 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		// A .png in the covers folder that nothing is noted about is the
 		// user's, or one an earlier build downloaded (which kept no notes):
 		// the row does not say whose. "Change cover" finds out.
-		det.coverSure = det.cover != ps5::covers::Own || ps5::covers::ownFile(base) != ps5::rootDir + "covers/" + base + ".png";
+		det.coverSure = det.cover != ps5::covers::Own || ps5::covers::ownFile(base) != ps5::folders::coversPrefix() + base + ".png";
 	}
 	det.row = std::clamp(det.row, 0, std::max(0, rows - 1));
 	const float visible = viewH / rowH;
@@ -4530,6 +4555,34 @@ void quitDialog(ImDrawList *dl, const Input& given)
 	dialogButton(dl, x, y, Glyph::Circle, "Stay", false);
 }
 
+void folderAskDialog(ImDrawList *dl, const Input& given)
+{
+	if (given.back)
+		folderAsk.open = false;
+	else if (given.accept)
+	{
+		folderAsk.open = false;
+		folderAsk.accepted = true;
+		for (Game& g : games)
+			if (g.media.path == folderAsk.path)
+			{
+				launch(g, false, folderAsk.slot);
+				break;
+			}
+	}
+	const float w = 1100, h = 420, pad = 52;
+	const ImVec2 at = dialogPanel(dl, w, h);
+	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "The folder for save states is not there");
+	text(dl, regular(), 24, at.x + pad, at.y + pad + 54, col::dim,
+			"Is the drive in? PSFlyCast would start the game with its own folder for save states, and this game's saved states "
+			"would look gone until the drive is back.", w - 2 * pad);
+	text(dl, regular(), 22, at.x + pad, at.y + pad + 160, col::faint, folderAsk.folder.c_str());
+	float x = at.x + pad;
+	const float y = at.y + h - pad - 60 + 8;
+	x += dialogButton(dl, x, y, Glyph::Circle, "Go back", true) + 20;
+	dialogButton(dl, x, y, Glyph::Cross, "Start with PSFlyCast's own folder", false);
+}
+
 namespace
 {
 
@@ -4552,9 +4605,9 @@ struct ResumeUi
 bool leftState(const Game& g, int& slot, time_t& saved)
 {
 	slot = config::SavestateSlot;
-	const std::string base = ps5::rootDir + "data/savestates/" + get_file_basename(g.media.fileName);
+	const std::string base = get_file_basename(g.media.fileName);
 	struct stat st;
-	if (stat((base + (slot > 0 ? "_" + std::to_string(slot) : "") + ".state").c_str(), &st) != 0)
+	if (stat(ps5::folders::stateFile(base + (slot > 0 ? "_" + std::to_string(slot) : "") + ".state").c_str(), &st) != 0)
 		return false;
 	saved = st.st_mtime;
 	return true;
@@ -4694,7 +4747,7 @@ void coverDialog(ImDrawList *dl, const Input& given)
 		ui.stamp = stamp;
 		ui.current = ps5::covers::current(ui.base);
 		ui.own = ps5::covers::ownFile(ui.base);
-		const std::string inPlace = ps5::rootDir + "covers/" + ui.base + ".png";
+		const std::string inPlace = ps5::folders::coversPrefix() + ui.base + ".png";
 		ui.found = ui.current == ps5::covers::Automatic && file_exists(inPlace) ? inPlace : "";
 	}
 	// A picture in the covers folder that nothing is noted about is the
@@ -4743,7 +4796,7 @@ void coverDialog(ImDrawList *dl, const Input& given)
 				continue;
 			done = ps5::covers::choose(base, chosen.choice, ui.base) && done;
 			for (const char *extension : { ".png", ".jpg", ".jpeg" })
-				forgetPicture(ps5::rootDir + "covers/" + base + extension);
+				forgetPicture(ps5::folders::coversPrefix() + base + extension);
 		}
 		if (done)
 			ui.open = false;
@@ -5972,6 +6025,12 @@ void libraryScreen(bool selectDisk)
 		const Input given = in;
 		in = Input{};
 		quitDialog(ImGui::GetForegroundDrawList(), given);
+	}
+	if (folderAsk.open)
+	{
+		const Input given = in;
+		in = Input{};
+		folderAskDialog(ImGui::GetForegroundDrawList(), given);
 	}
 	if (resumeUi.open)
 	{

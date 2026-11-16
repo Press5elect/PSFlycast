@@ -24,6 +24,7 @@
 	The interface's thread and the cover downloads' both come here.
 */
 #include "ps5_frontend.h"
+#include "ps5_folders.h"
 #include "types.h"
 #include "emulator.h"
 
@@ -97,7 +98,7 @@ std::string fileName()
 
 std::string coverFile(const std::string& base)
 {
-	return rootDir + "covers/" + base + ".png";
+	return folders::coversPrefix() + base + ".png";
 }
 
 std::vector<std::string> splitTabs(const std::string& line)

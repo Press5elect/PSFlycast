@@ -25,6 +25,7 @@
 	  videos/   media/videos/   media/dreamcast/videos/
 	  downloaded_media/dreamcast/videos/   and ../downloaded_media/dreamcast/videos/
 */
+#include "ps5_folders.h"
 #include "ps5_frontend.h"
 #include "ps5_diag.h"
 #include "cfg/option.h"
@@ -755,6 +756,9 @@ std::vector<std::string> videoFolders(std::string gamePath)
 		if (!dir.empty() && seen.insert(dir).second)
 			out.push_back(dir);
 	};
+	// The folders the player chose (Settings > Games and saves > Folders) come before the guesses.
+	for (const std::string& dir : ps5::folders::settings().kept[ps5::folders::Videos])
+		add(dir);
 	static const char *const subs[] = {
 		"videos", "media/videos", "media/dreamcast/videos", "media/naomi/videos", "media/atomiswave/videos",
 		"downloaded_media/dreamcast/videos", "downloaded_media/naomi/videos", "downloaded_media/atomiswave/videos",

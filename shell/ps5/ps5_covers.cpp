@@ -50,6 +50,7 @@
 	here and the scraper's thread take turns.
 */
 #include "ps5_frontend.h"
+#include "ps5_folders.h"
 #include "ps5_diag.h"
 #include "ps5_tls.h"
 #include "ps5_build.h"
@@ -477,7 +478,7 @@ bool isImage(const std::vector<uint8_t>& data)
 
 std::string coversDir()
 {
-	return rootDir + "covers/";
+	return folders::coversPrefix();
 }
 
 void loadNotFound()

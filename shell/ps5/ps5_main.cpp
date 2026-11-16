@@ -33,6 +33,8 @@
 #include "ps5_diag.h"
 #include "ps5_frontend.h"
 #include "ps5_disc.h"
+#include "ps5_folders.h"
+#include "oslib/storage.h"
 #include "ps5_rewind.h"
 #include "ps5_timing.h"
 #include "ps5_thread_layout.h"
@@ -494,11 +496,29 @@ void setFolders()
 	for (const std::string& dir : config::ContentPath.get())
 		if (!dir.empty() && !ours(dir + "/"))
 			content.push_back(dir);
+	// The folders the player added (Settings > Games and saves > Folders): their games join the
+	// library where they are. A folder on a drive that is not in is left out until it is.
+	for (const std::string& dir : ps5::folders::settings().games)
+		if (std::find(content.begin(), content.end(), dir) == content.end())
+			content.push_back(dir);
 	config::ContentPath.set(content);
-	config::BiosPath.set({ root + "bios" });
-	config::SavestatePath.set({ root + "data/savestates" });
-	config::BoxartPath.set(root + "covers");
-	config::CheatPath.set({ root + "cheats" });
+	// Where each kind of file is, as chosen; without a choice the folder it has always had. A
+	// chosen folder that is not there (a drive pulled out) is left out and said in the log.
+	ps5::folders::refresh();
+	using ps5::folders::Kind;
+	const auto kept = [](Kind kind) {
+		const ps5::folders::Resolved r = ps5::folders::resolveNow(kind);
+		for (const std::string& gone : r.missing)
+			ps5::diag::mark("folders: %s: %s is not there%s", ps5::folders::info(kind).label, gone.c_str(),
+					r.askFirst ? " (it is where this is written: a game asks before it starts)" : "");
+		return r.use;
+	};
+	config::BiosPath.set(kept(Kind::Bios));
+	config::SavestatePath.set(kept(Kind::States));
+	config::BoxartPath.set(ps5::folders::writeFolder(Kind::Covers));
+	config::CheatPath.set(kept(Kind::Cheats));
+	if (!ps5::folders::settings().kept[Kind::Textures].empty())
+		config::TexturePath.set(kept(Kind::Textures));
 	// Descriptions, release dates and box art come from Flycast's own
 	// scraper (TheGamesDB), through the console's HTTP client
 	// (ps5_covers.cpp), when downloads are on; covers by file name come from
@@ -609,6 +629,7 @@ int main(int argc, char *argv[])
 	if (ps5::rootDir.empty())
 		ps5::rootDir = "/app0/";
 	ps5::loadOptions(ps5::rootDir);
+	ps5::folders::load(ps5::rootDir);
 	ps5::diag::showNotifications(ps5::options().notifications);
 	// Logs: off, or in PSFlyCast's folder (the boot log in it, Flycast's own in logs/), or on a USB
 	// drive (both in PSFlyCast/logs there), forced onto the drive as often as chosen.
@@ -657,6 +678,16 @@ int main(int argc, char *argv[])
 	}
 	ps5::disc::start();
 	ps5::smb::loadConfig();
+	// A folder on a network share is listed through the share's own storage (ps5_smb.cpp).
+	ps5::folders::setLister([](const std::string& folder, std::vector<ps5::folders::Entry>& out) {
+		try {
+			for (const hostfs::FileInfo& info : hostfs::storage().listContent(folder))
+				out.push_back({ info.name, info.isDirectory });
+		} catch (const hostfs::StorageException&) {
+			return false;
+		}
+		return true;
+	});
 	if (ps5::options().logs)
 	{
 		redirectLogs(emulatorLogDir);
