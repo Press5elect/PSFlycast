@@ -5,6 +5,7 @@
 # CXX picks the compiler (CI runs it with g++ and with clang++).
 #   cardsync  the memory cards' sync engine (ps5_card_sync.cpp), under ASan and UBSan
 #   interface nothing of the interface is lost (shell/ps5/tools/interface-inventory.py)
+#   ui        the settings table is whole, and pictures of every screen of the new interface
 #   folders   the folders engine (ps5_folders.cpp), under ASan and UBSan
 #   hdr       HDR output's shaders and copy on lavapipe (ps5_hdr.cpp); says NOT RUN without it
 set -euo pipefail
@@ -20,6 +21,7 @@ run() {
 }
 run cardsync bash "$here/cardsync/run-cardsync-tests.sh" "$work/cardsync"
 run interface python3 "$here/../tools/interface-inventory.py" check
+run ui bash "$here/ui/run.sh" "$work/ui"
 run folders bash "$here/folders/run-folders-tests.sh" "$work/folders"
 run hdr bash "$here/hdr/run.sh" "$work/hdr"
 if ((${#failed[@]})); then
