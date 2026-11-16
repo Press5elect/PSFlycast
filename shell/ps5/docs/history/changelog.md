@@ -4,6 +4,34 @@ The README's notes of v1.3.4 and earlier, as they were released. The newest vers
 in the README (shell/ps5/README.md), which the title's folder carries; move a version here when it
 is no longer one of the last five.
 
+## New in v1.3.6
+
+Added:
+
+- **Find servers on the network** (Settings > Library > Network, from OGBox): the
+  shared folders' servers on the console's network are listed by name, and
+  one is picked to add a folder on it.
+- **Continue where you left off:** with Auto save state on and Auto load
+  state off, a game with a saved state asks whether to continue from it or
+  start from the beginning.
+- **Every disc game's cover is fetched in the background** after a scan,
+  when covers are on, instead of only the covers on screen.
+
+Changed:
+
+- **Flycast** is its `dev` branch at a14c02e (3 November 2026): saves,
+  memory cards and arcade cards are written to a temporary file and renamed
+  over the old one, and fixes to the network stack.
+- **The boot log** (`flycast-boot.log`) is written by a thread of its own
+  and synced every two seconds (from OGBox), instead of on each line.
+
+Fixed:
+
+- **Each time PSFlyCast closed, the console lost two references to its root
+  folder** (the USB drive access helper gave the title the root folder
+  without counting it), which could crash the console after many sessions.
+  The helper, now OGBox's, trades counted references for the title's.
+
 ## New in v1.3.5
 
 Added:

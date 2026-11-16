@@ -42,16 +42,15 @@ everything in it.
 
 ## Status
 
-Latest release: **v1.4.0** (build 107). It is built
+Latest release: **v1.4.1** (build 110). It is built
 on Flycast's `dev` branch, the one Flycast's nightly builds are made from.
 
-v1.4.0's new Settings ran on a console in a test build (build 105). Not run on a
-console yet: the one look on every other screen (Home, a game's page, the quick
-menu and its pages, a game's own options in the new Settings, the dialogs, the
-bars), the new cover matching (archives, the loose match, TheGamesDB by the
-disc's ID, "not found" lapsing), and from v1.3.9 PlayStation Move, SSAA's
-down-sampling, the HDR brightness screen, a memory card actually copied by the
-sync, Kept in memory logs, Circle confirms and deleting a save state.
+v1.4.0 ran on a console: its new Settings, and a game's own options, which crashed (v1.4.1 fixes
+the crash found in them: leaving them read what was already freed). Not run on a console yet: v1.4.1's fixes and faster menus, the
+one look on the other screens (Home, a game's page, the quick menu and its pages, the dialogs,
+the bars), the new cover matching, and from v1.3.9 PlayStation Move, SSAA's down-sampling, the
+HDR brightness screen, a memory card actually copied by the sync, Kept in memory logs, Circle
+confirms and deleting a save state.
 `classic_ui = 1` in `data/frontend.cfg` brings the Settings of v1.3.9 back.
 What was run on a console, version by version, and what was not, is in
 [docs/history/console-testing.md](https://github.com/Press5elect/PSFlycast/blob/main/shell/ps5/docs/history/console-testing.md).
@@ -63,7 +62,7 @@ What was run on a console, version by version, and what was not, is in
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
-## Next version (in test)
+## New in v1.4.1
 
 Changed:
 
@@ -231,37 +230,9 @@ Fixed:
 - **A large graphics buffer could fail to allocate while the memory was free
   but in many pieces.**
 
-## New in v1.3.6
-
-Added:
-
-- **Find servers on the network** (Settings > Library > Network, from OGBox): the
-  shared folders' servers on the console's network are listed by name, and
-  one is picked to add a folder on it.
-- **Continue where you left off:** with Auto save state on and Auto load
-  state off, a game with a saved state asks whether to continue from it or
-  start from the beginning.
-- **Every disc game's cover is fetched in the background** after a scan,
-  when covers are on, instead of only the covers on screen.
-
-Changed:
-
-- **Flycast** is its `dev` branch at a14c02e (3 November 2026): saves,
-  memory cards and arcade cards are written to a temporary file and renamed
-  over the old one, and fixes to the network stack.
-- **The boot log** (`flycast-boot.log`) is written by a thread of its own
-  and synced every two seconds (from OGBox), instead of on each line.
-
-Fixed:
-
-- **Each time PSFlyCast closed, the console lost two references to its root
-  folder** (the USB drive access helper gave the title the root folder
-  without counting it), which could crash the console after many sessions.
-  The helper, now OGBox's, trades counted references for the title's.
-
 ## Older versions
 
-The notes of v1.3.5 and earlier are in
+The notes of v1.3.6 and earlier are in
 [docs/history/changelog.md](https://github.com/Press5elect/PSFlycast/blob/main/shell/ps5/docs/history/changelog.md).
 
 ## What you need
