@@ -344,8 +344,84 @@ void TheGamesDb::fetchByName(GameBoxart& item)
 	else
 		url += std::to_string(arcadePlatformId);
 	url += "&name=" + http::urlEncode(item.searchName);
+#ifdef USE_PS5
+	// PSFlyCast: among the games the name finds, the one with this disc's product ID (any of its
+	// IDs, spaces, dashes and case aside), else the one whose title is the name (case,
+	// punctuation and "the" aside), else the first, as before. The first was often another
+	// game of a similar name.
+	{
+		// Its IDs too, with the description.
+		const size_t fields = url.find("&fields=overview");
+		if (fields != std::string::npos)
+			url.replace(fields, 16, "&fields=overview,uids");
+	}
+	{
+		const auto letters = [](const std::string& s, bool words) {
+			std::string out, word;
+			const auto end = [&] {
+				if (!word.empty() && !(words && word == "the"))
+					out += word;
+				word.clear();
+			};
+			for (char c : s)
+			{
+				if (isalnum((unsigned char)c))
+					word += (char)(words ? tolower((unsigned char)c) : toupper((unsigned char)c));
+				else if (words && c == '&')
+				{
+					end();
+					word = "and";
+					end();
+				}
+				else if (words && c != '\'')
+					end();
+			}
+			end();
+			return out;
+		};
+		json v = httpGet(url);
+		try {
+			const json& array = v.at("data").at("games");
+			const json& boxart = v.at("include").at("boxart");
+			const std::string id = letters(item.uniqueId, false);
+			if (!id.empty() && id != "T0000" && id != "T0000M")
+				for (const auto& game : array)
+				{
+					bool same = false;
+					try {
+						for (const auto& uid : game.at("uids"))
+							same = same || letters(uid.at("uid").get<std::string>(), false) == id;
+					} catch (const json::exception& e) {
+					}
+					if (same && parseGameInfo(json::array({ game }), boxart, item, ""))
+					{
+						item.scraped = true;
+						return;
+					}
+				}
+			const std::string title = letters(item.searchName, true);
+			for (const auto& game : array)
+			{
+				std::string name;
+				try {
+					name = game.at("game_title").get<std::string>();
+				} catch (const json::exception& e) {
+				}
+				if (!title.empty() && letters(name, true) == title && parseGameInfo(json::array({ game }), boxart, item, ""))
+				{
+					item.scraped = true;
+					return;
+				}
+			}
+			if (parseGameInfo(array, boxart, item, ""))
+				item.scraped = true;
+		} catch (const json::exception& e) {
+		}
+	}
+#else
 	if (fetchGameInfo(item, url))
 		item.scraped = true;
+#endif
 }
 
 void TheGamesDb::fetchByUids(std::vector<GameBoxart>& items)

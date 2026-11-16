@@ -7,6 +7,7 @@
 #   interface nothing of the interface is lost (shell/ps5/tools/interface-inventory.py)
 #   ui        the settings table is whole, and pictures of every screen of the new interface
 #   folders   the folders engine (ps5_folders.cpp), under ASan and UBSan
+#   covers    the cover matching (ps5_covers_match.cpp), under ASan and UBSan
 #   hdr       HDR output's shaders and copy on lavapipe (ps5_hdr.cpp); says NOT RUN without it
 set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -23,6 +24,7 @@ run cardsync bash "$here/cardsync/run-cardsync-tests.sh" "$work/cardsync"
 run interface python3 "$here/../tools/interface-inventory.py" check
 run ui bash "$here/ui/run.sh" "$work/ui"
 run folders bash "$here/folders/run-folders-tests.sh" "$work/folders"
+run covers bash "$here/covers/run-covers-tests.sh" "$work/covers"
 run hdr bash "$here/hdr/run.sh" "$work/hdr"
 if ((${#failed[@]})); then
 	echo "FAILED: ${failed[*]}"

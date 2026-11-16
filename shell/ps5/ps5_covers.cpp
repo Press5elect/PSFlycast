@@ -12,7 +12,13 @@
 	user's own covers; a name the collection does not have is remembered in
 	covers/not-found-2.txt and not asked for again. A file named in another way
 	than the collection ("[GDI] Game (US)[10S 51035]") is tried tidied
-	("Game (USA)") and by the game's title as well.
+	("Game (USA)") and by the game's title as well. When no name is there
+	exactly, the collection's list (the server's listing, kept two weeks in
+	covers/.boxart-index.txt) is matched loosely: the same name but for case,
+	punctuation and tags, the region and disc closest (ps5_covers_match.cpp).
+	A game not found is asked for again after 30 days (the time is on its
+	line); the lines of the builds before, which have none, at once. Games
+	in a .zip, .7z or .rar with a disc image in it are looked up as discs.
 
 	HTTPS is the console's own, libSceHttp2 on one worker thread, with the
 	calls, pool sizes and time-outs of PS5SX2's cover fetcher (Swordpdf,
@@ -51,6 +57,7 @@
 */
 #include "ps5_frontend.h"
 #include "ps5_folders.h"
+#include "ps5_covers_match.h"
 #include "ps5_diag.h"
 #include "ps5_tls.h"
 #include "ps5_build.h"
@@ -156,8 +163,15 @@ std::mutex mutex;
 std::condition_variable wake;
 std::deque<std::string> queue;
 std::set<std::string> asked;
-std::set<std::string> notFound;
+// The games no picture was found for, and when (they are asked for again after a while).
+std::map<std::string, int64_t> notFound;
 bool notFoundLoaded;
+// The collection's names, for the loose match (covers/.boxart-index.txt, from the server's listing).
+std::vector<std::string> collection;
+bool collectionRead;
+// The collection's picture a game's file matched loosely: its title screen and moment of play
+// ("Change cover") are under the same name.
+std::map<std::string, std::string> matched;
 bool started;
 std::atomic<unsigned> currentGeneration{1};
 std::atomic<int> pending{0};
@@ -442,15 +456,7 @@ struct Http
 	}
 };
 
-// The collection's file name for a game name: its reserved characters are '_'.
-std::string thumbnailName(const std::string& name)
-{
-	std::string out = name;
-	for (char& c : out)
-		if (strchr("&*/:`<>?\\|\"", c) != nullptr)
-			c = '_';
-	return out;
-}
+using match::thumbnailName;
 
 std::string urlEncode(const std::string& s)
 {
@@ -481,22 +487,38 @@ std::string coversDir()
 	return folders::coversPrefix();
 }
 
+// Read once; the lines of games whose time has lapsed (and those of the builds before, which
+// have none) are left out, and the file is written again without them.
 void loadNotFound()
 {
 	if (notFoundLoaded)
 		return;
 	notFoundLoaded = true;
-	if (FILE *f = fopen((coversDir() + "not-found-2.txt").c_str(), "r"))
+	const std::string file = coversDir() + "not-found-2.txt";
+	std::string text;
+	if (FILE *f = fopen(file.c_str(), "r"))
 	{
 		char line[512];
 		while (fgets(line, sizeof(line), f) != nullptr)
-		{
-			std::string s(line);
-			while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
-				s.pop_back();
-			if (!s.empty())
-				notFound.insert(s);
-		}
+			text += line;
+		fclose(f);
+	}
+	const int64_t now = (int64_t)time(nullptr);
+	size_t dropped = 0;
+	for (const auto& [base, when] : match::parseNotFound(text))
+	{
+		if (match::lapsed(when, now))
+			dropped++;
+		else
+			notFound[base] = when;
+	}
+	if (dropped == 0)
+		return;
+	diag::mark("covers: %zu games without a cover are asked for again", dropped);
+	if (FILE *f = fopen(file.c_str(), "w"))
+	{
+		for (const auto& [base, when] : notFound)
+			fprintf(f, "%s\t%lld\n", base.c_str(), (long long)when);
 		fclose(f);
 	}
 }
@@ -504,119 +526,33 @@ void loadNotFound()
 void rememberNotFound(const std::string& base)
 {
 	std::lock_guard<std::mutex> lock(mutex);
-	notFound.insert(base);
+	const int64_t now = (int64_t)time(nullptr);
+	notFound[base] = now;
 	if (FILE *f = fopen((coversDir() + "not-found-2.txt").c_str(), "a"))
 	{
-		fprintf(f, "%s\n", base.c_str());
+		fprintf(f, "%s\t%lld\n", base.c_str(), (long long)now);
 		fclose(f);
 	}
 }
 
-// The names to try for a file name: itself, then with each region when it
-// names none, then without a "(Disc N)" tag.
 // The name each file's cover was asked for with besides its own: the game's title
 // (from the disc's header or Flycast's list), for files named in another way.
 std::map<std::string, std::string> titles;
 
-// A region in a file name as the collection names it: (US) is (USA), (EU) is
-// (Europe), (JP) is (Japan); empty when it is not a region.
-std::string regionName(std::string token)
-{
-	for (char& c : token)
-		c = (char)toupper((unsigned char)c);
-	if (token == "US" || token == "U" || token == "USA" || token == "NTSC-U" || token == "NTSC")
-		return "USA";
-	if (token == "EU" || token == "EUR" || token == "E" || token == "EUROPE" || token == "PAL")
-		return "Europe";
-	if (token == "JP" || token == "JPN" || token == "J" || token == "JAPAN" || token == "NTSC-J")
-		return "Japan";
-	return "";
-}
-
-// A file name as the collection names its games: the [tags] some sets add
-// ("[GDI]", "[10S 51035]", "[!]") taken out, a region in short spelled out,
-// and the spaces tidied. "[GDI] Crazy Taxi (US)[10S 51035]" is "Crazy Taxi (USA)".
-std::string cleaned(const std::string& name)
-{
-	std::string out;
-	int depth = 0;
-	for (char c : name)
-	{
-		if (c == '[')
-			depth++;
-		else if (c == ']' && depth > 0)
-			depth--;
-		else if (depth == 0)
-			out += c;
-	}
-	// (US) and its kind.
-	std::string result;
-	for (size_t i = 0; i < out.size(); )
-	{
-		if (out[i] == '(')
-		{
-			const size_t close = out.find(')', i);
-			if (close != std::string::npos)
-			{
-				const std::string region = regionName(out.substr(i + 1, close - i - 1));
-				result += region.empty() ? out.substr(i, close - i + 1) : "(" + region + ")";
-				i = close + 1;
-				continue;
-			}
-		}
-		result += out[i++];
-	}
-	// One space between words, none at the ends, and one before a bracket.
-	std::string tidy;
-	for (char c : result)
-	{
-		if (c == '_')
-			c = ' ';
-		if (c == '(' && !tidy.empty() && tidy.back() != ' ')
-			tidy += ' ';
-		if (c == ' ' && (tidy.empty() || tidy.back() == ' '))
-			continue;
-		tidy += c;
-	}
-	while (!tidy.empty() && tidy.back() == ' ')
-		tidy.pop_back();
-	return tidy;
-}
-
-// The names to try, in order: the file's own, the file's tidied, the game's
-// title; each with the three regions when it has none, and without its disc
-// number when it has one.
+// The names to ask for exactly (ps5_covers_match.h), then the one it matched loosely, if it did.
 std::vector<std::string> namesFor(const std::string& base)
 {
-	std::vector<std::string> names;
-	auto add = [&](const std::string& name) {
-		if (!name.empty() && std::find(names.begin(), names.end(), name) == names.end())
-			names.push_back(name);
-	};
-	auto withVariants = [&](const std::string& name) {
-		if (name.empty())
-			return;
-		add(name);
-		if (name.find('(') == std::string::npos)
-			for (const char *region : { " (USA)", " (Europe)", " (Japan)" })
-				add(name + region);
-		const size_t disc = name.find(" (Disc ");
-		if (disc != std::string::npos)
-		{
-			const size_t end = name.find(')', disc);
-			if (end != std::string::npos)
-				add(name.substr(0, disc) + name.substr(end + 1));
-		}
-	};
-	withVariants(base);
-	withVariants(cleaned(base));
-	std::string title;
+	std::string title, loose;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		if (const auto it = titles.find(base); it != titles.end())
 			title = it->second;
+		if (const auto it = matched.find(base); it != matched.end())
+			loose = it->second;
 	}
-	withVariants(cleaned(title));
+	std::vector<std::string> names = match::namesFor(base, title);
+	if (!loose.empty() && std::find(names.begin(), names.end(), loose) == names.end())
+		names.push_back(loose);
 	return names;
 }
 
@@ -691,9 +627,10 @@ bool readFile(const std::string& file, std::vector<uint8_t>& data)
 // A game's picture from one of the collection's sets, into data: 1 it is
 // there, 0 not in the collection, -1 could not ask (offline, time-out;
 // failure then says which).
-int download(const Source& source, const char *folder, const std::string& base, std::vector<uint8_t>& data)
+int download(const Source& source, const char *folder, const std::string& base, std::vector<uint8_t>& data,
+		const std::vector<std::string> *only = nullptr)
 {
-	for (const std::string& name : namesFor(base))
+	for (const std::string& name : only != nullptr ? *only : namesFor(base))
 	{
 		std::string url = std::string(source.baseUrl) + folder + urlEncode(thumbnailName(name)) + ".png";
 		int status = get(url, data);
@@ -736,10 +673,10 @@ int download(const Source& source, const char *folder, const std::string& base, 
 }
 
 // The game's cover: 1 saved, 0 not in the collection, -1 could not ask.
-int fetch(const Source& source, const std::string& base)
+int fetch(const Source& source, const std::string& base, const std::vector<std::string> *only = nullptr)
 {
 	std::vector<uint8_t> data;
-	const int found = download(source, Folders[Boxart], base, data);
+	const int found = download(source, Folders[Boxart], base, data, only);
 	if (found != 1)
 		return found;
 	// A picture the user put there meanwhile stays.
@@ -757,6 +694,66 @@ int fetch(const Source& source, const std::string& base)
 		diag::mark("covers: downloads work, from %s (%s)", source.name, base.c_str());
 	}
 	return 1;
+}
+
+// The collection's names: the server's listing of its box art (about 360 KB, plain HTTP, the
+// source that needs no TLS), kept in covers/.boxart-index.txt for two weeks. When it cannot be
+// had, the copy kept, however old. Read once a run, when a game first matches no name exactly.
+const std::vector<std::string>& collectionNames()
+{
+	if (collectionRead)
+		return collection;
+	collectionRead = true;
+	const std::string file = coversDir() + ".boxart-index.txt";
+	struct stat st;
+	const bool kept = stat(file.c_str(), &st) == 0 && st.st_size > 0;
+	if (!kept || time(nullptr) - st.st_mtime > 14 * 24 * 3600)
+	{
+		std::vector<uint8_t> data;
+		const int status = get("http://thumbnails.libretro.com/Sega%20-%20Dreamcast/Named_Boxarts/", data, 30);
+		if (status == 200)
+		{
+			collection = match::parseIndex(std::string(data.begin(), data.end()));
+			if (!collection.empty())
+			{
+				std::string text;
+				for (const std::string& name : collection)
+					text += name + "\n";
+				saveFile(file, std::vector<uint8_t>(text.begin(), text.end()));
+				diag::mark("covers: the collection's list read, %zu pictures", collection.size());
+				return collection;
+			}
+		}
+		diag::mark("covers: the collection's list could not be read (%d)%s", status, kept ? ", the copy kept is used" : "");
+	}
+	std::vector<uint8_t> data;
+	if (readFile(file, data))
+	{
+		std::string line;
+		for (uint8_t c : data)
+		{
+			if (c == '\n')
+			{
+				if (!line.empty())
+					collection.push_back(line);
+				line.clear();
+			}
+			else if (c != '\r')
+				line += (char)c;
+		}
+	}
+	return collection;
+}
+
+// A game no name of which is in the collection exactly: the collection's picture whose name is
+// the same but for case, punctuation and tags ("CAPCOM VS SNK 2" is "Capcom vs. SNK 2 - ... (USA)"),
+// region and disc as close as there is. Empty: none.
+std::string looseMatch(const std::string& base)
+{
+	const std::vector<std::string>& names = collectionNames();
+	if (names.empty())
+		return "";
+	return match::loose(names, namesFor(base));
 }
 
 // Asks the source in use. When it does not answer and there is another: says
@@ -789,6 +786,18 @@ const char *const choiceNames[PictureCount] = { "boxart", "title", "snap" };
 // for is downloaded into covers/.choices.
 void fetchChoices(const std::string& base, int& source)
 {
+	// A game whose cover was matched loosely in another run: its pictures are under that name.
+	bool known;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		known = matched.count(base) != 0;
+	}
+	if (!known)
+	{
+		const std::string loose = looseMatch(base);
+		std::lock_guard<std::mutex> lock(mutex);
+		matched[base] = loose;
+	}
 	const std::string dir = coversDir() + ".choices";
 	mkdir(dir.c_str(), 0777);
 	chmod(dir.c_str(), 0777);
@@ -865,7 +874,23 @@ void worker()
 			continue;
 		}
 		// A source that does not answer: the next one, this cover first.
-		const int result = offline ? -1 : askSource(source, [&](const Source& from) { return fetch(from, base); });
+		int result = offline ? -1 : askSource(source, [&](const Source& from) { return fetch(from, base); });
+		if (result == 0)
+		{
+			// No name exactly: the collection's list, matched loosely.
+			const std::string loose = looseMatch(base);
+			if (!loose.empty())
+			{
+				{
+					std::lock_guard<std::mutex> lock(mutex);
+					matched[base] = loose;
+				}
+				const std::vector<std::string> only{ loose };
+				result = askSource(source, [&](const Source& from) { return fetch(from, base, &only); });
+				diag::mark("covers: %s matched loosely as \"%s\": %s", base.c_str(), loose.c_str(),
+						result == 1 ? "found" : result == 0 ? "not there" : "could not ask");
+			}
+		}
 		if (result == 1)
 		{
 			currentGeneration++;
@@ -904,7 +929,9 @@ void request(const std::string& base, const std::string& title)
 	if (!title.empty())
 		titles[base] = title;
 	loadNotFound();
-	if (!asked.insert(base).second || notFound.count(base) != 0)
+	if (const auto it = notFound.find(base); it != notFound.end() && !match::lapsed(it->second, (int64_t)time(nullptr)))
+		return;
+	if (!asked.insert(base).second)
 		return;
 	queue.push_back(base);
 	pending++;

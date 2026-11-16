@@ -1796,6 +1796,18 @@ std::string lowerExt(const std::string& path)
 	return e;
 }
 
+// The games whose cover is asked of the libretro collection: Dreamcast discs, as images or in an
+// archive (.zip, .7z, .rar holding a disc image, which the scanner lists as not arcade).
+bool collectionCovers(const Game& g)
+{
+	if (g.media.arcade || g.media.path.empty())
+		return false;
+	if (g.disc)
+		return true;
+	const std::string e = lowerExt(g.media.path);
+	return e == "zip" || e == "7z" || e == "rar";
+}
+
 // A game's name as shown: its file name without the extension and without the
 // dump's tags, "Re-Volt (USA) (En,Fr,De).chd" -> "Re-Volt"; a disc number stays.
 std::string cleanTitle(const std::string& name)
@@ -1896,7 +1908,7 @@ bool refreshGames(bool networkOpen)
 	if (ps5::options().covers)
 		for (const Game& g : games)
 		{
-			if (!g.disc)
+			if (!collectionCovers(g))
 				continue;
 			const std::string base = get_file_basename(g.media.fileName);
 			bool have = false;
@@ -1949,7 +1961,7 @@ const std::string& userCover(Game& g)
 			return g.cover;
 		}
 	}
-	if (g.disc)
+	if (collectionCovers(g))
 		ps5::covers::request(base, !g.art.name.empty() ? g.art.name : g.title);
 	return g.cover;
 }
@@ -4800,7 +4812,7 @@ void openCover(Game& g)
 			if (&games[i] != &g)
 				coverUi.bases.push_back(get_file_basename(games[i].media.fileName));
 	coverUi.ownArt = g.art.boxartPath;
-	if (!g.disc || g.media.arcade || coverUi.base.empty())
+	if (!collectionCovers(g) || coverUi.base.empty())
 		coverUi.cannot = "The collection's pictures are of Dreamcast discs: there is none to download for this game";
 	else if (!ps5::options().covers)
 		coverUi.cannot = "Downloads are off: Settings > Library has Download covers and descriptions";

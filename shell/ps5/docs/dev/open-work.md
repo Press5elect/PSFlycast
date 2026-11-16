@@ -15,7 +15,18 @@ Builds 94 to 101 (v1.3.5 to v1.3.9) have not been run on a console. What each ne
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
 | 98 to 100, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line; build 100: Down-sampling (Soft, Sharp) and SMAA (`aa:` lines) |
 
-## The new interface (build 106): one look on every screen, untested on the console
+## Covers (v1.4.0): the loose match, archives, TheGamesDB by ID, the lapse, untested on the console
+
+`ps5_covers_match.cpp` (PC tests: `tests/covers`) matches a file to the libretro collection's list
+(`covers/.boxart-index.txt`, the server's listing, read again after two weeks) when no name is
+there exactly; on the real list of November 2026, 1,329 of its 1,332 names, stripped of case,
+punctuation and region, found their own game and none another. Archives holding a disc are asked
+for as discs; TheGamesDB's name search picks by the disc's product ID, then the exact title, then
+its first result (`core/ui/boxart/gamesdb.cpp`, `USE_PS5`); `not-found-2.txt` lines carry their
+time and lapse after 30 days. To check on the console: the boot log's `covers:` lines (a list read,
+`matched loosely as`), a game in a .zip getting a cover, "Change cover" on a loosely matched game.
+
+## The new interface (v1.4.0): one look on every screen, untested on the console beyond the Settings
 
 `shell/ps5/ui` draws the new screens and holds the kit every screen draws with (pictures on a PC:
 `tests/ui/run.sh`). Connected on the console (`bigpicture_newui.inc`): the Settings for every game

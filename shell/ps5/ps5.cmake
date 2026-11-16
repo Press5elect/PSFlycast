@@ -15,6 +15,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_stdio.cpp
 	shell/ps5/ps5_pipelines.cpp
 	shell/ps5/ps5_covers.cpp
+	shell/ps5/ps5_covers_match.cpp
 	shell/ps5/ps5_tls.cpp
 	shell/ps5/ps5_library.cpp
 	shell/ps5/ps5_smb.cpp
