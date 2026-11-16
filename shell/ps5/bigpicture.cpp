@@ -852,6 +852,11 @@ void spinMark(ImDrawList *dl, float cx, float cy, float radius, float a = 1.f)
 
 // ------------------------------------------------------------ button glyphs
 
+// The new interface's look, for the screens drawn here (bigpicture_newui.inc): its kit draws
+// with the skin's colours on the list given.
+void kitBegin(ImDrawList *dl);
+pui::Host& kitHost();
+
 enum class Glyph { Cross, Circle, Square, Triangle, L1, R1, L1R1, L2, R2, L2R2, R3, Options, TouchPad, DPadLR, DPadUD };
 
 // A DualSense button, as the face buttons are printed: white symbol on a dark disc.
@@ -861,7 +866,7 @@ float glyph(ImDrawList *dl, Glyph g, float x, float cy, float size = 34.f)
 	if (ps5::options().circleConfirms && (g == Glyph::Cross || g == Glyph::Circle))
 		g = g == Glyph::Cross ? Glyph::Circle : Glyph::Cross;
 	const float r = size / 2;
-	const ImU32 bg = col::rgba(255, 255, 255, 34), fg = col::text;
+	const ImU32 bg = col::rgba(255, 255, 255, 33), fg = col::text;
 	const float t = size * 0.075f;
 	auto label = [&](const char *s, float w) {
 		rect(dl, x, cy - r, w, size, bg, r * 0.55f);
@@ -931,20 +936,22 @@ float glyph(ImDrawList *dl, Glyph g, float x, float cy, float size = 34.f)
 	const float cx = x + r;
 	dl->AddCircleFilled(V(cx, cy), r * S, bg);
 	const float k = size * 0.22f;
+	// The face buttons' symbols in the colours the pad has them (as the new interface's keys).
 	switch (g)
 	{
 	case Glyph::Cross:
-		dl->AddLine(V(cx - k, cy - k), V(cx + k, cy + k), fg, t * S);
-		dl->AddLine(V(cx - k, cy + k), V(cx + k, cy - k), fg, t * S);
+		dl->AddLine(V(cx - k, cy - k), V(cx + k, cy + k), col::rgba(126, 178, 255), t * S);
+		dl->AddLine(V(cx - k, cy + k), V(cx + k, cy - k), col::rgba(126, 178, 255), t * S);
 		break;
 	case Glyph::Circle:
-		dl->AddCircle(V(cx, cy), k * 1.15f * S, fg, 0, t * S);
+		dl->AddCircle(V(cx, cy), k * 1.15f * S, col::rgba(255, 112, 112), 0, t * S);
 		break;
 	case Glyph::Square:
-		outline(dl, cx - k, cy - k, k * 2, k * 2, fg, 0, t);
+		outline(dl, cx - k, cy - k, k * 2, k * 2, col::rgba(242, 140, 220), 0, t);
 		break;
 	case Glyph::Triangle:
-		dl->AddTriangle(V(cx, cy - k * 1.15f), V(cx - k * 1.15f, cy + k * 0.85f), V(cx + k * 1.15f, cy + k * 0.85f), fg, t * S);
+		dl->AddTriangle(V(cx, cy - k * 1.15f), V(cx - k * 1.15f, cy + k * 0.85f), V(cx + k * 1.15f, cy + k * 0.85f),
+				col::rgba(90, 222, 186), t * S);
 		break;
 	default:
 		break;
@@ -961,20 +968,35 @@ struct Hint
 // The bottom bar: hints right-aligned, as on Steam's.
 void hintBar(ImDrawList *dl, const std::vector<Hint>& hints)
 {
-	rect(dl, 0, H - 72, W, 72, col::bar);
-	rect(dl, 0, H - 72, W, 1, col::line);
-	float x = W - 48;
+	// The kit's hints, over a soft fade of the ground (no bar): Circle first, Cross last, as the
+	// new screens have them (these lists are given the other way round).
+	kitBegin(dl);
+	const pui::Palette& p = pui::kit::palette();
+	dl->AddRectFilledMultiColor(V(0, H - 130), V(W, H), alpha(p.bg2, 0), alpha(p.bg2, 0), alpha(p.bg2, 0.92f), alpha(p.bg2, 0.92f));
+	pui::HintList list;
 	for (auto it = hints.rbegin(); it != hints.rend(); ++it)
 	{
-		const ImVec2 ts = textSize(regular(), 24, it->label);
-		x -= ts.x;
-		text(dl, regular(), 24, x, H - 36 - ts.y / 2, col::text, it->label);
-		x -= 12;
-		const float gw = glyph(dl, it->glyph, 0, -1000);	// measure
-		x -= gw;
-		glyph(dl, it->glyph, x, H - 36);
-		x -= 44;
+		std::vector<const char *> keys;
+		switch (it->glyph)
+		{
+		case Glyph::Cross: keys = { "cross" }; break;
+		case Glyph::Circle: keys = { "circle" }; break;
+		case Glyph::Square: keys = { "square" }; break;
+		case Glyph::Triangle: keys = { "triangle" }; break;
+		case Glyph::L1: keys = { "L1" }; break;
+		case Glyph::R1: keys = { "R1" }; break;
+		case Glyph::L1R1: keys = { "L1", "R1" }; break;
+		case Glyph::L2: keys = { "L2" }; break;
+		case Glyph::R2: keys = { "R2" }; break;
+		case Glyph::L2R2: keys = { "L2", "R2" }; break;
+		case Glyph::R3: keys = { "R3" }; break;
+		case Glyph::Options: keys = { "OPTIONS" }; break;
+		case Glyph::TouchPad: keys = { "TOUCH PAD" }; break;
+		default: keys = { "dpad" }; break;
+		}
+		list.push_back({ keys, it->label });
 	}
+	pui::kit::hints(list, W - 84, H - 40);
 }
 
 // ------------------------------------------------------------------ input
@@ -1174,8 +1196,11 @@ enum class Reach { All, Sources, None };
 
 void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 {
-	rect(dl, 0, 0, W, 96, col::bar);
-	rect(dl, 0, 95, W, 1, col::line);
+	// The new interface's look: no bar, the ground fading under the places; the places in a
+	// frosted pill, the open one lit by the accent.
+	kitBegin(dl);
+	dl->AddRectFilledMultiColor(V(0, 0), V(W, 120), alpha(col::bgTop, 0.94f), alpha(col::bgTop, 0.94f), alpha(col::bgTop, 0),
+			alpha(col::bgTop, 0));
 
 	// The app: its mark and its name.
 	if (splash.flight >= 1.f)
@@ -1203,6 +1228,8 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 	}
 	float x = (W - total) / 2 + 5;
 	glyph(dl, Glyph::L1, x - 60, 30, 28);
+	rect(dl, x - 6, 2, total + 2, 56, alpha(col::panel, 0.78f), 28);
+	outline(dl, x - 6, 2, total + 2, 56, col::rgba(255, 255, 255, 20), 28, 1.5f);
 	// The pill under the open place slides to the next one.
 	static float pillX = -1, pillW = 0;
 	static int pillFrame = -10;
@@ -1216,7 +1243,7 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 				pillX = fresh ? at : approach(pillX, at, 20);
 				pillW = fresh ? widths[i] : approach(pillW, widths[i], 20);
 				pillFrame = ImGui::GetFrameCount();
-				glow(dl, pillX, 8, pillW, 44, 22, alpha(col::accent, 0.5f), 10);
+				pui::kit::shadow(pillX, 14, pillW, 44, 22, alpha(col::accent, 0.5f), 12);
 				rect(dl, pillX, 8, pillW, 44, col::accent, 22);
 			}
 			at += widths[i] + 10;
@@ -1246,10 +1273,11 @@ void topBar(ImDrawList *dl, int active, bool inGame, Reach reach = Reach::All)
 		{
 			const float w = textSize(bold(), 19, filterName(f)).x + 30;
 			const bool on = active == f;
-			if (on)
-				rect(dl, cx, 58, w, 30, alpha(col::accent, 0.30f), 15);
-			outline(dl, cx, 58, w, 30, on ? col::accent : col::line, 15, on ? 2.f : 1.f);
-			text(dl, bold(), 19, cx + 15, 62, on ? col::text : reach == Reach::None ? col::faint : col::dim, filterName(f));
+			rect(dl, cx, 62, w, 30, on ? col::accent : alpha(col::panel, 0.8f), 15);
+			if (!on)
+				outline(dl, cx, 62, w, 30, col::rgba(255, 255, 255, 20), 15, 1.f);
+			text(dl, bold(), 19, cx + 15, 66, on ? kitHost().palette.onAccent : reach == Reach::None ? col::faint : col::dim,
+					filterName(f));
 			cx += w + 8;
 		}
 	}
@@ -1308,6 +1336,8 @@ struct Game
 	bool favourite = false;
 	bool hidden = false;
 };
+
+pui::Game puiGameOf(Game& g);
 
 std::vector<Game> games;
 size_t scannedCount = (size_t)-1;
@@ -3863,112 +3893,88 @@ void drawSwitch(ImDrawList *dl, float right, float cy, bool on, bool focused)
 	dl->AddCircleFilled(V(right - sw + (on ? sw - sh / 2 : sh / 2), cy), (sh / 2 - 5) * S, on && focused ? col::accent : col::text);
 }
 
+// A game's page (Triangle in the library): drawn by the new interface (pui::drawPage) from what
+// the details know (det), over the whole screen. detailsInput has the pad.
 void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 {
-	dl->AddRectFilled(V(0, 96), V(W, H - 72), col::rgba(0, 0, 0, (int)(150 * t)));
-	const float w = 1440, h = 740;
-	const float x = (W - w) / 2, y = 96 + (H - 72 - 96 - h) / 2 + (1 - t) * 40;
-	glow(dl, x, y, w, h, 24, col::rgba(0, 0, 0, (int)(255 * t)), 30);
-	rect(dl, x, y, w, h, alpha(col::panel, t), 24);
-	drawCover(dl, g, x + 48, y + 48, 420, 420, 16, 1);
-	text(dl, regular(), 20, x + 48, y + 492, alpha(col::faint, t), fit(regular(), 20, g.media.fileName, 420).c_str());
-	const std::string id = !det.gameId.empty() ? det.gameId : g.art.uniqueId;
-	if (!id.empty())
-		text(dl, regular(), 20, x + 48, y + 522, alpha(col::faint, t), ("ID  " + id).c_str());
-	if (!selectDisk)
-		text(dl, regular(), 20, x + 48, y + (id.empty() ? 522 : 552), alpha(col::faint, t),
-				fit(regular(), 20, playedLine(), 420).c_str());
-
-	const float tx = x + 520, tw = w - 520 - 56;
-	text(dl, bold(), 48, tx, y + 48, alpha(col::text, t), fit(bold(), 48, g.title, tw).c_str());
-	std::string meta = g.media.arcade ? "ARCADE" : "DREAMCAST";
-	if (*regionText(g.art.region))
-		meta += std::string("   ·   ") + regionText(g.art.region);
-	if (!g.art.releaseDate.empty())
-		meta += "   ·   " + g.art.releaseDate;
-	if (setsGrouped && g.setSize > 1)
-		meta += "   ·   Disc " + std::to_string(g.discOrder) + " of " + std::to_string(g.setSize);
-	text(dl, bold(), 24, tx, y + 118, alpha(col::accent, t), meta.c_str());
-
-	const float top = y + 170, bottom = y + h - 48;
-	if (selectDisk || det.page == PageActions)
+	using Line = pui::kit::Line;
+	kitBegin(dl);
+	pui::PageView p;
+	p.open = t;
+	p.game = puiGameOf(g);
 	{
 		std::string overview = !g.art.overview.empty() ? g.art.overview
 				: g.art.busy ? "Looking for a description..."
 				: !config::FetchBoxart ? "No description: downloads are off in Settings > Library."
 				: "No description available.";
-		if (overview.size() > 1100)
-			overview = overview.substr(0, 1100) + "...";
-		dl->PushClipRect(V(tx, top), V(tx + tw, bottom - 110), true);
-		text(dl, regular(), 26, tx, top + 2, alpha(col::dim, t), overview.c_str(), tw);
-		dl->PopClipRect();
-		// The actions, side by side.
-		struct Action { const char *label; bool enabled; };
-		std::vector<Action> actions;
-		if (selectDisk)
-			actions = { { ICON_FA_COMPACT_DISC "   Insert disc", true } };
+		if (overview.size() > 700)
+			overview = overview.substr(0, 700) + "...";
+		p.game.about = overview;
+		p.game.file = g.media.fileName;
+	}
+	std::string meta;
+	if (*regionText(g.art.region))
+		meta = regionText(g.art.region);
+	if (!g.art.releaseDate.empty())
+		meta += (meta.empty() ? "" : "  \xc2\xb7  ") + g.art.releaseDate;
+	if (!selectDisk)
+		meta += (meta.empty() ? "" : "  \xc2\xb7  ") + playedLine();
+	p.game.line = meta;
+	const std::string id = !det.gameId.empty() ? det.gameId : g.art.uniqueId;
+	if (selectDisk)
+	{
+		p.actions = { { ICON_FA_COMPACT_DISC, "Insert Disc" } };
+		p.action = 0;
+		p.hints = { { { "circle" }, "Back" }, { { "cross" }, "Insert" } };
+		if (!id.empty())
+			p.facts.push_back({ "ID", id });
+		pui::drawPage(kitHost(), p, dl);
+		return;
+	}
+	p.actions = { { ICON_FA_PLAY, "Play" }, { ICON_FA_CLOCK_ROTATE_LEFT, "Load State" }, { ICON_FA_SLIDERS, "Its Options" },
+			{ ICON_FA_BOLT, "Cheats" }, { ICON_FA_GEAR, "Manage" } };
+	p.enabled = { true, !det.states.empty(), true, true, true };
+	p.action = det.action;
+	p.inList = det.page != PageActions;
+	if (setsGrouped && g.setSize > 1)
+		for (size_t disc : discSets[g.set])
+		{
+			if (&games[disc] == &g)
+				p.disc = (int)p.discs.size();
+			p.discs.push_back("Disc " + std::to_string(games[disc].discOrder));
+		}
+	// The facts of the overview.
+	{
+		std::string time = det.seconds == 0 && det.lastPlayed == 0 ? "None yet" : playTimeText(det.seconds);
+		time[0] = (char)toupper((unsigned char)time[0]);
+		p.facts.push_back({ "Played", time });
+		p.facts.push_back({ "Last played", det.lastPlayed != 0 ? dayText(det.lastPlayed) : det.startedBefore ? "Before it was kept" : "Never" });
+		p.facts.push_back({ "Save states", det.states.empty() ? "None" : std::to_string(det.states.size()) });
+		if (!id.empty())
+			p.facts.push_back({ "ID", id });
+	}
+	if (det.page == PageActions)
+	{
+		if (det.action == 1 && det.states.empty())
+			p.note = "No saved state for this game yet: save one from the quick menu while playing.";
+		if (setsGrouped && g.setSize > 1)
+			p.hints = { { { "circle" }, "Back" }, { { "square" }, "Next disc" }, { { "dpad" }, "Choose" }, { { "cross" }, "Select" } };
 		else
-			actions = { { ICON_FA_PLAY "   Play", true },
-					{ ICON_FA_CLOCK_ROTATE_LEFT "   Load state", !det.states.empty() },
-					{ ICON_FA_SLIDERS "   Options", true }, { ICON_FA_BOLT "   Cheats", true },
-					{ ICON_FA_GEAR "   Manage", true } };
-		// Five of them share the row: each is a little narrower than one alone.
-		const float inside = actions.size() > 1 ? 22.f : 32.f, between = actions.size() > 1 ? 14.f : 20.f;
-		float bx = tx;
-		const float by = bottom - 68;
-		if (!selectDisk && setsGrouped && g.setSize > 1)
-		{
-			// The set's discs: the one this panel is for, and Square for the next.
-			float px = tx;
-			const float py = by - 64;
-			for (size_t disc : discSets[g.set])
-			{
-				const bool current = &games[disc] == &g;
-				const std::string label = "Disc " + std::to_string(games[disc].discOrder);
-				const ImVec2 ls = textSize(bold(), 20, label.c_str());
-				const float pw = ls.x + 36;
-				rect(dl, px, py, pw, 40, alpha(current ? col::text : col::panelHi, t), 20);
-				text(dl, bold(), 20, px + 18, py + 20 - ls.y / 2, alpha(current ? col::panel : col::dim, t), label.c_str());
-				px += pw + 10;
-			}
-			px += 14;
-			px += glyph(dl, Glyph::Square, px, py + 20, 28) + 10;
-			text(dl, regular(), 20, px, py + 8, alpha(col::faint, t), "Next disc");
-		}
-		for (int i = 0; i < (int)actions.size(); i++)
-		{
-			const bool on = selectDisk || i == det.action;
-			const ImVec2 ls = textSize(bold(), 26, actions[i].label);
-			const float bw = ls.x + 2 * inside;
-			if (on)
-				glow(dl, bx, by, bw, 64, 32, alpha(col::accent, 0.7f * t), 12);
-			rect(dl, bx, by, bw, 64, alpha(on ? col::accent : col::panelHi, t), 32);
-			text(dl, bold(), 26, bx + inside, by + 32 - ls.y / 2,
-					alpha(!actions[i].enabled ? col::faint : on ? col::text : col::dim, t), actions[i].label);
-			bx += bw + between;
-		}
-		if (!selectDisk && det.action == 1 && det.states.empty() && !(setsGrouped && g.setSize > 1))
-			text(dl, regular(), 20, tx, by - 34, alpha(col::faint, t),
-					"No saved state for this game yet: save one from the quick menu while playing.");
+			p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Choose" }, { { "cross" }, "Select" } };
+		pui::drawPage(kitHost(), p, dl);
 		return;
 	}
 
-	// A page: its name, then its rows.
-	const char *names[] = { "", ICON_FA_CLOCK_ROTATE_LEFT "   Start from a saved state", ICON_FA_SLIDERS "   Options for this game",
-			ICON_FA_BOLT "   Cheats", ICON_FA_GEAR "   Manage" };
-	text(dl, bold(), 30, tx, top, alpha(col::text, t), names[det.page]);
-	const float listTop = top + 58, rowH = 58;
-	const float viewH = bottom - listTop;
+	const char *names[] = { "", "Start from a saved state", "Options for this game", "Cheats", "Manage" };
+	p.listTitle = names[det.page];
 	if ((det.page == PageOptions || det.page == PageCheats) && det.gameId.empty())
 	{
-		text(dl, regular(), 26, tx, listTop + 8, alpha(col::dim, t),
-				"Start this game once first.\n\nPSFlyCast keeps a game's own options and cheats under the ID it reads from the "
-				"game when it runs, and this one has not run yet.", tw);
+		p.empty = "Start this game once first. PSFlyCast keeps a game's own options and cheats under the ID it reads from the "
+				"game when it runs, and this one has not run yet.";
+		p.hints = { { { "circle" }, "Back" } };
+		pui::drawPage(kitHost(), p, dl);
 		return;
 	}
-	const std::vector<GameOption> options = optionsFor(g.media.fileName, true, false);
-	const int rows = det.page == PageStates ? (int)det.states.size() : det.page == PageManage ? (int)ManageRows
-			: det.page == PageOptions ? (int)options.size() + 1 : 1 + (int)det.cheatNames.size();
 	if (det.page == PageManage && det.coverGeneration != ps5::covers::generation())
 	{
 		// Asked of the files once, and again when a cover changed: not every frame.
@@ -3980,143 +3986,122 @@ void detailsPanel(ImDrawList *dl, Game& g, float t, bool selectDisk)
 		// the row does not say whose. "Change cover" finds out.
 		det.coverSure = det.cover != ps5::covers::Own || ps5::covers::ownFile(base) != ps5::folders::coversPrefix() + base + ".png";
 	}
-	det.row = std::clamp(det.row, 0, std::max(0, rows - 1));
-	const float visible = viewH / rowH;
-	const float target = std::clamp((float)det.row - (visible - 1) / 2, 0.f, std::max(0.f, (float)rows - visible));
-	det.scroll = approach(det.scroll, target, 18);
-	dl->PushClipRect(V(tx - 16, listTop), V(tx + tw + 16, bottom), true);
-	for (int i = 0; i < rows; i++)
+	if (det.page == PageStates)
 	{
-		const float ry = listTop + (i - det.scroll) * rowH;
-		if (ry > bottom || ry + rowH < listTop - rowH)
-			continue;
-		const bool on = i == det.row;
-		if (on)
-			rect(dl, tx - 12, ry + 2, tw + 24, rowH - 6, col::accent, 12);
-		const float right = tx + tw - 8, cy = ry + rowH / 2 - 1;
-		const ImU32 ink = on ? col::text : col::dim;
-		auto value = [&](const std::string& v, bool arrows) {
-			const std::string shown = fit(regular(), 24, v, tw * 0.5f);
-			const ImVec2 vs = textSize(regular(), 24, shown.c_str());
-			text(dl, regular(), 24, right - 22 - vs.x, cy - vs.y / 2, on ? col::text : col::faint, shown.c_str());
-			if (on && arrows)
-			{
-				dl->AddTriangleFilled(V(right - 42 - vs.x, cy), V(right - 30 - vs.x, cy - 10), V(right - 30 - vs.x, cy + 10), col::text);
-				dl->AddTriangleFilled(V(right, cy), V(right - 12, cy - 10), V(right - 12, cy + 10), col::text);
-			}
-		};
-		if (det.page == PageStates)
+		for (int i = 0; i < (int)det.states.size(); i++)
 		{
 			const auto& [slot, when] = det.states[i];
-			text(dl, bold(), 26, tx + 8, ry + 14, ink, ("Slot " + std::to_string(slot + 1)).c_str());
-			value(det.deleteArmed == i ? "Triangle again to delete" : timeToShortDateTimeString(when), false);
-		}
-		else if (det.page == PageOptions)
-		{
-			if (i < (int)options.size())
+			Line l;
+			l.icon = ICON_FA_FLOPPY_DISK;
+			l.label = "Slot " + std::to_string(slot + 1);
+			if (det.deleteArmed == i)
 			{
-				const int choice = gameOptionChoice(det.gameId, options[i]);
-				text(dl, bold(), 26, tx + 8, ry + 14, choice >= 0 || on ? col::text : col::dim, options[i].label);
-				value(choice < 0 ? "As in Settings" : options[i].names[choice], true);
+				l.value = "Triangle again to delete";
+				l.valueColour = col::warm;
 			}
 			else
-				text(dl, bold(), 26, tx + 8, ry + 14, ink, ICON_FA_ROTATE_LEFT "   Back to the Settings for all of these");
+				l.value = timeToShortDateTimeString(when);
+			p.lines.push_back(l);
 		}
-		else if (det.page == PageManage)
-		{
-			// A row that opens something: what it is now, before an arrow.
-			auto opens = [&](const std::string& now) {
-				const char *arrow = ICON_FA_CHEVRON_RIGHT;
-				const ImVec2 as = textSize(regular(), 24, arrow);
-				text(dl, regular(), 24, right - as.x, cy - as.y / 2, on ? col::text : col::faint, arrow);
-				const ImVec2 ns = textSize(regular(), 24, now.c_str());
-				text(dl, regular(), 24, right - as.x - 22 - ns.x, cy - ns.y / 2, on ? col::text : col::faint, now.c_str());
-			};
-			// A fact: nothing to press.
-			auto fact = [&](const std::string& what) {
-				const ImVec2 ws = textSize(regular(), 24, what.c_str());
-				text(dl, regular(), 24, right - ws.x, cy - ws.y / 2, on ? col::text : col::faint, what.c_str());
-			};
-			// Its icon in a column of its own, so that the words line up.
-			auto label = [&](const char *icon, const char *words) {
-				const ImVec2 is = textSize(regular(), 26, icon);
-				text(dl, regular(), 26, tx + 26 - is.x / 2, ry + 14, ink, icon);
-				text(dl, bold(), 26, tx + 60, ry + 14, ink, words);
-			};
-			std::string time = det.seconds == 0 && det.lastPlayed == 0 ? "None yet" : playTimeText(det.seconds);
-			time[0] = (char)toupper((unsigned char)time[0]);
-			switch (i)
-			{
-			case ManageFavourite:
-				label(ICON_FA_STAR, "Favourite");
-				drawSwitch(dl, right, cy, g.favourite, on);
-				break;
-			case ManageHide:
-				label(g.hidden ? ICON_FA_EYE : ICON_FA_EYE_SLASH, g.hidden ? "Show in the library again" : "Hide from the library");
-				opens("");
-				break;
-			case ManageCover:
-				label(ICON_FA_IMAGE, "Change cover");
-				opens(det.coverSure ? coverChoiceName(det.cover) : "");
-				break;
-			case ManageTime:
-				label(ICON_FA_CLOCK, "Time played");
-				fact(time);
-				break;
-			default:
-				label(ICON_FA_CLOCK_ROTATE_LEFT, "Last played");
-				fact(det.lastPlayed != 0 ? dayText(det.lastPlayed) : det.startedBefore ? "Before play time was kept" : "Never");
-				break;
-			}
-		}
-		else if (i == 0)
-		{
-			text(dl, bold(), 26, tx + 8, ry + 14, ink, "Cheat file");
-			const std::string file = det.cheatFile < 0 ? "None" : det.cheatFiles[det.cheatFile].substr(0, det.cheatFiles[det.cheatFile].size() - 4);
-			value(file, true);
-		}
-		else
-		{
-			const bool enabled = det.cheatOn[i - 1];
-			text(dl, regular(), 24, tx + 8, ry + 15, on || enabled ? col::text : col::dim,
-					fit(regular(), 24, det.cheatNames[i - 1], tw - 130).c_str());
-			drawSwitch(dl, right, cy, enabled, on);
-		}
+		p.hints = { { { "circle" }, "Back" }, { { "triangle" }, "Delete" }, { { "dpad" }, "Slot" }, { { "cross" }, "Start from it" } };
 	}
-	dl->PopClipRect();
-	if (det.page == PageCheats && det.cheatNames.empty())
-		text(dl, regular(), 22, tx + 8, listTop + rowH + 20, alpha(col::faint, t),
-				det.cheatFiles.empty() ? "No cheat files in the cheats folder."
-				: "No file chosen. Left and right go through the files: the closest names come first.", tw - 16);
-	if (det.page == PageManage)
+	else if (det.page == PageOptions)
 	{
+		const std::vector<GameOption> options = optionsFor(g.media.fileName, true, false);
+		for (const GameOption& option : options)
+		{
+			const int choice = gameOptionChoice(det.gameId, option);
+			Line l;
+			l.label = option.label;
+			l.value = choice < 0 ? "As in Settings" : option.names[choice];
+			l.kind = Line::Choice;
+			l.marked = choice >= 0;
+			p.lines.push_back(l);
+		}
+		Line all;
+		all.icon = ICON_FA_ROTATE_LEFT;
+		all.label = "Back to the Settings for all of these";
+		p.lines.push_back(all);
+		p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Change" } };
+		p.note = "A dot: this game's own value. \"As in Settings\": the Settings for every game decide.";
+	}
+	else if (det.page == PageCheats)
+	{
+		Line file;
+		file.icon = ICON_FA_FOLDER_OPEN;
+		file.label = "Cheat file";
+		file.value = det.cheatFile < 0 ? "None" : det.cheatFiles[det.cheatFile].substr(0, det.cheatFiles[det.cheatFile].size() - 4);
+		file.kind = Line::Choice;
+		p.lines.push_back(file);
+		for (size_t i = 0; i < det.cheatNames.size(); i++)
+		{
+			Line l;
+			l.label = det.cheatNames[i];
+			l.kind = Line::Toggle;
+			l.on = det.cheatOn[i];
+			p.lines.push_back(l);
+		}
+		if (det.cheatNames.empty())
+			p.note = det.cheatFiles.empty() ? "No cheat files in the cheats folder."
+					: "No file chosen. Left and right go through the files: the closest names come first.";
+		p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Change" }, { { "cross" }, det.row == 0 ? "Next file" : "On / off" } };
+	}
+	else
+	{
+		std::string time = det.seconds == 0 && det.lastPlayed == 0 ? "None yet" : playTimeText(det.seconds);
+		time[0] = (char)toupper((unsigned char)time[0]);
+		const auto add = [&](const char *icon, const char *label, Line::Kind kind, const std::string& value, bool on = false) {
+			Line l;
+			l.icon = icon;
+			l.label = label;
+			l.kind = kind;
+			l.value = value;
+			l.on = on;
+			p.lines.push_back(l);
+		};
+		// In the order of ManageFavourite, ManageHide, ManageCover, ManageTime, then the last played.
+		add(ICON_FA_STAR, "Favourite", Line::Toggle, "", g.favourite);
+		add(g.hidden ? ICON_FA_EYE : ICON_FA_EYE_SLASH, g.hidden ? "Show in the library again" : "Hide from the library", Line::Opens, "");
+		add(ICON_FA_IMAGE, "Change cover", Line::Opens, det.coverSure ? coverChoiceName(det.cover) : "");
+		add(ICON_FA_CLOCK, "Time played", Line::Info, time);
+		add(ICON_FA_CLOCK_ROTATE_LEFT, "Last played", Line::Info,
+				det.lastPlayed != 0 ? dayText(det.lastPlayed) : det.startedBefore ? "Before play time was kept" : "Never");
+		while ((int)p.lines.size() > ManageRows)
+			p.lines.pop_back();
 		// What the focused row is about.
 		const bool set = setsGrouped && g.setSize > 1;
-		const char *note = "";
 		switch (det.row)
 		{
 		case ManageFavourite:
-			note = "A favourite is on the Favourites shelf, and has a star in the grid and in the list.";
+			p.note = "A favourite is on the Favourites shelf, and has a star in the grid and in the list.";
 			break;
 		case ManageHide:
-			note = g.hidden ? "Puts the game back in the library's lists, as it was."
+			p.note = g.hidden ? "Puts the game back in the library's lists, as it was."
 					: "The game leaves every list. Settings > Library > Show hidden games lists it again, dimmed, "
 						"and this row then brings it back.";
 			break;
 		case ManageCover:
-			note = set ? "Another picture from the covers' collection, or the one PSFlyCast finds by itself. "
+			p.note = set ? "Another picture from the covers' collection, or the one PSFlyCast finds by itself. "
 						"Every disc of the game takes it."
 					: "Another picture from the covers' collection, or the one PSFlyCast finds by itself.";
 			break;
 		case ManageTime:
-			note = set ? "The time the game itself ran, all its discs together: not the time in the quick menu or the Settings."
+			p.note = set ? "The time the game itself ran, all its discs together: not the time in the quick menu or the Settings."
 					: "The time the game itself ran: not the time in the quick menu or the Settings.";
 			break;
 		default:
 			break;
 		}
-		text(dl, regular(), 22, tx + 8, listTop + ManageRows * rowH + 22, alpha(col::faint, t), note, tw - 16);
+		if (det.row == ManageFavourite)
+			p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Move" }, { { "cross" }, "On / off" } };
+		else if (det.row <= ManageCover)
+			p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Move" }, { { "cross" }, "Select" } };
+		else
+			p.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Move" } };
 	}
+	det.row = std::clamp(det.row, 0, std::max(0, (int)p.lines.size() - 1));
+	p.line = det.row;
+	pui::drawPage(kitHost(), p, dl);
 }
 
 } // namespace
@@ -4318,6 +4303,9 @@ void drawShelves(ImDrawList *dl, Game *focused, bool selectDisk)
 			}
 			drawCover(dl, g, cx, cy, cardW + grow, cardH + grow, 12, near);
 			coverMarks(dl, g, cx, cy, cardW + grow, cardH + grow, 12, false);
+			// The focus as the new interface rings it.
+			if (near > 0.02f)
+				outline(dl, cx - 5, cy - 5, cardW + grow + 10, cardH + grow + 10, alpha(col::text, near), 16, 4);
 			if (on && motion() == MotionFull)
 			{
 				// A band of light crosses the focused cover now and then.
@@ -4547,9 +4535,15 @@ ImVec2 dialogPanel(ImDrawList *dl, float w, float h)
 {
 	rect(dl, 0, 0, W, H, col::rgba(4, 6, 10, 176));
 	const float x = (W - w) / 2, y = (H - h) / 2 - 16;
-	glow(dl, x, y, w, h, 28, col::rgba(0, 0, 0, 150), 36);
+	// The kit's card, opaque (what is behind is dimmed, not shown through), lit by the accent.
+	kitBegin(dl);
+	pui::kit::shadow(x, y + 12, w, h, 28, col::rgba(0, 0, 0, 170), 40);
 	rect(dl, x, y, w, h, col::panel, 28);
-	outline(dl, x, y, w, h, col::line, 28, 1.5f);
+	dl->PushClipRect(V(x, y), V(x + w, y + h), true);
+	pui::kit::glow(x + w * 0.2f, y - 40, std::max(w, h) * 0.8f, alpha(col::accent, 0.16f));
+	dl->PopClipRect();
+	outline(dl, x, y, w, h, col::rgba(255, 255, 255, 20), 28, 1.5f);
+	dl->AddLine(V(x + 28, y + 1), V(x + w - 28, y + 1), col::rgba(255, 255, 255, 30), 1.5f * S);
 	return ImVec2(x, y);
 }
 
@@ -4561,7 +4555,9 @@ float dialogButton(ImDrawList *dl, float x, float y, Glyph g, const char *label,
 	const float w = 20 + gw + 14 + textSize(bold(), 24, label).x + 30;
 	if (primary)
 		glow(dl, x, y, w, h, h / 2, alpha(col::accent, 0.5f), 12);
-	rect(dl, x, y, w, h, primary ? col::accent : col::panelHi, h / 2);
+	rect(dl, x, y, w, h, primary ? col::accent : alpha(col::panelHi, 0.9f), h / 2);
+	if (!primary)
+		outline(dl, x, y, w, h, col::rgba(255, 255, 255, 26), h / 2, 1.5f);
 	glyph(dl, g, x + 20, y + h / 2);
 	const ImVec2 ls = textSize(bold(), 24, label);
 	text(dl, bold(), 24, x + 20 + gw + 14, y + h / 2 - ls.y / 2, col::text, label);
@@ -6079,87 +6075,64 @@ void homeScreen(ImDrawList *dl)
 	if (in.back)
 		quitUi.open = true;
 
-	// ---- the picture
+	// ---- the picture: the new interface's Home (shell/ps5/ui), drawn with its kit
 	const float e = entered(400);
 	const Layer content = beginLayer(dl);
-	const float x0 = 96, top = 136, heroW = 1100, heroH = 500;
+	kitBegin(dl);
+	const pui::Palette& pal = pui::kit::palette();
+	const float x0 = 84;
+	// Heights as on a screen 1080 high, closer together with a larger UI Scaling.
+	const float k = std::min(1.f, H / 1080.f);
 	if (hero != nullptr)
 	{
 		ensureArt(*hero);
 		const ps5::library::Entry kept = ps5::library::entry(hero->media.path);
-		const bool on = home.focus < 2;
-		glow(dl, x0, top, heroW, heroH, 24, alpha(col::accent, on ? 0.30f : 0.12f), 16);
-		rect(dl, x0, top, heroW, heroH, col::card, 24);
-		const ImTextureID id = coverTexture(*hero);
-		if (id != ImTextureID())
-			imageFill(dl, id, x0, top, heroW, heroH, 24, col::rgba(255, 255, 255, 255));
-		gradientV(dl, x0, top + heroH * 0.35f, heroW, heroH * 0.65f, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, 215));
-		text(dl, bold(), 20, x0 + 44, top + heroH - 214, col::accent, "CONTINUE");
-		text(dl, bold(), 52, x0 + 44, top + heroH - 184, col::text, fit(bold(), 52, hero->fullTitle, heroW - 88).c_str());
-		std::string line = sinceText(kept.lastPlayed);
+		const pui::Game hg = puiGameOf(*hero);
+		pui::kit::heroArt(hg);
+		pui::kit::caption(x0, 214 * k, "Continue playing", pal.warm);
+		pui::kit::text(true, 88, x0 - 4, 240 * k, pal.text, pui::kit::fit(true, 88, hero->fullTitle, 1150));
+		std::string line = hg.platform;
+		const std::string since = sinceText(kept.lastPlayed);
+		if (!since.empty())
+			line += "    Played " + since;
 		const std::string played = playedText(kept.seconds);
 		if (!played.empty())
-			line += (line.empty() ? "" : "  \xC2\xB7  ") + played;
+			line += "    " ICON_FA_CLOCK "  " + played;
 		int slot = 0;
 		time_t saved = 0;
 		if (leftState(*hero, slot, saved))
-			line += (line.empty() ? "" : "  \xC2\xB7  ") + std::string("a saved state from ") + sinceText((int64_t)saved);
-		text(dl, regular(), 24, x0 + 44, top + heroH - 112, col::rgba(255, 255, 255, 215), fit(regular(), 24, line, heroW - 88).c_str());
-		float bx = x0 + 44;
-		const float by = top + heroH - 84;
-		const auto button = [&](int index, Glyph g, const char *label) {
-			const bool lit = home.focus == index;
-			const float w = 30 + glyph(dl, g, 0, -1000) + 12 + textSize(bold(), 24, label).x + 30;
-			if (lit)
-				glow(dl, bx, by, w, 56, 28, alpha(col::accent, 0.5f), 12);
-			rect(dl, bx, by, w, 56, lit ? col::accent : col::rgba(0, 0, 0, 150), 28);
-			if (!lit)
-				outline(dl, bx, by, w, 56, col::rgba(255, 255, 255, 60), 28, 1.5f);
-			glyph(dl, g, bx + 30, by + 28);
-			text(dl, bold(), 24, bx + 30 + glyph(dl, g, 0, -1000) + 12, by + 14, col::text, label);
-			bx += w + 16;
-		};
-		button(0, Glyph::Cross, "Resume");
-		button(1, Glyph::Cross, "Game Page");
+			line += "    " ICON_FA_FLOPPY_DISK "  Saved " + sinceText((int64_t)saved);
+		pui::kit::text(false, 23, x0, 240 * k + 116, pal.sub, pui::kit::fit(false, 23, line, 1150));
+		float bx = x0;
+		bx += pui::kit::button(bx, 240 * k + 184, "Resume", true, home.focus == 0, ICON_FA_PLAY, 24) + 20;
+		pui::kit::button(bx, 240 * k + 184, "Game Page", false, home.focus == 1, ICON_FA_CIRCLE_INFO);
 	}
 	else
 	{
-		rect(dl, x0, top, heroW, heroH, col::panel, 24);
-		spinMark(dl, x0 + 130, top + 130, 56);
-		text(dl, bold(), 46, x0 + 240, top + 84, col::text, games.empty() ? "No games yet" : "Nothing played yet");
-		text(dl, regular(), 26, x0 + 240, top + 156, col::dim, games.empty()
+		pui::kit::backdrop();
+		pui::kit::text(true, 76, x0, 236 * k, pal.text, games.empty() ? "No games yet" : "Nothing played yet");
+		pui::kit::text(false, 25, x0 + 2, 236 * k + 104, pal.sub, games.empty()
 				? "Add a folder with your games, or copy them to games/ in PSFlyCast's folder."
-				: "A game you start shows up here, to continue in one press.", heroW - 300);
-		float bx = x0 + 240;
-		const float by = top + 270;
-		const char *labels[] = { games.empty() ? "Library" : "Open the Library", "Add Game Folder" };
-		for (int i = 0; i < 2; i++)
-		{
-			const bool lit = home.focus == i;
-			const float w = 30 + glyph(dl, Glyph::Cross, 0, -1000) + 12 + textSize(bold(), 24, labels[i]).x + 30;
-			if (lit)
-				glow(dl, bx, by, w, 56, 28, alpha(col::accent, 0.5f), 12);
-			rect(dl, bx, by, w, 56, lit ? col::accent : col::panelHi, 28);
-			glyph(dl, Glyph::Cross, bx + 30, by + 28);
-			text(dl, bold(), 24, bx + 30 + glyph(dl, Glyph::Cross, 0, -1000) + 12, by + 14, col::text, labels[i]);
-			bx += w + 16;
-		}
+				: "A game you start shows up here, to continue in one press.", 1100);
+		float bx = x0;
+		bx += pui::kit::button(bx, 236 * k + 188, games.empty() ? "Library" : "Open the Library", true, home.focus == 0, ICON_FA_LAYER_GROUP, 24) + 20;
+		pui::kit::button(bx, 236 * k + 188, "Add Game Folder", false, home.focus == 1, ICON_FA_FOLDER_OPEN);
 	}
 
 	// What is true now: a card only where there is something to say.
 	{
-		const float cx = x0 + heroW + 40, cw = W - 96 - cx;
-		float cy = top;
-		text(dl, bold(), 20, cx, cy, col::faint, "RIGHT NOW");
-		cy += 40;
+		const float cw = 470, cx = W - 84 - cw;
+		float cy = 196 * k;
 		const auto card = [&](const char *icon, const std::string& title, const std::string& body) {
-			if (cy + 112 > top + heroH)
+			if (cy > 520 * k)
 				return;
-			rect(dl, cx, cy, cw, 104, col::panel, 18);
-			text(dl, bold(), 30, cx + 24, cy + 28, col::accent, icon);
-			text(dl, bold(), 26, cx + 84, cy + 18, col::text, fit(bold(), 26, title, cw - 108).c_str());
-			text(dl, regular(), 21, cx + 84, cy + 56, col::dim, fit(regular(), 21, body, cw - 108).c_str());
-			cy += 120;
+			pui::kit::surface(cx, cy, cw, 96, 24);
+			dl->AddCircleFilled(V(cx + 48, cy + 48), 24 * S, alpha(pal.accent, 0.2f), 48);
+			const ImVec2 is = pui::kit::measure(false, 20, icon);
+			pui::kit::text(false, 20, cx + 48 - is.x / 2, cy + 48 - is.y / 2, pal.accent, icon);
+			pui::kit::text(true, 21, cx + 90, cy + 20, pal.text, pui::kit::fit(true, 21, title, cw - 110));
+			pui::kit::text(false, 18, cx + 90, cy + 52, pal.sub, pui::kit::fit(false, 18, body, cw - 110));
+			cy += 112;
 		};
 		size_t shared = 0;
 		for (const Game& g : games)
@@ -6176,32 +6149,29 @@ void homeScreen(ImDrawList *dl)
 		const std::string covers = ps5::covers::status();
 		if (!covers.empty())
 			card(ICON_FA_DOWNLOAD, "Covers", covers);
-		if (cy == top + 40)
-			text(dl, regular(), 22, cx, cy, col::faint, "Nothing to report.");
 	}
 
 	// The games played lately.
 	if (lately > 0)
 	{
-		const float ly = top + heroH + 44;
-		text(dl, bold(), 20, x0, ly, col::faint, "PLAYED LATELY");
-		const float gap = 24, cw = (W - 192 - gap * 6) / 7, cy = ly + 40;
-		const float ch = std::min(cw, H - 72 - cy - 24);
+		const float ly = H - 438;
+		pui::kit::caption(x0, ly, "Played lately");
+		const float gap = 26, cw = (W - 2 * x0 - gap * 6) / 7, cy = ly + 42;
+		const float ch = std::min(cw, H - 150 - cy);
 		for (int k = 0; k < lately; k++)
 		{
 			Game& g = *recent[(size_t)(k + 1)];
 			const bool on = home.focus == 2 + k;
 			const float x = x0 + k * (cw + gap);
-			drawCover(dl, g, x, cy, cw, ch, 14, on ? 1.f : 0.f);
+			if (on)
+				pui::kit::ring(x, cy, cw, ch, 16);
+			drawCover(dl, g, x, cy, cw, ch, 16, on ? 1.f : 0.f);
 			if (on)
 			{
-				outline(dl, x - 4, cy - 4, cw + 8, ch + 8, col::accent, 16, 3.f);
-				const ImVec2 ts = textSize(bold(), 22, g.fullTitle.c_str());
-				(void)ts;
+				pui::kit::text(true, 21, x, cy + ch + 18, pal.text, pui::kit::fit(true, 21, g.fullTitle, cw + 80));
+				pui::kit::text(false, 17, x, cy + ch + 46, pal.sub, g.media.arcade ? "Arcade" : "Dreamcast");
 			}
 		}
-		if (home.focus >= 2)
-			text(dl, bold(), 24, x0 + 300, ly - 4, col::text, fit(bold(), 24, recent[(size_t)(home.focus - 1)]->fullTitle, W - 96 - x0 - 300).c_str());
 	}
 	endEntrance(content, e);
 
@@ -6638,8 +6608,13 @@ void libraryScreen(bool selectDisk)
 		lib.detailsAnim = approach(lib.detailsAnim, 1, 16);
 	else
 		lib.detailsAnim = approach(lib.detailsAnim, 0, 20);
-	if (lib.detailsAnim > 0.01f && focused != nullptr)
+	if (lib.detailsAnim > 0.01f && focused != nullptr && lib.details)
+	{
+		// The game's page covers the library, with its own hints.
 		detailsPanel(dl, *focused, lib.detailsAnim, selectDisk);
+		endScreen();
+		return;
+	}
 
 	topBar(dl, lib.source, false, selectDisk ? Reach::Sources : Reach::All);
 	const Glyph browse = view() == List ? Glyph::DPadUD : Glyph::DPadLR;
@@ -8679,11 +8654,11 @@ void settings()
 		st.dirty = true;
 	}
 
-	// The Settings for every game are the new interface's (classic_ui = 1 in frontend.cfg keeps
-	// the ones before).
-	if (!st.forGame && !ps5::options().classicUi)
+	// The Settings, for every game and for the running game, are the new interface's
+	// (classic_ui = 1 in frontend.cfg keeps the ones before).
+	if (!ps5::options().classicUi)
 	{
-		if (!dialog && !st.restartFor.empty() && in.l2)
+		if (!dialog && !st.forGame && !st.restartFor.empty() && in.l2)
 		{
 			ps5::restartOnExit = true;
 			dc_exit();
@@ -9159,6 +9134,27 @@ std::string cheatFileLabel()
 
 // The Cheats page, in the quick menu's panel: the cheat file on top (left and
 // right change it, best match first), then each cheat with its switch.
+// A page's name, at the top of the quick menu's panel (drawn with the kit, as the panel).
+void pageName(float px, float top, const char *icon, const char *name)
+{
+	const pui::Palette& p = pui::kit::palette();
+	pui::kit::text(false, 26, px + 48, top - 60, p.accent, icon);
+	pui::kit::text(true, 32, px + 94, top - 64, p.text, name);
+}
+
+// The focus on a line a page draws itself: the kit's (lit, rounded).
+void focusBar(float x, float y, float w, float h, ImU32 c)
+{
+	pui::kit::shadow(x, y + 6, w, h, 18, pui::kit::alpha(c, 0.5f), 16);
+	pui::kit::fill(x, y, w, h, c, 18);
+}
+
+// A line of a page, in the panel's width.
+void pageLine(float px, float pw, float y, float h, const pui::kit::Line& l, bool on)
+{
+	pui::kit::line(on ? px + 26 : px + 32, y + 2, on ? pw - 52 : pw - 64, h - 6, l, on);
+}
+
 void cheatsPage(ImDrawList *dl, float px, float pw, float top)
 {
 	const int rows = 1 + (int)cheatManager.cheatCount();
@@ -9191,44 +9187,34 @@ void cheatsPage(ImDrawList *dl, float px, float pw, float top)
 	}
 	qm.cheatFocus = std::clamp(qm.cheatFocus, 0, std::max(0, (int)cheatManager.cheatCount()));
 
-	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_BOLT "   Cheats");
+	pageName(px, top, ICON_FA_BOLT, "Cheats");
 	const float rowH = 66;
 	const float viewH = H - 96 - top;
 	const float visible = viewH / rowH;
 	const float target = std::clamp((float)qm.cheatFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)rows - visible));
 	qm.cheatScroll = approach(qm.cheatScroll, target, 18);
-	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	dl->PushClipRect(V(px, top - 8), V(px + pw, top + viewH), true);
 	for (int i = 0; i < rows; i++)
 	{
 		const float y = top + (i - qm.cheatScroll) * rowH;
 		if (y > H || y + rowH < top - rowH)
 			continue;
-		const bool on = i == qm.cheatFocus;
-		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
-		const float right = px + pw - 60;
-		const float cy = y + rowH / 2 - 1;
+		pui::kit::Line l;
 		if (i == 0)
 		{
-			text(dl, bold(), 26, px + 56, y + 16, on ? col::text : col::dim, "Cheat file");
-			const std::string label = fit(regular(), 24, cheatFileLabel(), pw - 330);
-			const ImVec2 ls = textSize(regular(), 24, label.c_str());
-			text(dl, regular(), 24, right - 22 - ls.x, cy - ls.y / 2, on ? col::text : col::faint, label.c_str());
-			if (on)
-			{
-				dl->AddTriangleFilled(V(right - 42 - ls.x, cy), V(right - 30 - ls.x, cy - 10), V(right - 30 - ls.x, cy + 10), col::text);
-				dl->AddTriangleFilled(V(right, cy), V(right - 12, cy - 10), V(right - 12, cy + 10), col::text);
-			}
-			continue;
+			l.icon = ICON_FA_FOLDER_OPEN;
+			l.label = "Cheat file";
+			l.value = cheatFileLabel();
+			l.kind = pui::kit::Line::Choice;
 		}
-		const size_t index = (size_t)i - 1;
-		const bool enabled = cheatManager.cheatEnabled(index);
-		text(dl, regular(), 24, px + 56, y + 17, on ? col::text : enabled ? col::text : col::dim,
-				fit(regular(), 24, cheatManager.cheatDescription(index), pw - 240).c_str());
-		const float sw = 68, sh = 36;
-		rect(dl, right - sw, cy - sh / 2, sw, sh, enabled ? (on ? col::text : col::accent) : col::rgba(255, 255, 255, 40), sh / 2);
-		dl->AddCircleFilled(V(right - sw + (enabled ? sw - sh / 2 : sh / 2), cy), (sh / 2 - 5) * S,
-				enabled && on ? col::accent : col::text);
+		else
+		{
+			const size_t index = (size_t)i - 1;
+			l.label = cheatManager.cheatDescription(index);
+			l.kind = pui::kit::Line::Toggle;
+			l.on = cheatManager.cheatEnabled(index);
+		}
+		pageLine(px, pw, y, rowH, l, i == qm.cheatFocus);
 	}
 	dl->PopClipRect();
 	if (cheatManager.cheatCount() == 0)
@@ -9525,34 +9511,25 @@ void toolsPage(ImDrawList *dl, float px, float pw, float top)
 	if (in.back || in.options)
 		qm.tool = 0;
 
-	text(dl, bold(), 34, px + 48, top - 62, col::text,
-			qm.tool == 1 ? ICON_FA_STOPWATCH "   Speedrun timer" : ICON_FA_MAGNIFYING_GLASS "   Find in memory");
+	pageName(px, top, qm.tool == 1 ? ICON_FA_STOPWATCH : ICON_FA_MAGNIFYING_GLASS, qm.tool == 1 ? "Speedrun timer" : "Find in memory");
 	const float rowH = 66;
 	const float viewH = H - 96 - top;
 	const float visible = viewH / rowH;
 	const float target = std::clamp((float)qm.toolFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)n - visible));
 	qm.toolScroll = approach(qm.toolScroll, target, 18);
-	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	dl->PushClipRect(V(px, top - 8), V(px + pw, top + viewH), true);
 	for (int i = 0; i < n; i++)
 	{
 		const float y = top + (i - qm.toolScroll) * rowH;
 		if (y > H || y + rowH < top - rowH)
 			continue;
 		const bool on = i == qm.toolFocus && !rows[i].info;
-		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
-		const float right = px + pw - 60;
-		const ImVec2 vs = textSize(regular(), 24, rows[i].value.c_str());
-		const float valueW = std::min(vs.x, pw * 0.5f);
-		text(dl, rows[i].info ? regular() : bold(), rows[i].info ? 22 : 26, px + 56, y + 16,
-				rows[i].info ? col::faint : on ? col::text : col::dim,
-				fit(rows[i].info ? regular() : bold(), rows[i].info ? 22 : 26, rows[i].label, pw - 160 - valueW).c_str());
-		if (!rows[i].value.empty())
-		{
-			const std::string v = fit(regular(), 24, rows[i].value, pw * 0.5f);
-			const ImVec2 ls = textSize(regular(), 24, v.c_str());
-			text(dl, regular(), 24, right - ls.x, y + rowH / 2 - ls.y / 2 - 1, on ? col::text : col::faint, v.c_str());
-		}
+		pui::kit::Line l;
+		l.label = rows[i].label;
+		l.value = rows[i].value;
+		l.kind = rows[i].info ? pui::kit::Line::Info : pui::kit::Line::Plain;
+		l.enabled = !rows[i].info;
+		pageLine(px, pw, y, rowH, l, on);
 	}
 	dl->PopClipRect();
 }
@@ -10372,7 +10349,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 			: onOptionNow && options[qm.controlFocus - optionsAt].get() != settingsValue(options[qm.controlFocus - optionsAt]) ? "As in Settings"
 			: "";
 
-	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_GAMEPAD "   Controls");
+	pageName(px, top, ICON_FA_GAMEPAD, "Controls");
 	{
 		const char *scope = "For this game only";
 		const ImVec2 ss = textSize(regular(), 22, scope);
@@ -10399,7 +10376,7 @@ void controlsPage(ImDrawList *dl, float px, float pw, float top)
 		if (i == controlsAt || i == optionsAt)
 			rect(dl, px + 48, y - 1, listW - 96, 1, col::line);
 		if (on)
-			rect(dl, px + 32, y + 2, listW - 64, rowH - 6, waiting ? col::warm : col::accent, 12);
+			focusBar(px + 26, y + 2, listW - 52, rowH - 6, waiting ? col::warm : col::accent);
 		const float right = px + listW - 60, cy = y + rowH / 2 - 1;
 		std::string label, value;
 		bool dot = false, amiss = false, arrows = false;
@@ -10571,7 +10548,7 @@ bool rewindPage(ImDrawList *dl, float px, float pw, float top)
 	if (in.back || in.options)
 		qm.rewind = false;
 
-	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_BACKWARD "   Rewind");
+	pageName(px, top, ICON_FA_BACKWARD, "Rewind");
 	const float rowH = 62;
 	const float noteH = 92;
 	const float viewH = H - 96 - noteH - top;
@@ -10579,17 +10556,16 @@ bool rewindPage(ImDrawList *dl, float px, float pw, float top)
 	const int count = (int)qm.rewindPoints.size();
 	const float target = std::clamp((float)qm.rewindFocus - (visible - 1) / 2, 0.f, std::max(0.f, (float)count - visible));
 	qm.rewindScroll = approach(qm.rewindScroll, target, 18);
-	dl->PushClipRect(V(px, top), V(px + pw, top + viewH), true);
+	dl->PushClipRect(V(px, top - 8), V(px + pw, top + viewH), true);
 	for (int i = 0; i < count; i++)
 	{
 		const float y = top + (i - qm.rewindScroll) * rowH;
 		if (y > top + viewH || y + rowH < top - rowH)
 			continue;
-		const bool on = i == qm.rewindFocus;
-		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
-		text(dl, regular(), 24, px + 64, y + 17, on ? col::text : col::dim, ICON_FA_CLOCK_ROTATE_LEFT);
-		text(dl, bold(), 24, px + 112, y + 16, on ? col::text : col::dim, agoText(qm.rewindPoints[i].secondsAgo).c_str());
+		pui::kit::Line l;
+		l.icon = ICON_FA_CLOCK_ROTATE_LEFT;
+		l.label = agoText(qm.rewindPoints[i].secondsAgo);
+		pageLine(px, pw, y, rowH, l, i == qm.rewindFocus);
 	}
 	dl->PopClipRect();
 	if (count == 0 && qm.rewindNote.empty())
@@ -10623,7 +10599,7 @@ void achievementsPage(ImDrawList *dl, float px, float pw, float top)
 	if (in.back || in.options)
 		qm.trophies = false;
 
-	text(dl, bold(), 34, px + 48, top - 62, col::text, ICON_FA_TROPHY "   Achievements");
+	pageName(px, top, ICON_FA_TROPHY, "Achievements");
 	{
 		const achievements::Game& game = qm.trophyGame;
 		const std::string sum = std::to_string(game.unlockedAchievements) + " of " + std::to_string(game.totalAchievements)
@@ -10663,7 +10639,7 @@ void achievementsPage(ImDrawList *dl, float px, float pw, float top)
 		}
 		const bool on = i == qm.trophyFocus;
 		if (on)
-			rect(dl, px + 32, y + 2, pw - 64, rowH - 6, col::accent, 12);
+			focusBar(px + 26, y + 2, pw - 52, rowH - 6, col::accent);
 		const float side = 68;
 		ImguiFileTexture picture(one.image);
 		const ImTextureID id = picture.getId();
@@ -11365,45 +11341,122 @@ void quickMenu()
 	qm.trophiesAnim = approach(qm.trophiesAnim, qm.trophies ? 1.f : 0.f, 16);
 	qm.toolAnim = approach(qm.toolAnim, qm.tool != 0 ? 1.f : 0.f, 16);
 
-	// ---- the paused game, dimmed
-	dl->AddRectFilled(V(0, 0), V(W, H), col::rgba(0, 0, 0, (int)(140 * t)));
-
-	// ---- the panel, sliding in from the right
-	// The pages are wider; the Rewind page, a short list, is not.
-	// The Controls page is wider still: the controller's picture is beside its list.
-	const float pw = std::max(640 + 260 * std::max({ qm.cheatsAnim, qm.trophiesAnim, qm.toolAnim }),
-			640 + (std::min(1700.f, W - 120) - 640) * qm.controlsAnim);
-	const float px = W - pw * (0.15f + 0.85f * t) + (1 - t) * 0;
-	gradientH(dl, px - 120, 0, 120, H, col::rgba(0, 0, 0, 0), col::rgba(0, 0, 0, (int)(120 * t)));
-	rect(dl, px, 0, pw, H, alpha(col::sheet, 0.97f * t));
-	rect(dl, px, 0, 1, H, col::line);
-
-	// The game.
-	GameMedia media;
-	media.path = ::settings.content.path;
-	media.fileName = ::settings.content.fileName;
-	GameBoxart art = boxart().getBoxart(media);
-	Game g;
-	g.media = media;
-	g.source = sourceOf(media.path);
-	g.art = art;
-	g.title = !::settings.content.title.empty() ? ::settings.content.title : art.name;
-	const float gx = px + 48;
-	drawCover(dl, g, gx, 56, 150, 150, 12, 0.5f);
-	text(dl, bold(), 34, gx + 176, 72, col::text, fit(bold(), 34, g.title, pw - 48 - 176 - 40).c_str());
-	text(dl, regular(), 22, gx + 176, 124, col::dim, ::settings.platform.isArcade() ? "Arcade" : "Dreamcast");
-	text(dl, regular(), 22, gx + 176, 156, col::good, ICON_FA_PAUSE "  Paused");
-
-	// The items, or the Cheats page in their place.
-	// A row is 78 high, and lower when that many would not fit above the hints.
-	const float itemsTop = 250, ih = std::min(78.f, std::floor((H - 100 - itemsTop) / n));
+	// ---- drawn with the new interface's kit: the panel at the right over the paused game, its
+	// list, the state in the slot beside it, or the page that is open in the list's place.
+	kitBegin(dl);
+	pui::QuickView q;
+	q.open = t;
+	// The pages are wider; the Rewind page, a short list, is not. The Controls page is wider
+	// still: the controller's picture is beside its list.
+	q.width = std::max(680 + 260 * std::max({ qm.cheatsAnim, qm.trophiesAnim, qm.toolAnim }),
+			680 + (std::min(1700.f, W - 120) - 680) * qm.controlsAnim);
+	{
+		// The game.
+		GameMedia media;
+		media.path = ::settings.content.path;
+		media.fileName = ::settings.content.fileName;
+		Game g;
+		g.media = media;
+		g.media.arcade = ::settings.platform.isArcade();
+		g.source = sourceOf(media.path);
+		g.art = boxart().getBoxart(media);
+		g.title = !::settings.content.title.empty() ? ::settings.content.title : g.art.name;
+		q.game = puiGameOf(g);
+	}
+	q.status = "Paused";
+	q.page = onPage;
+	q.arranging = qm.arranging;
+	q.focus = std::clamp(qm.focus, 0, n - 1);
+	for (const QuickItem& it : items)
+	{
+		pui::kit::Line l;
+		l.icon = it.icon;
+		l.label = it.label;
+		l.value = it.detail;
+		l.enabled = it.enabled;
+		// Left and right choose (a slot, a card); a page opens; the rest act at once.
+		l.kind = it.side ? pui::kit::Line::Choice : it.stays && it.run && it.label != "State slot" ? pui::kit::Line::Opens
+				: pui::kit::Line::Plain;
+		if (it.detail == "Hidden")
+			l.valueColour = col::warm;
+		q.lines.push_back(l);
+	}
+	// The state in the slot, beside the panel while a state line is focused.
+	ImguiStateTexture statePicture;
+	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.label == "State slot"))
+	{
+		q.showState = true;
+		q.stateTitle = "Slot " + std::to_string((int)config::SavestateSlot + 1);
+		if (stateDate != 0)
+		{
+			q.statePicture = statePicture.getId();
+			q.stateWhen = timeToShortDateTimeString(stateDate);
+		}
+	}
+	// The hints: the page's, else the list's.
 	if (onCheats)
-		cheatsPage(dl, px, pw, itemsTop + 70);
-	else if (onControls)
-		controlsPage(dl, px, pw, itemsTop + 70);
+	{
+		q.hints.push_back({ { "circle" }, "Back" });
+		if (qm.cheatFocus == 0)
+			q.hints.push_back({ { "dpad" }, "File" });
+		q.hints.push_back({ { "cross" }, qm.cheatFocus == 0 ? "Next file" : "On / off" });
+	}
 	else if (onRewind)
 	{
-		if (rewindPage(dl, px, pw, itemsTop + 70))
+		q.hints.push_back({ { "circle" }, "Back" });
+		if (!qm.rewindPoints.empty())
+			q.hints.push_back({ { "cross" }, "Go back to it" });
+	}
+	else if (onTrophies)
+		q.hints = { { { "circle" }, "Back" }, { { "dpad" }, "Move" } };
+	else if (onTools)
+	{
+		q.hints.push_back({ { "circle" }, "Back" });
+		if (!qm.toolTriangle.empty())
+			q.hints.push_back({ { "triangle" }, qm.toolTriangle });
+		if (!qm.toolSquare.empty())
+			q.hints.push_back({ { "square" }, qm.toolSquare });
+		if (!qm.toolCross.empty())
+			q.hints.push_back({ { "cross" }, qm.toolCross });
+	}
+	else if (onControls && qm.listening >= 0)
+		q.hints = { { { "TOUCH PAD" }, "Cancel" } };
+	else if (onControls)
+	{
+		// As controlsPage has it for the focused row.
+		q.hints.push_back({ { "circle" }, "Back" });
+		if (!qm.controlSquare.empty())
+			q.hints.push_back({ { "square" }, qm.controlSquare });
+		if (!qm.controlCross.empty() && qm.controlCross == "Next")
+			q.hints.push_back({ { "dpad" }, "Change" });
+		if (!qm.controlCross.empty())
+			q.hints.push_back({ { "cross" }, qm.controlCross });
+	}
+	else if (qm.arranging)
+		q.hints = { { { "triangle" }, "Done" }, { { "square" }, cur.detail == "Hidden" ? "Show" : "Hide" }, { { "dpad" }, "Move" } };
+	else
+	{
+		q.hints.push_back({ { "circle" }, "Resume" });
+		q.hints.push_back({ { "triangle" }, "Arrange" });
+		if (cur.side)
+			q.hints.push_back({ { "dpad" }, cur.sideHint });
+		q.hints.push_back({ { "cross" }, "Select" });
+	}
+	// The panel is drawn for the whole screen (1080 high); the pages are drawn here, in this
+	// file's units (UI Scaling), with the kit in those units again.
+	const ImVec4 area = pui::drawQuick(ns.host, q, dl);
+	kitBegin(dl);
+	const float toUnits = H / 1080.f;
+	const float px = area.x * toUnits, pw = area.z * toUnits;
+	// The pages draw their name 62 above where their rows start.
+	const float pageTop = (area.y + 70) * toUnits;
+	if (onCheats)
+		cheatsPage(dl, px, pw, pageTop);
+	else if (onControls)
+		controlsPage(dl, px, pw, pageTop);
+	else if (onRewind)
+	{
+		if (rewindPage(dl, px, pw, pageTop))
 		{
 			// As "Load state": the game goes on from where it now is.
 			GamepadDevice::load_system_mappings();
@@ -11412,139 +11465,9 @@ void quickMenu()
 		}
 	}
 	else if (onTrophies)
-		achievementsPage(dl, px, pw, itemsTop + 70);
+		achievementsPage(dl, px, pw, pageTop);
 	else if (onTools)
-		toolsPage(dl, px, pw, itemsTop + 70);
-	else
-	{
-	qm.focusAnim = approach(qm.focusAnim, (float)qm.focus, 22);
-	rect(dl, px + 32, itemsTop + qm.focusAnim * ih, pw - 64, ih - 8, col::accent, 12);
-	for (int i = 0; i < n; i++)
-	{
-		const QuickItem& it = items[i];
-		// The offsets below are for a row 78 high: a lower row is moved up by half the difference.
-		const float y = itemsTop + i * ih + (ih - 78) / 2;
-		const bool on = i == qm.focus;
-		const ImU32 c = !it.enabled ? col::faint : on ? col::text : col::dim;
-		text(dl, regular(), 28, px + 64, y + 20, c, it.icon);
-		text(dl, bold(), 28, px + 120, y + 19, c, it.label.c_str());
-		// Cut short where it would reach the label.
-		const float labelEnd = px + 120 + textSize(bold(), 28, it.label.c_str()).x + 40 + (it.side && on ? 30 : 0);
-		const std::string right = it.detail.empty() ? "" : fit(regular(), 24, it.detail, px + pw - 64 - labelEnd);
-		if (!right.empty())
-		{
-			const ImVec2 rs = textSize(regular(), 24, right.c_str());
-			float rx = px + pw - 64 - rs.x;
-			if (it.side && on)
-			{
-				dl->AddTriangleFilled(V(rx - 26, y + 35), V(rx - 14, y + 25), V(rx - 14, y + 45), col::text);
-				dl->AddTriangleFilled(V(px + pw - 44, y + 35), V(px + pw - 56, y + 25), V(px + pw - 56, y + 45), col::text);
-			}
-			text(dl, regular(), 24, rx, y + 23, on ? col::text : col::faint, right.c_str());
-		}
-	}
-	}
-
-	// The state in the slot: a card beside the panel while a state row is focused.
-	if (!onPage && (cur.label == "Save state" || cur.label == "Load state" || cur.label == "State slot"))
-	{
-		const float cw = 432, chh = 320;
-		const float cx = px - 32 - cw;
-		const float rowY = itemsTop + qm.focusAnim * ih + (ih - 8) / 2;
-		const float cy = std::clamp(rowY - chh / 2, 40.f, H - chh - 40);
-		glow(dl, cx, cy, cw, chh, 18, col::rgba(0, 0, 0, 200), 24);
-		rect(dl, cx, cy, cw, chh, alpha(col::sheetHi, 0.98f), 18);
-		const float iw = cw - 32, ihh = iw * 9 / 16;
-		const std::string slotName = "Slot " + std::to_string((int)config::SavestateSlot + 1);
-		if (stateDate != 0)
-		{
-			ImguiStateTexture pic;
-			const ImTextureID id = pic.getId();
-			if (id != ImTextureID())
-				imageFill(dl, id, cx + 16, cy + 16, iw, ihh, 12);
-			else
-				rect(dl, cx + 16, cy + 16, iw, ihh, col::card, 12);
-		}
-		else
-		{
-			rect(dl, cx + 16, cy + 16, iw, ihh, col::card, 12);
-			const char *empty = ICON_FA_BOX_OPEN "   Empty slot";
-			const ImVec2 es = textSize(regular(), 26, empty);
-			text(dl, regular(), 26, cx + 16 + (iw - es.x) / 2, cy + 16 + (ihh - es.y) / 2, col::faint, empty);
-		}
-		text(dl, bold(), 26, cx + 20, cy + ihh + 32, col::text, slotName.c_str());
-		if (stateDate != 0)
-		{
-			const std::string when = timeToShortDateTimeString(stateDate);
-			const ImVec2 ws = textSize(regular(), 22, when.c_str());
-			text(dl, regular(), 22, cx + cw - 20 - ws.x, cy + ihh + 36, col::dim, when.c_str());
-		}
-	}
-
-	// Hints, in the panel.
-	{
-		float x = px + 48;
-		const float y = H - 52;
-		auto hint = [&](Glyph gl, const char *label) {
-			x += glyph(dl, gl, x, y, 30) + 10;
-			x += text(dl, regular(), 22, x, y - 13, col::text, label).x + 30;
-		};
-		if (onCheats)
-		{
-			hint(Glyph::Cross, qm.cheatFocus == 0 ? "Next file" : "On / off");
-			if (qm.cheatFocus == 0)
-				hint(Glyph::DPadLR, "File");
-			hint(Glyph::Circle, "Back");
-		}
-		else if (onRewind)
-		{
-			if (!qm.rewindPoints.empty())
-				hint(Glyph::Cross, "Go back to it");
-			hint(Glyph::Circle, "Back");
-		}
-		else if (onTrophies)
-		{
-			hint(Glyph::DPadUD, "Move");
-			hint(Glyph::Circle, "Back");
-		}
-		else if (onTools)
-		{
-			if (!qm.toolCross.empty())
-				hint(Glyph::Cross, qm.toolCross.c_str());
-			if (!qm.toolSquare.empty())
-				hint(Glyph::Square, qm.toolSquare.c_str());
-			if (!qm.toolTriangle.empty())
-				hint(Glyph::Triangle, qm.toolTriangle.c_str());
-			hint(Glyph::Circle, "Back");
-		}
-		else if (onControls && qm.listening >= 0)
-			hint(Glyph::TouchPad, "Cancel");
-		else if (onControls)
-		{
-			// As controlsPage has it for the focused row.
-			if (!qm.controlCross.empty())
-				hint(Glyph::Cross, qm.controlCross.c_str());
-			if (!qm.controlCross.empty() && qm.controlCross == "Next")
-				hint(Glyph::DPadLR, "Change");
-			if (!qm.controlSquare.empty())
-				hint(Glyph::Square, qm.controlSquare.c_str());
-			hint(Glyph::Circle, "Back");
-		}
-		else if (qm.arranging)
-		{
-			hint(Glyph::DPadUD, "Move");
-			hint(Glyph::Square, cur.detail == "Hidden" ? "Show" : "Hide");
-			hint(Glyph::Triangle, "Done");
-		}
-		else
-		{
-			hint(Glyph::Cross, "Select");
-			if (cur.side)
-				hint(Glyph::DPadLR, cur.sideHint);
-			hint(Glyph::Triangle, "Arrange");
-			hint(Glyph::Circle, "Resume");
-		}
-	}
+		toolsPage(dl, px, pw, pageTop);
 	endScreen();
 }
 

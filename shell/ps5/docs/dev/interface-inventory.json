@@ -1004,6 +1004,7 @@
   "Z / C"
  ],
  "acknowledged": {
+  "ID  ": "a game's page shows the game's ID as the fact \"ID\" of its overview",
   "Disc Drive": "the top bar's Disc place (the disc drive's games are still there, under it)",
   "Internal": "the library's storage filter is called Console (top bar, under Library)",
   "Source": "the hint of L1 / R1 is Place now: the places are Home, the Library's filters and Disc",
