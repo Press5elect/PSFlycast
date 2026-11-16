@@ -487,16 +487,18 @@ Settings > Library > Group the discs of a game turns the grouping off.
 Every setting can be different for one game. What you change this way is
 kept for that game and leaves the Settings as they are.
 
-- **Before the game starts:** Triangle on the game, then **Options**.
-- **While it runs:** touch pad, then **Game options**. This opens the whole
-  Settings screen for this game only: This game (its patches), Video, Audio,
-  Controls and System, laid out as in Settings.
+- **Before the game starts:** Triangle on the game, then **Its Options**.
+- **While it runs:** touch pad, then **Game options**. This opens the
+  Settings for this game only: the same areas as the Settings (Picture, Sound,
+  Controls, Emulation; its patches under Picture > Game Patches), with only
+  what a game can have of its own.
 
 A dot marks an option the game has a value of its own for; "As in Settings"
-one that follows the Settings. **Square** puts it back to the Settings'
-value; in the quick menu's Game options, **Triangle** twice does it for all
-of them. Most changes take effect when the game resumes; the few that wait
-for the next start say so.
+one that follows the Settings. On a game's page, **Back to the Settings for
+all of these** puts every one back. In the quick menu's Game options, **R3**
+puts the focused one back to the Settings' value and **Square** twice on
+their first screen puts all of them back. Most changes take effect when the
+game resumes; the few that wait for the next start say so.
 
 A game on the Network tab, or an arcade game, has to be started once before
 it can have options of its own.
@@ -542,7 +544,7 @@ has to be loaded after that for it to show.
 **Mods.** A mod changes a game a feature at a time, without changing its disc
 image. It is a text file: a folder with a `mod.txt` in it, or a `<name>.mod`
 file, in `mods/` (or `PSFlyCast/mods` on a USB drive, with USB drives on).
-The mod's features are among the game's options (Details > Options, or the
+The mod's features are among the game's options (a game's page > Its Options, or the
 quick menu's Game options), each switched on and off by itself, off to begin
 with; what is on is kept for that game. The format:
 

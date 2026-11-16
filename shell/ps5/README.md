@@ -77,6 +77,15 @@ Added:
 
 Changed:
 
+- **One look everywhere**: Home, a game's page, the quick menu and its pages, a game's own options,
+  the dialogs, the top bar and the button hints are drawn like the new Settings: frosted cards,
+  icons, and the focus lit and ringed in the skin's accent. The skin, the accent colour and the
+  backdrop now colour every one of them.
+- **A game's page** (Triangle) fills the screen: its picture, Play, Load State, Its Options, Cheats
+  and Manage, and the page of each under them.
+- **A game's own options** from the quick menu ("Game options") are the new Settings for that game:
+  the same areas and descriptions, a dot on each value of its own, R3 puts one back to the
+  Settings for every game, Square twice puts all of them back.
 - **The top bar** holds places only: Home, Library and Disc. Where the games are kept (All, Console,
   USB, Share) is a filter of the Library. The Library opens on All.
 - **A game asks before it starts** when the drive holding the save states you chose is not in.

@@ -15,18 +15,24 @@ Builds 94 to 101 (v1.3.5 to v1.3.9) have not been run on a console. What each ne
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
 | 98 to 100, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line; build 100: Down-sampling (Soft, Sharp) and SMAA (`aa:` lines) |
 
-## The new interface (build 105): the Settings are on the console, the rest is not yet
+## The new interface (build 106): one look on every screen, untested on the console
 
-`shell/ps5/ui` draws the new screens (pictures on a PC: `tests/ui/run.sh`); the Settings for every
-game are the first connected (`bigpicture_newui.inc`: each table setting bound to the row it
-replaces, by its old label; rows the table does not name shown after their neighbours).
-To check on the console: every area at every level, Search with the console's keyboard, pins
-(`data/settings-pins.txt`), the changed dots against a new install (`settings: N defaults read`
-in the boot log), R3, L2 restart, the dialogs the rows open (they draw over the new screens),
-OPTIONS and Circle out. Not yet connected: Home, the Library, a game's page, the quick menu
-(the build-104 screens stay for those), the game's own Settings (the old screen), Interface
-size, skins and high contrast (the new screens have their own colours), Look For My Files in the
-new look (the old dialog opens). `classic_ui = 1` in frontend.cfg brings the old Settings back.
+`shell/ps5/ui` draws the new screens and holds the kit every screen draws with (pictures on a PC:
+`tests/ui/run.sh`). Connected on the console (`bigpicture_newui.inc`): the Settings for every game
+and for the running game (each table setting bound to the row it replaces, by its old label; rows
+the table does not name shown after their neighbours; a game's rows the table lacks go to Picture >
+Game Patches or the area of their option); a game's page (`detailsPanel`, from `det`, with
+`detailsInput` unchanged); the quick menu's panel and list (`quickMenu`'s logic unchanged; its pages
+draw their lines with the kit); Home (its logic unchanged); the top bar, the hints, the dialogs'
+card and the glyphs restyled in place. The skin's palette, accent, backdrop, high contrast, UI
+Scaling and "Circle confirms" reach the kit (`refreshHost`).
+To check on the console: every area at every level, Search, pins, the changed dots against a new
+install, R3, L2 restart; "Game options" from the quick menu (the dots are its own values, R3, Square
+twice); a game's page with each button (states, options, cheats, manage, a set's discs and Square);
+the quick menu with each entry, Triangle arranging, each page; Home; UI Scaling at 70 and 130 %;
+every skin and accent; Circle confirms. Not in the new look yet: the Library's shelves, grid and
+list (restyled focus only), the loading and network-start screens, the classic Settings
+(`classic_ui = 1`), Look For My Files (the old dialog opens).
 
 ## The interface revamp (build 104): nothing of it has been seen
 
