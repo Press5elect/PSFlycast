@@ -731,18 +731,25 @@ When a player signs out, their port is free again. Settings > Controls >
 
 ## 16. Settings
 
-Press **OPTIONS**. The Settings open at a home: a search bar and a card for each of seven areas,
-each showing two of its values, and a card with the settings you pinned.
+Press **OPTIONS**. The Settings open at a home: a search bar, the settings you pinned, the ones
+changed from their default, and a card for each of eight areas (Picture, Sound, Controls, Games
+and Saves, Emulation, Network, Interface, System) with two of its values.
 
-- **Search** (Triangle, or Cross on the bar) takes a word or two and lists every setting whose name
-  or description has them all; you change them right there.
-- **Pin** a setting with Triangle on it (Triangle again takes it off): up to eight go on the
-  Pinned card, where they are changed in place.
-- Circle goes back to the home, and OPTIONS closes the Settings from anywhere.
+- **Levels.** L1 and R1 choose how many settings are shown: **Essentials** (the few most people
+  change), **More**, or **Everything**. Search always looks through all of them.
+- **An area** has its sections on the left (they follow the focus), one line for each setting, and
+  on the right everything about the focused one: what it does (Flycast's own words where Flycast
+  has the setting), its choices, whether a game can have its own value, and when it takes effect.
+  A dot marks a setting changed from its default; **R3** puts it back.
+- **Search** (Triangle) takes a word or two and lists every setting whose name or description has
+  them all, and the games whose title has them; a setting is changed right there.
+- **Pin** a setting with Square (Square again takes it off): pinned settings are on the home.
+- A setting that needs PSFlyCast started again says so at the bottom; **L2** restarts at once.
+- Circle goes back, and OPTIONS closes the Settings from anywhere.
 
-The areas hold the categories below as they were: Picture (Video), Sound (Audio), Controls,
-Games and saves (Library and Folders), Network (Online and Achievements), Interface, and System
-(System and About). D-pad moves, left and right change a value, Circle goes back.
+Every setting of the Settings before is in the new ones (a test checks it); the table below says
+where the old categories' settings are now. To have the Settings as they were for a while, put
+`classic_ui = 1` in `frontend.cfg`.
 
 | Category | What is in it |
 |---|---|

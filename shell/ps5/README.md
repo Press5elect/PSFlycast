@@ -70,7 +70,10 @@ Added:
   where BIOS files, save states, covers, texture packs, cheats and game videos are kept, and
   **Look For My Files**, which looks through a drive, a share or a folder and lists what it
   recognises. Nothing is moved or copied.
-- **Settings home**: seven areas, a search over every setting, and settings pinned with Triangle.
+- **New Settings**: eight areas with three levels (Essentials, More, Everything), one line a
+  setting with everything about it beside, a search through every setting and your games, pins,
+  and the settings changed from their default (R3 puts one back). Descriptions are Flycast's own
+  where Flycast has the setting.
 
 Changed:
 

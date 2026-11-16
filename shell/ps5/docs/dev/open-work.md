@@ -15,6 +15,19 @@ Builds 94 to 101 (v1.3.5 to v1.3.9) have not been run on a console. What each ne
 | 97, v1.3.8 | the log settings; fewer writes (library file, pipeline cache, states, configs) |
 | 98 to 100, v1.3.9 | Flycast `63e7d91`; SDK v0.45's binaries (untested from the fork on any console) and the `heap: trimmed` lines; driver patches 0005 to 0007; HDR (`hdr:` lines, the test screen); the card sync (`cards:` lines; a share's clock against the console's); deleting a state; the menus' vibration and Circle confirms; the quick menu's arrangement; 4.5x; the boot log kept in memory; the crash report's `thread:` line; build 100: Down-sampling (Soft, Sharp) and SMAA (`aa:` lines) |
 
+## The new interface (build 105): the Settings are on the console, the rest is not yet
+
+`shell/ps5/ui` draws the new screens (pictures on a PC: `tests/ui/run.sh`); the Settings for every
+game are the first connected (`bigpicture_newui.inc`: each table setting bound to the row it
+replaces, by its old label; rows the table does not name shown after their neighbours).
+To check on the console: every area at every level, Search with the console's keyboard, pins
+(`data/settings-pins.txt`), the changed dots against a new install (`settings: N defaults read`
+in the boot log), R3, L2 restart, the dialogs the rows open (they draw over the new screens),
+OPTIONS and Circle out. Not yet connected: Home, the Library, a game's page, the quick menu
+(the build-104 screens stay for those), the game's own Settings (the old screen), Interface
+size, skins and high contrast (the new screens have their own colours), Look For My Files in the
+new look (the old dialog opens). `classic_ui = 1` in frontend.cfg brings the old Settings back.
+
 ## The interface revamp (build 104): nothing of it has been seen
 
 Written without a console and without a picture of any screen ([interface-revamp.md](interface-revamp.md)).
