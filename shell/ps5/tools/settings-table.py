@@ -205,8 +205,8 @@ row("rend.EmulateFramebuffer", "toggle", "X", "Full Framebuffer Emulation",
 row("rend.RenderToTextureBuffer", "toggle", "X", "Copy Rendered Textures to VRAM",
     "Copy rendered-to textures back to VRAM. Slower but accurate", "F", was="Copy rendered textures to VRAM", flags="g")
 row("rend.FixUpscaleBleedingEdge", "toggle", "X", "Fix Upscale Bleeding Edge",
-    "Helps with texture bleeding case when upscaling. Disabling it can help if pixels are warping when upscaling in 2D games.",
-    "f", was="Fix edge bleeding in upscaled pictures", flags="g", demo=1)
+    "Helps with texture bleeding case when upscaling. Disabling it can help if pixels are warping when upscaling in 2D games "
+    "(MVC2, CVS, KOF, etc.)", "F", was="Fix edge bleeding in upscaled pictures", flags="g", demo=1)
 row("rend.NativeDepthInterpolation", "toggle", "X", "Native Depth Interpolation",
     "Helps with texture corruption and depth issues on AMD GPUs. Can also help Intel GPUs in some cases.", "F",
     was="Native depth interpolation", flags="g", demo=1)
