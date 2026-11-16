@@ -131,6 +131,10 @@ struct Options
 	// (bigpicture.cpp's QuickKinds), its place * 2 + 1 when hidden; -1 where it has not been moved.
 	static constexpr int QuickKinds = 17;
 	int quickPlace[QuickKinds] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+	// Settings pinned to the Settings home (a row's label and its category, as bigpicture.cpp's
+	// pinId hashes them): 0 where there is none. The most that fit on the card.
+	static constexpr int Pins = 8;
+	int pins[Pins] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 	bool usbInput = true;		// a USB keyboard and mouse are the Dreamcast's
 	bool vrr = true;			// ask the display for variable refresh (from the next start)
 	bool updateCheck = true;	// a release's build asks GitHub for a newer one as it starts
@@ -181,6 +185,9 @@ std::string underRoot(const std::string& path);
 // library scans (a drive plugged in after the start). The scanner must not be
 // running.
 void rescanUsb();
+// The folders chosen in Settings > Games and saves > Folders changed (ps5_folders.h): Flycast is
+// handed them again. The library is looked through again by the caller.
+void applyFolders();
 
 namespace smb
 {
@@ -441,6 +448,8 @@ namespace covers
 void request(const std::string& base, const std::string& title = "");
 // Bumped whenever a cover arrives or is changed, so cached look-ups are redone.
 unsigned generation();
+// The covers folder was changed: every cover is looked for again.
+void folderChanged();
 // "Downloading covers (3 left)" or empty.
 std::string status();
 

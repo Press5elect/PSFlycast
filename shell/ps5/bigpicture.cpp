@@ -6703,6 +6703,9 @@ std::vector<GameOption> gameSettingsOptions()
 // Settings' categories, and first what only a game has (its patches, its
 // draw distance). What is the front end's own is the same for every game and
 // is not here.
+// ---- Settings > Games and saves > Folders (ps5_folders.h)
+#include "bigpicture_folders.inc"
+
 std::vector<Category> buildGameCategories()
 {
 	enum { ThisGame, Video, Audio, Controls, System };
@@ -7501,13 +7504,17 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	storage.rows.push_back(heading("Folders"));
-	for (const auto& [label, sub] : std::vector<std::pair<std::string, std::string>>{
-			{ "Games folder", "games/" }, { "BIOS folder", "bios/" }, { "Covers folder", "covers/" },
-			{ "Cheats folder", "cheats/" }, { "Saves and states", "data/" },
-			{ "Save files in and out", "vmu/" } })
+	// Where each is now: the folder chosen in Folders where there is one (the first, where it is
+	// written), else the one PSFlyCast has always had.
+	for (const auto& [label, path] : std::vector<std::pair<std::string, std::string>>{
+			{ "Games folder", shownRoot() + "games/" },
+			{ "BIOS folder", ps5::folders::resolveNow(ps5::folders::Bios).use.front() + "/" },
+			{ "Covers folder", ps5::folders::writeFolder(ps5::folders::Covers) + "/" },
+			{ "Cheats folder", ps5::folders::resolveNow(ps5::folders::Cheats).use.front() + "/" },
+			{ "Saves and states", ps5::folders::writeFolder(ps5::folders::States) + "/" },
+			{ "Save files in and out", shownRoot() + "vmu/" } })
 	{
 		Row r{ Row::Info, label, "" };
-		const std::string path = shownRoot() + sub;
 		r.info = [path] { return path; };
 		storage.rows.push_back(r);
 	}
@@ -7535,6 +7542,7 @@ std::vector<Category> buildCategories()
 		storage.rows.push_back(r);
 	}
 	cats.push_back(storage);
+	cats.push_back(foldersCategory());
 
 	Category about{ ICON_FA_CIRCLE_INFO, "About" };
 	{
@@ -7844,10 +7852,15 @@ void settings()
 	}
 	// A dialog over the Settings takes the pad.
 	const Input given = in;
-	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open || bindsUi.open || hdrCal.open;
+	const bool dialog = updateUi.open || addressUi.open || cardsUi.open || accountUi.open || bindsUi.open || hdrCal.open
+			|| pickUi.open || foundUi.open;
 	if (dialog)
 		in = Input{};
-	if (hdrCal.open)
+	if (pickUi.open)
+		pickDialog(ImGui::GetForegroundDrawList(), given);
+	else if (foundUi.open)
+		foundDialog(ImGui::GetForegroundDrawList(), given);
+	else if (hdrCal.open)
 		hdrDialog(ImGui::GetForegroundDrawList(), given);
 	else if (updateUi.open)
 		updateDialog(ImGui::GetForegroundDrawList(), given);

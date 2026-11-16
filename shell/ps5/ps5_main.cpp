@@ -147,6 +147,12 @@ void loadOptions(const std::string& dir)
 			if (kind >= 0 && kind < Options::QuickKinds)
 				currentOptions.quickPlace[kind] = std::clamp(value, -1, 2 * Options::QuickKinds);
 		}
+		else if (!strncmp(key, "pin_", 4) && key[4] >= '0' && key[4] <= '9')
+		{
+			const int slot = atoi(key + 4);
+			if (slot >= 0 && slot < Options::Pins)
+				currentOptions.pins[slot] = value;
+		}
 		else if (!strcmp(key, "menu_vibration"))
 			currentOptions.menuVibration = value != 0;
 		else if (!strcmp(key, "circle_confirms"))
@@ -212,6 +218,9 @@ void saveOptions()
 	for (int kind = 0; kind < Options::QuickKinds && used > 0 && used < (int)sizeof(text); kind++)
 		if (currentOptions.quickPlace[kind] >= 0)
 			used += snprintf(text + used, sizeof(text) - used, "quick_%d = %d\n", kind, currentOptions.quickPlace[kind]);
+	for (int pin = 0; pin < Options::Pins && used > 0 && used < (int)sizeof(text); pin++)
+		if (currentOptions.pins[pin] != 0)
+			used += snprintf(text + used, sizeof(text) - used, "pin_%d = %d\n", pin, currentOptions.pins[pin]);
 	length = used;
 	// Not written again when it reads as it did at the last write (a toggle back, a setting
 	// chosen twice): the drive's writes are not spent on a file that stays as it is.
@@ -527,6 +536,11 @@ void setFolders()
 }
 
 } // namespace
+
+void ps5::applyFolders()
+{
+	setFolders();
+}
 
 void ps5::rescanUsb()
 {

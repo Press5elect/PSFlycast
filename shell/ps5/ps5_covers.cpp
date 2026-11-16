@@ -921,6 +921,11 @@ unsigned generation()
 	return currentGeneration.load(std::memory_order_relaxed);
 }
 
+void folderChanged()
+{
+	currentGeneration++;
+}
+
 std::string status()
 {
 	const int n = pending.load();
