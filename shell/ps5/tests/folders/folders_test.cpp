@@ -176,6 +176,7 @@ int main()
 	Expect(add(Games, usb + "/Games/Sega/Dreamcast/", why), "a game folder is added");
 	Expect(settings().games.size() == 1 && settings().games[0] == usb + "/Games/Sega/Dreamcast", "its trailing slash is taken off");
 	Expect(!add(Games, usb + "/Games/Sega/Dreamcast", why) && !why.empty(), "the same folder twice is refused, with the reason");
+	Expect(!add(Games, usb + "/Games/Sega/Dreamcast/Sub", why) && why.find("inside") != std::string::npos, "a folder inside one that is listed is refused: its games are in the library already");
 	Expect(add(Bios, usb + "/BIOS", why), "a BIOS folder is added");
 	Expect(add(States, usb + "/flycast/data", why), "a folder to write states in is added");
 	Expect(!add(States, "smb://nas/Media/ISO", why) && why.find("read only") != std::string::npos, "states never go on a share");

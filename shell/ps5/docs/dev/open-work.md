@@ -38,6 +38,12 @@ What to look at first, in the order a person meets it:
 - Not checked anywhere: a share's listing time with a NAS asleep; a folder with thousands of
   entries (the browser caps a listing at 1000 names).
 
+Found by the review and left as they are: a covers folder that is missing is not asked about
+(covers are downloaded again into the default folder; nothing of the player's is hidden); a game
+started from the command line (`--rom`) cannot be asked about a missing states folder (the
+question is drawn by the library); whether listing a share from the folder browser's thread while
+the network scanner runs is safe (each share's calls are under its own lock, not tried on a console).
+
 Left out on purpose (see the revamp page): light skins, levels, a "Changed lately" card, the
 game page and quick menu redesign, the memory cards' folder, a Flycast-words text file.
 

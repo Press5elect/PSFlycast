@@ -505,6 +505,13 @@ bool add(Kind kind, const std::string& folder, std::string& why)
 			return false;
 		}
 	}
+	if (kind == Games)
+		for (const std::string& have : to)
+			if (path.size() > have.size() && path.compare(0, have.size(), have) == 0 && path[have.size()] == '/')
+			{
+				why = "That folder is inside " + have + ", which is looked in already.";
+				return false;
+			}
 	const std::vector<std::string> before = to;
 	if (kind == Games)
 		to.push_back(path);

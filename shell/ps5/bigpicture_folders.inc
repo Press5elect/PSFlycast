@@ -367,10 +367,13 @@ void foundDialog(ImDrawList *dl, const Input& given)
 		foundUi.scanning = false;
 		foundUi.partial = scan.partial;
 		bool first[KindCount] = {};
+		int gameRows = 0;
 		for (const Found& f : scan.found)
 		{
-			if (foundUi.rows.size() >= 9)
-				break;
+			// Three folders of games at most, and the best of every other kind: all fit the panel.
+			if (foundUi.rows.size() >= 9 || (f.kind == ps5::folders::Games && gameRows >= 3) || (f.kind != ps5::folders::Games && first[f.kind]))
+				continue;
+			gameRows += f.kind == ps5::folders::Games;
 			FoundRow r{ f.kind, f.folder, f.count };
 			if (alreadyUsed(f.kind, f.folder))
 			{
@@ -412,13 +415,13 @@ void foundDialog(ImDrawList *dl, const Input& given)
 		closeFound();
 		return;
 	}
-	const float w = 1360, h = 840, pad = 52, rowH = 76;
+	const float w = 1360, h = 840, pad = 52, rowH = 60;
 	const ImVec2 at = dialogPanel(dl, w, h);
 	text(dl, bold(), 38, at.x + pad, at.y + pad - 8, col::text, foundUi.scanning ? "Looking through it..." : "Found here");
 	text(dl, regular(), 22, at.x + pad, at.y + pad + 46, col::faint, fit(regular(), 22, foundUi.place, w - 2 * pad).c_str());
-	text(dl, regular(), 22, at.x + pad, at.y + pad + 80, col::dim,
+	text(dl, regular(), 20, at.x + pad, at.y + pad + 72, col::dim,
 			"Nothing is moved or copied. PSFlyCast reads, and writes what it keeps, where the files are.", w - 2 * pad);
-	const float top = at.y + pad + 140;
+	const float top = at.y + pad + 100;
 	if (foundUi.scanning)
 	{
 		const int dots = (int)(timeNow * 3) % 4;
@@ -433,9 +436,9 @@ void foundDialog(ImDrawList *dl, const Input& given)
 		const float y = top + i * rowH;
 		const bool on = i == foundUi.focus;
 		rect(dl, at.x + pad - 12, y, w - 2 * pad + 24, rowH - 8, on ? alpha(col::accent, 0.22f) : col::card, 12);
-		text(dl, bold(), 26, at.x + pad + 8, y + 10, r.blocked ? col::faint : col::text, kindName(r.kind));
+		text(dl, bold(), 24, at.x + pad + 8, y + 5, r.blocked ? col::faint : col::text, kindName(r.kind));
 		const std::string detail = r.blocked ? r.why : countText(r);
-		text(dl, regular(), 22, at.x + pad + 8, y + 42, col::dim, fit(regular(), 22, detail + "   " + r.folder, 880).c_str());
+		text(dl, regular(), 20, at.x + pad + 8, y + 32, col::dim, fit(regular(), 20, detail + "   " + r.folder, 880).c_str());
 		const float sw = 84, sh = 44, sx = at.x + w - pad - sw, cy = y + (rowH - 8) / 2;
 		if (!r.blocked)
 		{
@@ -444,7 +447,7 @@ void foundDialog(ImDrawList *dl, const Input& given)
 		}
 	}
 	if (!foundUi.scanning && foundUi.partial)
-		text(dl, regular(), 20, at.x + pad, at.y + h - pad - 100, col::warm, "It stopped at its limits: there may be more further down.");
+		text(dl, regular(), 20, at.x + pad, at.y + h - pad - 92, col::warm, "It stopped at its limits: there may be more further down.");
 	float x = at.x + pad;
 	const float y = at.y + h - pad - 60 + 8;
 	if (!foundUi.scanning && n > 0)

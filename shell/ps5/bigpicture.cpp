@@ -2491,7 +2491,7 @@ void stopCardSync();		// bigpicture_cards.inc
 struct FolderAsk
 {
 	bool open = false;
-	bool accepted = false;
+	std::string acceptedFor;	// the folder that was said yes to going without
 	std::string path;			// the game
 	std::string folder;			// the one that is not there
 	int slot = -1;
@@ -2499,10 +2499,13 @@ struct FolderAsk
 
 void launch(Game& g, bool selectDisk, int stateSlot = -1)
 {
-	if (!selectDisk && !folderAsk.accepted)
+	// (A game that is running is restarted on the folders it started with: no question there.)
+	if (!selectDisk && !game_started)
 	{
+		// Flycast is handed the folders as they are now (a drive plugged in or pulled out since).
+		ps5::applyFolders();
 		const ps5::folders::Resolved folders = ps5::folders::resolveNow(ps5::folders::States);
-		if (folders.askFirst && !folders.missing.empty())
+		if (folders.askFirst && !folders.missing.empty() && folders.missing[0] != folderAsk.acceptedFor)
 		{
 			folderAsk.open = true;
 			folderAsk.path = g.media.path;
@@ -4636,7 +4639,7 @@ void folderAskDialog(ImDrawList *dl, const Input& given)
 	else if (given.accept)
 	{
 		folderAsk.open = false;
-		folderAsk.accepted = true;
+		folderAsk.acceptedFor = folderAsk.folder;
 		for (Game& g : games)
 			if (g.media.path == folderAsk.path)
 			{
@@ -4648,13 +4651,13 @@ void folderAskDialog(ImDrawList *dl, const Input& given)
 	const ImVec2 at = dialogPanel(dl, w, h);
 	text(dl, bold(), 38, at.x + pad, at.y + pad - 6, col::text, "The folder for save states is not there");
 	text(dl, regular(), 24, at.x + pad, at.y + pad + 54, col::dim,
-			"Is the drive in? PSFlyCast would start the game with its own folder for save states, and this game's saved states "
-			"would look gone until the drive is back.", w - 2 * pad);
+			"Is the drive in? PSFlyCast would start the game with another folder for save states (the next one in the list, or its own), "
+			"and this game's saved states would look gone until the drive is back.", w - 2 * pad);
 	text(dl, regular(), 22, at.x + pad, at.y + pad + 160, col::faint, folderAsk.folder.c_str());
 	float x = at.x + pad;
 	const float y = at.y + h - pad - 60 + 8;
 	x += dialogButton(dl, x, y, Glyph::Circle, "Go back", true) + 20;
-	dialogButton(dl, x, y, Glyph::Cross, "Start with PSFlyCast's own folder", false);
+	dialogButton(dl, x, y, Glyph::Cross, "Start without them", false);
 }
 
 namespace
@@ -5962,7 +5965,7 @@ void stepPlace(bool forward, bool selectDisk)
 {
 	const std::vector<int> order = placeOrder(selectDisk);
 	const int n = (int)order.size();
-	const int now = homeActive ? HomeId : lib.source;
+	const int now = homeActive && !selectDisk ? HomeId : lib.source;
 	const int at = std::max(0, (int)(std::find(order.begin(), order.end(), now) - order.begin()));
 	const int next = order[(at + (forward ? 1 : -1) + n) % n];
 	if (next == HomeId)
@@ -6026,7 +6029,14 @@ void homeScreen(ImDrawList *dl)
 		for (Game& g : games)
 			if (g.media.path == path && !g.hidden && g.source != Disc)
 			{
-				recent.push_back(&g);
+				// A set of discs is one entry, by the disc that stands for it (as the library's shelves).
+				Game *shown = &g;
+				if (setsGrouped && !g.set.empty() && !g.front)
+					for (Game& other : games)
+						if (other.set == g.set && other.front)
+							shown = &other;
+				if (std::find(recent.begin(), recent.end(), shown) == recent.end())
+					recent.push_back(shown);
 				break;
 			}
 	Game *hero = recent.empty() ? nullptr : recent[0];
@@ -8598,6 +8608,10 @@ void settings()
 		settingsHome(dl);
 		return;
 	}
+	// goHome and the pins make the categories again (refilter): what is held of them is let go of
+	// first, and the frame goes on with the new ones.
+	bool wentHome = false;
+	{
 	Category& cat = st.cats[st.cat];
 	// ---- input
 	if (!st.inRows)
@@ -8610,7 +8624,7 @@ void settings()
 			if (st.forGame)
 				leaveSettings();
 			else
-				goHome();
+				wentHome = true;
 		}
 	}
 	else
@@ -8624,7 +8638,7 @@ void settings()
 			if (r.kind == Row::Choice || r.kind == Row::Slider || r.kind == Row::Toggle)
 				change(r, -1);
 			else if (!st.forGame && st.cats.size() == 1)
-				goHome();
+				wentHome = true;
 			else
 				st.inRows = false;
 		}
@@ -8661,11 +8675,20 @@ void settings()
 		if (in.back)
 		{
 			if (!st.forGame && st.cats.size() == 1)
-				goHome();
+				wentHome = true;
 			else
 				st.inRows = false;
 		}
 	}
+	}
+	if (wentHome)
+	{
+		goHome();
+		in = Input{};		// the press that came home is not pressed again there
+		settingsHome(dl);
+		return;
+	}
+	Category& cat = st.cats[st.cat];
 	if (st.forGame && in.triangle)
 	{
 		// Every option of the game as in Settings: asked twice, as all of the

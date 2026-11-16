@@ -118,7 +118,7 @@ void loadOptions(const std::string& dir)
 		else if (!strcmp(key, "log_sync"))
 			currentOptions.logSync = std::clamp(value, 0, 3);
 		else if (!strcmp(key, "source"))
-			currentOptions.source = std::clamp(value, 0, 2);
+			currentOptions.source = std::clamp(value, 0, 4);
 		else if (!strcmp(key, "defaults"))
 			currentOptions.defaults = value;
 		else if (!strcmp(key, "hz120"))
@@ -504,14 +504,18 @@ void setFolders()
 	std::vector<std::string> content{ root + "games" };
 	for (const std::string& dir : ps5::usbDirs)
 		content.push_back(dir);
+	// The game folders chosen at the last call are ours too: one taken off since must not be kept
+	// because ContentPath still has it.
+	static std::vector<std::string> appliedGames;
 	for (const std::string& dir : config::ContentPath.get())
-		if (!dir.empty() && !ours(dir + "/"))
+		if (!dir.empty() && !ours(dir + "/") && std::find(appliedGames.begin(), appliedGames.end(), dir) == appliedGames.end())
 			content.push_back(dir);
 	// The folders the player added (Settings > Games and saves > Folders): their games join the
 	// library where they are. A folder on a drive that is not in is left out until it is.
 	for (const std::string& dir : ps5::folders::settings().games)
 		if (std::find(content.begin(), content.end(), dir) == content.end())
 			content.push_back(dir);
+	appliedGames = ps5::folders::settings().games;
 	config::ContentPath.set(content);
 	// Where each kind of file is, as chosen; without a choice the folder it has always had. A
 	// chosen folder that is not there (a drive pulled out) is left out and said in the log.
@@ -528,8 +532,10 @@ void setFolders()
 	config::SavestatePath.set(kept(Kind::States));
 	config::BoxartPath.set(ps5::folders::writeFolder(Kind::Covers));
 	config::CheatPath.set(kept(Kind::Cheats));
-	if (!ps5::folders::settings().kept[Kind::Textures].empty())
-		config::TexturePath.set(kept(Kind::Textures));
+	// Texture packs: the chosen folders, or none (Flycast then looks in its own data folder); a
+	// folder chosen earlier and saved in emu.cfg does not outlive its removal.
+	config::TexturePath.set(ps5::folders::settings().kept[Kind::Textures].empty() ? std::vector<std::string>()
+			: kept(Kind::Textures));
 	// Descriptions, release dates and box art come from Flycast's own
 	// scraper (TheGamesDB), through the console's HTTP client
 	// (ps5_covers.cpp), when downloads are on; covers by file name come from
