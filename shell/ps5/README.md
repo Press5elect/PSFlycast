@@ -63,6 +63,31 @@ What was run on a console, version by version, and what was not, is in
 If something fails, `flycast-boot.log` says where. Its first lines name the
 build, as does Settings > About.
 
+## Next version (in test)
+
+Changed:
+
+- **Faster to move through:** a held direction speeds up in the Settings' lists and search, a
+  held range speeds up (5 steps, then 25), and L2 / R2 step on while held (letters, pages). A
+  game's page no longer draws the library under it, and the new screens' shadows cost about
+  half the drawing.
+- **Cross changes a choice or a range** in the Settings, as before v1.4.0.
+
+Fixed:
+
+- **A crash on leaving a game's own options** (quick menu > Game options).
+- **Home empty on start** ("Nothing played yet") until the Library had been opened.
+- **A crash from Home's Game Page** after the library's games changed (a drive removed).
+- **Covers stretched** on a game's page and in the quick menu; **the cover list** failing to
+  download no longer marks games without a cover for 30 days.
+- **Pinned, changed and search** now include the Settings' rows the table does not name (network
+  folders, a game's patches); **OPTIONS** closes the Settings from the search too; Triangle opens
+  the keyboard and shows results only once something is typed; L1 / R1 no longer change the
+  hidden level in a game's options; "all back" (Square twice) is asked afresh at each opening.
+- **Home at other UI Scaling settings**, the quick menu's Controls picture at 120 %, "Empty slot"
+  shown for a state whose picture was loading, a disabled entry looking enabled, arrows on entries
+  that open no page, a long pin's name split in two, the restart notice over the hints.
+
 ## New in v1.4.0
 
 Added:
