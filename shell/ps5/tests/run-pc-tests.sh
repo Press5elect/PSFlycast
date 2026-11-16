@@ -4,6 +4,7 @@
 #   shell/ps5/tests/run-pc-tests.sh [work folder]       (default: build-pc-tests)
 # CXX picks the compiler (CI runs it with g++ and with clang++).
 #   cardsync  the memory cards' sync engine (ps5_card_sync.cpp), under ASan and UBSan
+#   interface nothing of the interface is lost (shell/ps5/tools/interface-inventory.py)
 #   folders   the folders engine (ps5_folders.cpp), under ASan and UBSan
 #   hdr       HDR output's shaders and copy on lavapipe (ps5_hdr.cpp); says NOT RUN without it
 set -euo pipefail
@@ -18,6 +19,7 @@ run() {
 	"$@" || failed+=("$name")
 }
 run cardsync bash "$here/cardsync/run-cardsync-tests.sh" "$work/cardsync"
+run interface python3 "$here/../tools/interface-inventory.py" check
 run folders bash "$here/folders/run-folders-tests.sh" "$work/folders"
 run hdr bash "$here/hdr/run.sh" "$work/hdr"
 if ((${#failed[@]})); then
