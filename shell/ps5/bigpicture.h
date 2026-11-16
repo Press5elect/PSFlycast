@@ -49,6 +49,9 @@ void feedNav(ImGuiIO& io);
 // Called when a game starts, to keep the recently played list and to count
 // the time it is played to it.
 void gameStarted(const std::string& path);
+// Reads what a new install has for each setting (once, at start, before any game), for the
+// Settings' "changed from default".
+void captureSettingDefaults();
 
 // Provided by core/ui/gui.cpp.
 GameScanner& scanner();

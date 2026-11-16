@@ -256,8 +256,15 @@ void levelSwitch(float right, float y)
 	}
 }
 
+Kind kindOf(const Setting& s)
+{
+	return H->kind ? H->kind(s) : s.kind;
+}
+
 std::string valueOf(const Setting& s)
 {
+	if (H->value)
+		return H->value(s);
 	if (s.kind == Kind::Info || s.kind == Kind::Action)
 		return H->text ? H->text(s) : "";
 	return s.valueText(H->get ? H->get(s) : s.demo);
@@ -270,6 +277,11 @@ bool pinned(const Setting& s)
 
 void change(const Setting& s, int dir)
 {
+	if (H->step)
+	{
+		H->step(s, dir);
+		return;
+	}
 	if (!H->set || !H->get)
 		return;
 	const int v = H->get(s);
@@ -300,17 +312,26 @@ std::vector<Item> itemsFor()
 		return items;
 	}
 	std::string last;
+	const auto extrasOf = [&](const std::string& section) {
+		for (const Setting& e : H->extras)
+			if (e.area == st.area && section == e.section)
+				items.push_back({ &e, "" });
+	};
 	for (const Setting& s : settings())
 	{
 		if (s.area != st.area || !shown(s, st.level))
 			continue;
 		if (s.section != last)
 		{
+			if (!last.empty())
+				extrasOf(last);
 			items.push_back({ nullptr, s.section });
 			last = s.section;
 		}
 		items.push_back({ &s, "" });
 	}
+	if (!last.empty())
+		extrasOf(last);
 	return items;
 }
 
@@ -345,6 +366,8 @@ void detail(const Setting& s, float x, float y, float w)
 		choices = "On or Off";
 	else
 		choices = s.kind == Kind::Action ? "Opens a screen" : "Shown only";
+	if (H->choices)
+		choices = H->choices(s);
 	line("Choices", choices);
 	line("Applies to", s.has('G') ? "One game" : s.has('g') ? "Every game, or one game" : "Every game");
 	line("Takes effect", s.has('r') ? "When PSFlyCast starts again" : s.has('n') ? "At the next game" : "At once");
@@ -417,14 +440,14 @@ const Setting *settingRows(const std::vector<Item>& items, int& focus, float x, 
 		const float cyv = cy + rowH / 2;
 		if (pinned(s))
 			text(reg(), 16, lx + measure(bold(), 22, s.label).x + 12, cy + rowH / 2 - 10, col::warm, "PINNED");
-		if (s.kind == Kind::Toggle)
+		if (kindOf(s) == Kind::Toggle)
 			switchAt(right, cyv, H->get ? H->get(s) != 0 : s.demo != 0);
 		else
 		{
 			std::string v = valueOf(s);
-			if (s.kind == Kind::Choice && on)
+			if ((kindOf(s) == Kind::Choice || kindOf(s) == Kind::Range) && on)
 				v = "<  " + v + "  >";
-			if (s.kind == Kind::Action)
+			if (kindOf(s) == Kind::Action)
 				v = v.empty() ? ">" : v + "   >";
 			const std::string shownV = fit(reg(), 21, v, w * 0.4f);
 			text(on ? bold() : reg(), 21, right - measure(on ? bold() : reg(), 21, shownV).x, cyv - 13, on ? col::text : col::sub, shownV);
@@ -838,7 +861,12 @@ void settingsHome(const Input& in)
 		st.screen = Screen::SettingsArea;
 	}
 	if (in.back || in.options)
-		st.screen = st.back == Screen::Quick ? Screen::Quick : st.back;
+	{
+		if (H->close)
+			H->close();
+		else
+			st.screen = st.back;
+	}
 
 	rect(0, 0, W, HH, col::bg);
 	settingsHeader("");
@@ -950,9 +978,9 @@ void settingsArea(const Input& in)
 			change(*focused, in.right ? 1 : -1);
 		if (in.accept)
 		{
-			if (focused->kind == Kind::Action && H->run)
+			if (kindOf(*focused) == Kind::Action && H->run)
 				H->run(*focused);
-			else if (focused->kind == Kind::Toggle)
+			else if (kindOf(*focused) == Kind::Toggle)
 				change(*focused, 1);
 		}
 		if (in.square)
@@ -963,12 +991,18 @@ void settingsArea(const Input& in)
 			else
 				H->pins.erase(at);
 		}
-		if (in.l3 && H->reset)
+		if (in.r3 && H->reset)
 			H->reset(*focused);
 	}
 	if (in.triangle) { if (H->typeQuery) H->typeQuery(); st.result = 0; st.screen = Screen::Search; }
 	if (in.back) st.screen = Screen::SettingsHome;
-	if (in.options) st.screen = st.back;
+	if (in.options)
+	{
+		if (H->close)
+			H->close();
+		else
+			st.screen = st.back;
+	}
 
 	rect(0, 0, W, HH, col::bg);
 	settingsHeader(st.virt == 1 ? "Pinned" : st.virt == 2 ? "Changed From Default" : areas()[(size_t)st.area].name);
@@ -1001,9 +1035,9 @@ void settingsArea(const Input& in)
 	settingRows(items, st.row, lx, top, rw, bottom, true);
 	if (focused)
 		detail(*focused, 1836 - 540, top, 540);
-	hints({ { { "circle" }, "Back" }, { { "L1", "R1" }, "Level" }, { { "L3" }, "Reset to Default" },
+	hints({ { { "circle" }, "Back" }, { { "L1", "R1" }, "Level" }, { { "R3" }, "Reset to Default" },
 			{ { "square" }, focused && pinned(*focused) ? "Unpin" : "Pin" }, { { "triangle" }, "Search" },
-			{ { "cross" }, focused && focused->kind == Kind::Action ? "Open" : "Change" } });
+			{ { "cross" }, focused && kindOf(*focused) == Kind::Action ? "Open" : "Change" } });
 }
 
 void searchScreen(const Input& in)
@@ -1035,8 +1069,10 @@ void searchScreen(const Input& in)
 	const Setting *focused = !onGame && !found.empty() ? found[(size_t)st.result] : nullptr;
 	if (focused && (in.left || in.right))
 		change(*focused, in.right ? 1 : -1);
-	if (focused && in.accept && focused->kind == Kind::Action && H->run)
+	if (focused && in.accept && kindOf(*focused) == Kind::Action && H->run)
 		H->run(*focused);
+	if (focused && in.accept && kindOf(*focused) == Kind::Toggle)
+		change(*focused, 1);
 	if (onGame && in.accept && !games.empty())
 	{
 		st.game = games[(size_t)(st.result - (int)found.size())];
@@ -1071,7 +1107,7 @@ void searchScreen(const Input& in)
 		text(bold(), 22, 108, y + 13, col::text, s.label);
 		text(reg(), 17, 108, y + 47, col::faint, std::string(areas()[(size_t)s.area].name) + "  >  " + s.section
 				+ (s.level == Level::Everything ? "  \xC2\xB7  Everything" : ""));
-		if (s.kind == Kind::Toggle)
+		if (kindOf(s) == Kind::Toggle)
 			switchAt(84 + rw - 24, y + 40, H->get ? H->get(s) != 0 : s.demo != 0);
 		else
 		{
@@ -1187,10 +1223,10 @@ void focusForPicture(int home, int library, int area, int row, int level)
 	st.found = 0;
 }
 
-void frame(Host& host, const Input& in)
+void frame(Host& host, const Input& in, ImDrawList *target)
 {
 	H = &host;
-	dl = ImGui::GetBackgroundDrawList();
+	dl = target != nullptr ? target : ImGui::GetBackgroundDrawList();
 	const ImVec2 size = ImGui::GetIO().DisplaySize;
 	S = size.y / 1080.f;
 	W = size.x / S;

@@ -45,6 +45,7 @@ struct Setting
 	int demo;				// a value for the pictures of shell/ps5/tests/ui
 	int lo, hi, step;
 	const char *unit;
+	const char *was;		// the label it had in the interface before (the console binds it by that)
 
 	bool has(char flag) const;
 	// What a value reads as: a choice's name, a number with its unit, On or Off.
@@ -130,7 +131,17 @@ struct Host
 	std::vector<FoundRow> found;
 	std::string version;			// "v1.3.9 · build 105"
 
-	// The settings' values. Info and Action rows show text().
+	// Settings that exist only while PSFlyCast runs (a network folder, a share found): each has an
+	// area and a section of the table, and is shown after that section's own rows.
+	std::vector<Setting> extras;
+
+	// The settings' values. Info and Action rows show text(). The console's host also gives
+	// kind (the setting as it is bound), value (its text) and step (a change by one): then the
+	// table's choices and ranges are not used.
+	std::function<Kind(const Setting&)> kind;
+	std::function<std::string(const Setting&)> value;
+	std::function<void(const Setting&, int)> step;
+	std::function<std::string(const Setting&)> choices;	// "Native (480p) to 10x (4800p)", as bound
 	std::function<int(const Setting&)> get;
 	std::function<void(const Setting&, int)> set;
 	std::function<std::string(const Setting&)> text;
@@ -145,7 +156,7 @@ struct Host
 };
 
 // Draws the interface over the whole of the current ImGui frame's background, and acts on input.
-void frame(Host& host, const Input& in);
+void frame(Host& host, const Input& in, ImDrawList *target = nullptr);
 void show(Screen screen);
 Screen current();
 // For the pictures: put the focus somewhere and the level to see.

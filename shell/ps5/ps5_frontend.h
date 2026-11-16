@@ -115,6 +115,7 @@ struct Options
 	int logSync = 1;		// forced onto the drive: 0 every 2 s, 1 every 15 s, 2 only when PSFlyCast ends, 3 kept in memory
 	int source = 4;			// the library filter last open: 0 console, 1 USB, 2 share, 3 disc drive, 4 all
 	int startPage = 0;		// the first place on start: 0 Home, 1 the Library
+	bool classicUi = false;	// the Settings as before the new interface (frontend.cfg only: classic_ui = 1)
 	bool hz120 = true;		// take the display's 119.88 Hz mode where it has one
 	bool groupDiscs = true;	// the discs of one game are one entry in the library
 	bool showHidden = false;	// hidden games are listed after all, dimmed

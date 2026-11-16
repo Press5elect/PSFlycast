@@ -568,7 +568,7 @@ def bake():
         choices = "{ " + ", ".join(cstr(c) for c in r["choices"]) + " }" if r["choices"] else "{}"
         out.append(f"\t{{ {cstr(r['id'])}, {ai}, {cstr(s)}, Kind::{r['kind'].capitalize()}, Level::{ {'E':'Essentials','M':'More','X':'Everything'}[r['level']] }, "
                    f"{cstr(r['label'])}, {cstr(r['desc'])}, '{r['src']}', {cstr(r['flags'])}, {choices}, "
-                   f"{r['demo']}, {r['lo']}, {r['hi']}, {r['step']}, {cstr(r['unit'])} }},")
+                   f"{r['demo']}, {r['lo']}, {r['hi']}, {r['step']}, {cstr(r['unit'])}, {cstr(r['was'])} }},")
     out.append("};")
     return "\n".join(out) + "\n"
 

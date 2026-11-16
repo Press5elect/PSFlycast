@@ -45,6 +45,7 @@
 #include "achievements/achievements.h"
 #include "ps5_frontend.h"
 #include "ps5_folders.h"
+#include "ui/ui.h"
 #include "ps5_border.h"
 #include "ps5_disc.h"
 #include "ps5_archive.h"
@@ -8473,6 +8474,76 @@ void settingsHome(ImDrawList *dl)
 
 } // namespace
 
+// ---- the new interface's Settings (shell/ps5/ui)
+#include "bigpicture_newui.inc"
+
+void captureSettingDefaults()
+{
+	try {
+		const ps5::Options kept = ps5::options();
+		const int language = config::Language;
+		// The options set below are put back exactly afterwards: load() keeps a value of its own for a
+		// key emu.cfg does not have, and these would then keep PSFlyCast's default.
+		std::vector<std::function<void()>> putBack;
+		const auto keep = [&putBack](auto& option) {
+			const auto value = option.get();
+			putBack.push_back([&option, value] { option.set(value); });
+		};
+		keep(config::RendererType); keep(config::RenderResolution); keep(config::ThreadedRendering); keep(config::VSync);
+		keep(config::AnisotropicFiltering); keep(config::DSPEnabled); keep(config::DynarecEnabled); keep(config::AutoSaveState);
+		keep(config::AutoLoadState); keep(config::NativeDepthInterpolation); keep(config::MapleExpansionDevices[0][1]);
+		keep(config::EnableUPnP); keep(config::Language); keep(config::PerPixelLayers); keep(config::TranslucentPolygonDepthMask);
+		keep(config::TextureFiltering); keep(config::AccurateMipmaps); keep(config::Original16Bit); keep(config::FlickerFilter);
+		keep(ps5::SidePicture); keep(ps5::VmuScreenSize); keep(ps5::Upscaling); keep(config::AudioBufferSize);
+		keep(config::VmuSound); keep(ps5::VmuSoundOutput); keep(config::Cable); keep(config::WidescreenGameHacks);
+		ps5::options() = ps5::Options();
+		config::Settings::instance().reset();
+		// PSFlyCast's defaults over Flycast's: the emu.cfg a new install is given and the defaults
+		// moved since (ps5_main.cpp).
+		config::RendererType.set(RenderType::Vulkan_OIT);
+		config::RenderResolution.set(1920);
+		config::ThreadedRendering.set(true);
+		config::VSync.set(true);
+		config::AnisotropicFiltering.set(16);
+		config::DSPEnabled.set(true);
+		config::DynarecEnabled.set(true);
+		config::AutoSaveState.set(true);
+		config::AutoLoadState.set(false);
+		config::NativeDepthInterpolation.set(true);
+		config::MapleExpansionDevices[0][1].set(MDT_PurupuruPack);
+		config::EnableUPnP.set(false);
+		config::Language.set(language);
+		config::PerPixelLayers.set(96);
+		config::TranslucentPolygonDepthMask.set(true);
+		config::TextureFiltering.set(2);
+		config::AccurateMipmaps.set(false);
+		config::Original16Bit.set(false);
+		config::FlickerFilter.set(false);
+		ps5::SidePicture.set(1);
+		ps5::VmuScreenSize.set(200);
+		ps5::Upscaling.set((int)ps5::UpscalingFsrSharp);
+		config::AudioBufferSize.set(2822);
+		config::VmuSound.set(true);
+		ps5::VmuSoundOutput.set(1);
+		config::Cable.set(2);
+		config::WidescreenGameHacks.set(false);
+		const std::vector<Category> cats = buildCategories();
+		for (const Category& c : cats)
+			for (const Row& r : c.rows)
+				if ((r.kind == Row::Toggle || r.kind == Row::Choice || r.kind == Row::Slider) && r.get)
+					settingDefaults.emplace(r.label, r.get());
+		ps5::options() = kept;
+		config::Settings::instance().load(false);
+		for (const auto& back : putBack)
+			back();
+		ps5::applyFolders();
+		ps5::diag::mark("settings: %d defaults read for the Settings' changed marks", (int)settingDefaults.size());
+	} catch (const std::exception& e) {
+		settingDefaults.clear();
+		ps5::diag::mark("settings: the defaults could not be read (%s)", e.what());
+	}
+}
+
 void settings()
 {
 	if (st.cats.empty())
@@ -8548,6 +8619,11 @@ void settings()
 			std::fill(typed.begin(), typed.end(), '\0');
 			os_notify("Network password set", 2500);
 		}
+		else if (keyboard == KeyboardSettings && ns.open)
+		{
+			ns.host.query = trimmed(typed);
+			pui::show(pui::Screen::Search);
+		}
 		else if (keyboard == KeyboardSettings)
 		{
 			st.query = trimmed(typed);
@@ -8603,6 +8679,23 @@ void settings()
 		st.dirty = true;
 	}
 
+	// The Settings for every game are the new interface's (classic_ui = 1 in frontend.cfg keeps
+	// the ones before).
+	if (!st.forGame && !ps5::options().classicUi)
+	{
+		if (!dialog && !st.restartFor.empty() && in.l2)
+		{
+			ps5::restartOnExit = true;
+			dc_exit();
+		}
+		if (gui_state != GuiState::Settings)
+		{
+			endScreen();
+			return;
+		}
+		newSettings(dl);
+		return;
+	}
 	if (!st.forGame && st.area == AreaHome)
 	{
 		settingsHome(dl);

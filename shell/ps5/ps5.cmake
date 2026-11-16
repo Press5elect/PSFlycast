@@ -57,6 +57,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 	shell/ps5/ps5_vmu.cpp
 	shell/ps5/ps5_card_sync.cpp
 	shell/ps5/ps5_folders.cpp
+	shell/ps5/ui/ui.cpp
+	shell/ps5/ui/ui_settings.cpp
 	shell/ps5/ps5_hdr.cpp
 	shell/ps5/ps5_aa.cpp
 	shell/ps5/ps5_vmu.h

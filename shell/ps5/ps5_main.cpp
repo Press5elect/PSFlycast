@@ -153,6 +153,8 @@ void loadOptions(const std::string& dir)
 			if (slot >= 0 && slot < Options::Pins)
 				currentOptions.pins[slot] = value;
 		}
+		else if (!strcmp(key, "classic_ui"))
+			currentOptions.classicUi = value != 0;
 		else if (!strcmp(key, "start_page"))
 			currentOptions.startPage = std::clamp(value, 0, 1);
 		else if (!strcmp(key, "menu_vibration"))
@@ -202,7 +204,7 @@ void saveOptions()
 			"show_hidden = %d\nrewind = %d\nsplash_last = %d\nui_scale = %d\nhigh_contrast = %d\ncolour_blind = %d\n"
 			"disc_drive = %d\ndisc_speed = %d\nthreaded_recording = %d\ngpu_wait_spin_us = %d\ngpu_wait_sleep_us = %d\n"
 			"short_queue = %d\nnet_buffers = %d\nlogs = %d\nlog_place = %d\nlog_sync = %d\n"
-			"menu_vibration = %d\ncircle_confirms = %d\nstart_page = %d\n",
+			"menu_vibration = %d\ncircle_confirms = %d\nstart_page = %d\nclassic_ui = %d\n",
 			currentOptions.view, (int)currentOptions.covers, (int)currentOptions.usb, (int)currentOptions.ramCache,
 			currentOptions.source, currentOptions.defaults, (int)currentOptions.hz120, (int)currentOptions.groupDiscs,
 			currentOptions.skin, currentOptions.accent, currentOptions.backdrop, currentOptions.motion,
@@ -214,7 +216,7 @@ void saveOptions()
 			currentOptions.discSpeed, (int)currentOptions.threadedRecording, currentOptions.gpuWaitSpinUs,
 			currentOptions.gpuWaitSleepUs, (int)currentOptions.shortQueue, (int)currentOptions.netBuffers,
 			(int)currentOptions.logs, currentOptions.logPlace, currentOptions.logSync,
-			(int)currentOptions.menuVibration, (int)currentOptions.circleConfirms, currentOptions.startPage);
+			(int)currentOptions.menuVibration, (int)currentOptions.circleConfirms, currentOptions.startPage, (int)currentOptions.classicUi);
 	// The quick menu's arrangement: only the kinds that were moved or hidden.
 	int used = length;
 	for (int kind = 0; kind < Options::QuickKinds && used > 0 && used < (int)sizeof(text); kind++)
@@ -976,6 +978,8 @@ int main(int argc, char *argv[])
 		ps5::options().defaults = 11;
 		ps5::saveOptions();
 	}
+	// What a new install has for each setting, for the Settings' "changed from default".
+	bigpicture::captureSettingDefaults();
 	ps5::update::init();
 	ps5::pipelineWarmInit();
 	ps5::cheats::init();
